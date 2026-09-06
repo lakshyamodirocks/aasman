@@ -17,11 +17,22 @@ command -v python3 >/dev/null 2>&1 || { c 31 "  python3 nahi mila. apt/dnf/brew 
 command -v curl >/dev/null 2>&1 || { c 31 "  curl chahiye."; exit 1; }
 command -v tar  >/dev/null 2>&1 || { c 31 "  tar chahiye."; exit 1; }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+RAW="https://raw.githubusercontent.com/$REPO/$BRANCH"
+SRC=""
+# 1) tarball  2) git clone  3) raw per-file (FILES.txt) — some networks/proxies block github.com archives but not raw
 URL="https://github.com/$REPO/archive/refs/heads/$BRANCH.tar.gz"
 echo "  download: $URL"
-curl -fsSL "$URL" -o "$TMP/src.tgz" || { c 31 "  download fail — repo public hai? naam sahi hai? ($REPO)"; exit 1; }
-mkdir -p "$TMP/x" && tar -xzf "$TMP/src.tgz" -C "$TMP/x" || { c 31 "  extract fail"; exit 1; }
-SRC="$(find "$TMP/x" -mindepth 1 -maxdepth 1 -type d | head -1)"
+if curl -fsSL "$URL" -o "$TMP/src.tgz" 2>/dev/null && mkdir -p "$TMP/x" && tar -xzf "$TMP/src.tgz" -C "$TMP/x" 2>/dev/null; then
+  SRC="$(find "$TMP/x" -mindepth 1 -maxdepth 1 -type d | head -1)"
+elif command -v git >/dev/null 2>&1 && git clone -q --depth 1 -b "$BRANCH" "https://github.com/$REPO" "$TMP/g" 2>/dev/null; then
+  echo "  (tarball blocked — git clone se liya)"; SRC="$TMP/g"
+elif curl -fsSL "$RAW/FILES.txt" -o "$TMP/FILES.txt" 2>/dev/null; then
+  echo "  (tarball + git blocked — raw files ek-ek karke; $(wc -l < "$TMP/FILES.txt") files)"
+  mkdir -p "$TMP/r"; n=0
+  while IFS= read -r f; do [ -n "$f" ] || continue; mkdir -p "$TMP/r/$(dirname "$f")"
+    curl -fsSL "$RAW/$f" -o "$TMP/r/$f" || { c 31 "  fail: $f"; exit 1; }; n=$((n+1)); done < "$TMP/FILES.txt"
+  cp "$TMP/FILES.txt" "$TMP/r/"; SRC="$TMP/r"; echo "  $n files"
+else c 31 "  download fail — repo public hai? naam sahi hai? ($REPO) · net/proxy github.com ko rok raha ho to bhi yahi dikhta hai"; exit 1; fi
 [ -f "$SRC/pc-setup.sh" ] || { c 31 "  bundle me pc-setup.sh nahi — ye repo Aasmaan ka PC bundle nahi lagta."; exit 1; }
 mkdir -p "$DEST" && rm -rf "$DEST".new && cp -R "$SRC" "$DEST.new" && rm -rf "$DEST" && mv "$DEST.new" "$DEST"
 c 32 "  bundle: $DEST  ($(cat "$DEST/VERSION" 2>/dev/null || echo 'no VERSION'))"
