@@ -9,18 +9,18 @@
 #                        voice · floater · Shizuku · local brain · experts) → setup-menu (keys, guided)
 #    · Linux/macOS/WSL → pc-setup.sh (7 stages, manifest uninstall, kabhi sudo/pip/rc-file nahi)
 #  Dono har stage pe poochhte hain. git zaroori nahi (tarball → git → raw fallback). Python 3.8+ chahiye.
-#  Termux: pehle  pkg install -y curl python  (Termux F-Droid se, Play Store wala purana/toota hai).
+#  Termux: pehle  pkg upgrade -y && pkg install -y curl python  (F-Droid wala Termux; fresh curl upgrade se pehle toota hota hai).
 # ═══════════════════════════════════════════════════════════════
 set -u
 BRANCH="${AI_BRANCH:-main}"
 REPO="${AASMAAN_REPO:-lakshyamodirocks/aasman}"   # AASMAAN_REPO: build-dist substitutes the literal lakshyamodirocks/aasman only — nothing else on this line
 DEST="${AI_APP_DIR:-$HOME/.local/share/aasmaan/app}"
 c(){ printf '\033[%sm%s\033[0m\n' "$1" "$2"; }
-c 36 "  AASMAAN · PC edition — bootstrap ($REPO@$BRANCH)"
+c 36 "  AASMAAN · bootstrap — Android/Termux · Linux · macOS · WSL2 ($REPO@$BRANCH)"
 TERMUX=0; [ -d /data/data/com.termux/files ] && TERMUX=1
 if [ $TERMUX = 1 ]; then
   c 36 "  device: Android / Termux"
-  command -v python3 >/dev/null 2>&1 || { c 31 "  python nahi mila. Chalao:  pkg install -y python curl   phir dobara."; exit 1; }
+  command -v python3 >/dev/null 2>&1 || { c 31 "  python nahi mila. Chalao:  pkg upgrade -y && pkg install -y python curl   phir dobara."; exit 1; }
 else
   command -v python3 >/dev/null 2>&1 || { c 31 "  python3 nahi mila. apt/dnf/brew se 'python3' install karo, phir dobara. (Ye script khud install nahi karta — tera package manager tera hai.)"; exit 1; }
 fi

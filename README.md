@@ -1,17 +1,18 @@
 # Aasmaan (आसमान)
 
-[![ci](https://github.com/lakshyamodirocks/aasman/actions/workflows/ci.yml/badge.svg)](https://github.com/lakshyamodirocks/aasman/actions/workflows/ci.yml) · [Site](https://lakshyamodirocks.github.io/aasman/) · [How it works](docs/ARCHITECTURE.md) · [Trust](docs/TRUST.md) · [FAQ](docs/FAQ.md) · [Roadmap](docs/ROADMAP.md) · [Every switch](docs/FLAGS.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md)
+[![ci](https://github.com/lakshyamodirocks/aasman/actions/workflows/ci.yml/badge.svg)](https://github.com/lakshyamodirocks/aasman/actions/workflows/ci.yml) · [Site](https://lakshyamodirocks.github.io/aasman/) · [How it works](docs/ARCHITECTURE.md) · [Trust](docs/TRUST.md) · [FAQ](docs/FAQ.md) · [Roadmap](docs/ROADMAP.md) · [Hands](docs/HANDS.md) · [Pairing](docs/PAIRING.md) · [Every switch](docs/FLAGS.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md)
 
 **Free AI on your own device — phone or PC. One program, one file. No account needed. Your data stays with you.**
 
-Aasmaan is one Python program (`ai.py`, ~3,700 lines, stdlib only, read it in any editor) plus 18 expert "packs" (plain Markdown), a small web panel, and the installers. It runs a local model through Ollama and, only if *you* add a key, free cloud tiers. No telemetry. No server. Nothing phones home. The **same `ai`** runs on Android (Termux), Linux, macOS and Windows; the installer adapts to the device instead of asking the device to adapt to it.
+Aasmaan is one Python program (`ai.py`, ~5,000 lines, stdlib only, read it in any editor) plus 19 expert "packs" (plain Markdown: 18 specialists and one for the product itself, generated from these docs at build so it can explain itself offline), a small web panel, and the installers. It runs a local model through Ollama and, only if *you* add a key, free cloud tiers. No telemetry. No server. Nothing phones home. The **same `ai`** runs on Android (Termux), Linux, macOS and Windows; the installer adapts to the device instead of asking the device to adapt to it.
 
 ## Install — one command per device
 
 **Android (Termux)** — install **Termux from F-Droid** ([f-droid.org/packages/com.termux](https://f-droid.org/packages/com.termux/) — the Play Store build is old and broken; F-Droid is a free store for open-source apps, install it from [f-droid.org](https://f-droid.org/)), open Termux, then:
 ```bash
-pkg install -y curl python && curl -fsSL https://raw.githubusercontent.com/lakshyamodirocks/aasman/main/install.sh | bash
+pkg upgrade -y && pkg install -y curl python && curl -fsSL https://raw.githubusercontent.com/lakshyamodirocks/aasman/main/install.sh | bash
 ```
+`pkg upgrade` first is not optional: a fresh Termux ships a `curl` that fails with a libcurl/SSL symbol error until the base packages are upgraded (seen on a Moto, 2026-09-06). If the upgrade itself stops with a *mirror / unable to resolve* error, run `termux-change-repo` (Enter, Enter) and paste the command again.
 You get: setup wizard (you pick RAM/battery/model, with a fit-check, back-navigation, nothing forced) → 7-stage phone installer → `setup-menu` (press **G**) for free keys, voice, tools. Optional add-ons from the same F-Droid source unlock more: [**Termux:API**](https://f-droid.org/packages/com.termux.api/) (mic, TTS, notifications), [**Termux:Boot**](https://f-droid.org/packages/com.termux.boot/) (start on reboot), [**Termux:Float**](https://f-droid.org/packages/com.termux.window/) (floating window; the fact-checker bubble is planned), [**Shizuku**](https://shizuku.rikka.app/) (screen-read, no root). Each is asked for, never assumed.
 
 **Linux / macOS / WSL2** (needs `python3` and `curl`):
@@ -26,11 +27,15 @@ irm https://raw.githubusercontent.com/lakshyamodirocks/aasman/main/install.ps1 |
 
 Every installer is **staged**: it shows your device first (RAM, GPU, Python, Ollama), then asks before each step. `Enter` = do it, `s` = skip, `q` = stop (what's done stays done; run again to continue). Nothing installs silently. If the GitHub archive download is blocked on your network, the bootstrap falls back to `git`, then to fetching files one by one.
 
+## Without a key, without a model — what still works
+
+The first thing a new user types is arithmetic, a date, or a conversion. Those never reach a brain: a rung-0 layer answers `2+2`, `15% of 4200`, `date`, `time in Tokyo`, `30 days from today`, `age 16 Nov 1994`, `days until 25 Dec`, `5 km in miles`, `100 f to c`, `2 gb in mb`, `b64 …`, `sha256 …`, `uuid`, `json …`, `pw 20` (never written to the journal), `wa <number>: <text>` / `upi <vpa> <amount>` / `qr <text>` link and QR makers, `emi` / `sip` / `lumpsum` (formula shown, calculator-only wording, no advice), and with net but no key `mausam Jaipur` (Open-Meteo, attribution printed). The calculator walks an allow-listed syntax tree — never `eval`. `ai tour` runs six of these for real in a minute. Then: keyless web search, scraping and images, the 18 expert packs, memory and KB, and every device hand — all without an account.
+
 ## What each device gets
 
 | | Android / Termux | Linux · macOS | Windows |
 |---|---|---|---|
-| `ai` chat, 18 experts, memory, `/do` tools, keyless web | ✓ | ✓ | ✓ |
+| `ai` chat, 19 experts, memory, `/do` tools, keyless web | ✓ | ✓ | ✓ |
 | local model (Ollama) | ✓ RAM-tiered, wizard picks | ✓ hardware-tiered | ✓ hardware-tiered |
 | voice in/out | ✓ Termux:API; whisper.cpp + Piper via `setup-menu` (being verified) | `say` on macOS, espeak on Linux | via PowerShell TTS (recipe) |
 | screen-read (Shizuku, no root) | ✓ via `setup-menu` | — | — |
@@ -48,12 +53,30 @@ ai pair
 ```
 It prints a QR code in the terminal. Scan it with the phone's camera: the phone opens the web panel of **that** computer's `ai` — its local model, its memory, its experts — over your own Wi-Fi or Tailscale. No server of ours, no account, nothing leaves your two devices. On iPhone: Safari → Share → **Add to Home Screen** and it behaves like an app (the icon keeps the pairing token). On Android: Chrome → ⋮ → **Add to Home screen** (a shortcut; plain http cannot "install" a PWA). The QR carries a one-time-generated token (kept in `~/.ai-env`, revoke with `ai keys rm AI_SERVE_TOKEN`); the panel refuses every call without it. Plain Wi-Fi http is unencrypted, so for use outside your home install Tailscale on both devices and `ai pair` will prefer it automatically. Mac: `caffeinate -i ai pair` keeps it awake with the lid closed.
 
+What each combination can and cannot do — including why the panel never controls the phone in your hand, the HTTPS rung with Tailscale, and safety per cell: [docs/PAIRING.md](docs/PAIRING.md).
+
+## Voice — push-to-talk, the same rules as chat
+
+`v` (or `/voice`) listens once, then treats the words exactly like typed chat: stop-words first, device hands, plain-word commands, then the brain, and it speaks the answer one sentence at a time so "ruk" lands after the current sentence. Safe commands run at once; non-destructive ones ask *by voice* and take a spoken haan/nahi (silence is no); the destructive tier (`/quit /clear /keys /update /setup /net /bg ! /run /serve`) always needs a typed yes, because a mis-heard Hindi word through an English recogniser is a real failure mode. No wake word, no always-on mic. Transcripts are not written to the journal unless `/voice log on`. Engines are whatever the device has: Android TTS or the setup-menu's kokoro/piper wrapper (and Google STT, which is English-only there; offline Hindi = whisper via setup-menu), `say` on macOS (Hindi voice Lekha if installed), `spd-say`/`espeak-ng` on Linux, System.Speech on Windows, piper anywhere with a model. `ai voice notify` pins a bol/ruk notification on Android. `/voice off` closes everything, including the panel's mic endpoint.
+
+## Language — English by default, yours after that
+
+The installer's first question is the language (Enter keeps English). Never picked? `ai` mirrors what you type: when two of your last three messages are Hinglish it switches and says so; `/lang en|hinglish|hi|auto` pins or releases it; the choice lives in `~/.ai-setup-profile` as `AI_LANG`. The model answers in that language, with command names, paths and flags untouched. Honest scope: about twenty of the visible UI strings exist in English and Hinglish; the rest are Hinglish for now. Devanagari (`hi`) applies to the model's answers, not installer text, because Windows consoles cannot shape it. Detection is deterministic and stdlib (script block wins, else Hinglish marker words); Marathi and Nepali are read as Hindi by script and are not advertised.
+
+## Models and connectors — what attaches by itself
+
+Whatever you download attaches by discovery, not by editing files. **Ollama models:** `ai` reads what Ollama has and files each model as chat, vision or embedding by its tag; roles you did not set attach at start (a vision model makes `/attach shot.png` work, an embedding model turns memory search semantic) and it says so once; a pinned model that is not installed falls back to one that is, with the `ollama pull` line. `/models` shows the picture; `/model <name>` warns if the name is not installed. **Any OpenAI-compatible server** (LM Studio, llama.cpp server, Jan, vLLM, a gateway): `ai connect http://localhost:1234` lists its models and adds it as a brain; a loopback or private address is treated as local (raw text, first in line, still works with `/net off`), a remote one as cloud (redacted first). **MCP servers** (streamable-HTTP or stdio): `/mcp add <name> <url|command> cap=<capability> tool=<tool>` makes a `/do <capability>` rung; your text is sent as one JSON argument, never a shell; attended only; results are data. **Voice engines** (whisper, piper, kokoro, `say`, espeak) attach by being on PATH. What "tuning" means here: routing by question profile, aliveness and cooldowns, context by RAM tier, exemplars learned from runs that worked, the answer cache. Model weights are never touched; there is no on-device fine-tuning, and nothing here pretends otherwise.
+
+## Hands — your device, by plain words
+
+`awaaz 30`, `pause`, `next song`, `battery`, `say hello`, `copy: some text`, `torch on`, `screenshot le`, `remind me in 10 min: chai` — in chat, by voice, or `/hand <id>`. `/hands` lists what **this** device can do right now and why the rest is hidden (Termux:API, Shizuku, a desktop session). `/stop` (or "ruk") is the brake; `/undo` puts a state back. Every hand is a code-owned template with typed parameters, a risk letter, and an undo or a stop; free text never enters a script; the daemon may only use read-only hands. What ships per platform, and what the OS does not allow (screen cast, for one): [docs/HANDS.md](docs/HANDS.md).
+
 ## What it touches — the full list
 
 | What | Where | Why |
 |---|---|---|
 | `ai.py` + a launcher | Windows: `%LOCALAPPDATA%\Aasmaan\` · Linux/macOS/Termux: `~/.local/bin/ai` | the program |
-| experts + packs | `~/.ai-experts.json`, `~/.ai-experts/` | the 18 specialists |
+| experts + packs | `~/.ai-experts.json`, `~/.ai-experts/` | 18 specialists + `aasmaan`, the product explaining itself |
 | tool router, panel | `~/.ai-tools.json`, `~/.ai-panel.html` | `/do` routing, `ai serve` |
 | keys (optional) | `~/.ai-env`, readable only by you | cloud brains you *chose* to add |
 | memory | `~/ai-vault/` | your notes and recall, plain files |
@@ -63,7 +86,7 @@ It prints a QR code in the terminal. Scan it with the phone's camera: the phone 
 
 **On Android, the phone installer asks stage by stage and writes more:** Termux packages via `pkg` and a few Python packages via `pip` (inside Termux only; your phone's photos and apps are untouched), a PATH line in Termux's `~/.bashrc`, an optional wake-lock and boot autostart (so `ai` survives Android's background killer), and an **optional** security-tools stage (nmap, nikto, sqlmap and friends, ~600 MB, for the OSINT expert) that you can skip with `s`. Undo everything with `cleanup.sh --uninstall`, or uninstall the Termux app.
 
-Everything installed is listed in a manifest. **Uninstall removes exactly that list** (and asks about runtime files); your keys file and your vault are deliberately left for you:
+On Linux/macOS/Windows everything installed is listed in a manifest and **uninstall removes exactly that list** (and asks about runtime files). On Android, `cleanup.sh --uninstall` removes a fixed list of what the phone installer writes (dry-run first). Your keys file and your vault are deliberately left for you:
 ```powershell
 $env:AI_UNINSTALL=1; irm https://raw.githubusercontent.com/lakshyamodirocks/aasman/main/install.ps1 | iex   # Windows
 ```
@@ -87,7 +110,7 @@ The installer picks a **coding model** for what you have (sizes are the download
 
 On Android the wizard offers `qwen3` sizes by RAM and shows the fit (weights + context + runtime) before you choose.
 
-Ollama itself is installed **by you**, from Ollama's own installer (the script prints the official command: `winget install Ollama.Ollama` / `brew install ollama` / Ollama's Linux script / `pkg install ollama` on Termux). If you already have Ollama, it is reused, models untouched. Context is pinned to 16k on PCs because Ollama's default 4k is too small for code.
+Ollama itself is installed **by you**, from Ollama's own installer (the script prints the official command: `winget install Ollama.Ollama` / `brew install ollama` / Ollama's Linux script / `pkg install ollama` on Termux). If you already have Ollama, it is reused, models untouched. Context is set by RAM tier (4k on small machines, up to 32k) because Ollama's default 4k is too small for code; `AI_LOCAL_CTX` pins it.
 
 Low RAM and no GPU? The install still completes: you get memory, knowledge base, and keyless tools; add a free cloud key later if you want a brain.
 
@@ -109,7 +132,8 @@ Trust is the pitch, not a feature bolted on. The fear we heard most was "they'll
 - **Runs and is gated on Linux**: a gate of scripted installs from this exact bundle, uninstall, and a golden set of pinned behaviours (`tests/golden.py`). CI repeats golden + install on Linux, macOS and Windows; the badge at the top is the live answer.
 - **Android/Termux**: the install path is replayed in tests from this exact bundle; Ollama + local models ran on the maintainer's phone in earlier sessions. whisper.cpp / Piper voice are offered by `setup-menu` and are being verified device by device.
 - **Windows**: verified by CI only; no physical Windows machine yet. Your first run is a real test — please report.
-- **Shipped**: the one-file harness, provider ladder, privacy scrub, 18/18 expert packs, memory + KB, `/do` ladder with tool forge and safety scan, `/attach` with vision, chat-to-command, `/capabilities`, self-update, daemon, Telegram helper bot.
+- **Hands** (device control): engine and rules are pinned by tests on Linux; the macOS and Windows hands are built from vendor documentation and not yet run on a physical machine — `/hands` marks the unverified ones.
+- **Shipped**: the one-file harness, provider ladder, privacy scrub, 19/19 expert packs (incl. the self-KB), memory + KB, `/do` ladder with tool forge and safety scan, `/attach` with vision, chat-to-command, `/capabilities`, self-update, daemon, Telegram helper bot.
 - **Planned, not built**: fact-checker floater, family profiles, key lock/unlock in the hardware keystore, speaker recognition, using your own ChatGPT/Claude subscription through the vendor's CLI (researched; Anthropic's terms block it, OpenAI's are grey), iOS thin client.
 - Beta means worked on in the open. If a line here reads stale, that is the feedback loop's job: say so.
 
@@ -136,8 +160,11 @@ Trust is the pitch, not a feature bolted on. The fear we heard most was "they'll
 ## First 5 minutes
 
 ```
+ai tour                               # 60 seconds: six things run for real on this device, no key needed
 ai                                    # start (new terminal window after install)
-/agents                               # the 18 experts (* = full pack)
+2+2  ·  15% of 4200  ·  date  ·  time in Boston  ·  5 km in miles  ·  age 16 Nov 1994   # answered offline, before any brain
+battery  ·  awaaz 30  ·  pause  ·  say hello  ·  /hands                                 # your device (docs/HANDS.md)
+/agents                               # the 19 experts (* = full pack) · "kya ye offline chalta hai?" is answered from its own KB, even with no brain
 /agent rachaka <paste your traceback> # coding expert
 /ctx myfile.py                        # give it a file, then ask
 /do research <question>               # keyless web search

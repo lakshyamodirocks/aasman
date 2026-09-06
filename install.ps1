@@ -1,5 +1,5 @@
 ﻿# ═══════════════════════════════════════════════════════════════
-#  AASMAAN · PC edition · Windows installer (native, no WSL, no admin)
+#  AASMAAN · Windows installer (native, no WSL, no admin)
 #
 #  Ek command (PowerShell, normal user, koi admin nahi):
 #     irm https://raw.githubusercontent.com/lakshyamodirocks/aasman/main/install.ps1 | iex
@@ -28,6 +28,25 @@ $BinDir = Join-Path $Base "bin"
 $Manifest = Join-Path $Base "manifest.txt"
 $Home_  = $env:USERPROFILE
 $Total  = 7; $script:N = 0
+# Language: English by default. Hinglish = Hindi in Roman letters. Devanagari is offered only inside Windows Terminal
+# (conhost cannot shape it), and even then only the model answers in it — installer text stays Hinglish. Stored as AI_LANG.
+$Lang = if ($env:AI_LANG) { $env:AI_LANG.ToLower() } else { "" }
+$prof0 = Join-Path $env:USERPROFILE ".ai-setup-profile"
+if (-not $Lang -and (Test-Path $prof0)) { $m = Get-Content $prof0 | Where-Object { $_ -match '^AI_LANG=' } | Select-Object -First 1; if ($m) { $Lang = ($m -split '=',2)[1].Trim().ToLower() } }
+if (-not $Lang -and -not $Auto) {
+  $opt3 = if ($env:WT_SESSION) { "   [3] Hindi (Devanagari, Windows Terminal)" } else { "" }
+  $r = Read-Host "  Language:   [1] English   [2] Hinglish$opt3      Enter = English"
+  $Lang = switch ($r) { "2" { "hinglish" } "3" { if ($env:WT_SESSION) { "hi" } else { "en" } } default { "en" } }
+}
+if (-not $Lang) { $Lang = "en" }; $env:AI_LANG = $Lang
+$En = ($Lang -eq "en")
+function T([string]$k) { switch ($k) {
+  "go"      { if ($En) { "  [Enter] go   [?] why   [q] stop" } else { "  [Enter] karo   [?] kyun   [q] ruk ja" } }
+  "opt"     { if ($En) { "  [Enter] yes   [s] skip   [?] why   [q] stop" } else { "  [Enter] haan   [s] skip   [?] kyun   [q] ruk ja" } }
+  "stopped" { if ($En) { "  stopped. What is done is saved — run again and it continues from here." } else { "  ruk gaye. Jitna hua wo saved hai — dobara chalao to wahin se aage." } }
+  "machine" { if ($En) { "Your machine" } else { "Teri machine" } }
+  "machine.what" { if ($En) { "Windows · RAM · GPU · Python · Ollama — only LOOKS, changes nothing" } else { "Windows · RAM · GPU · Python · Ollama — sirf DEKHTA hai, kuch badalta nahi" } }
+  default   { $k } } }
 
 function Hr { "  " + ("─" * 44) }
 function Stage([string]$title, [string]$what, [string]$why) {
@@ -36,9 +55,9 @@ function Stage([string]$title, [string]$what, [string]$why) {
   Write-Host (Hr); if ($what) { Write-Host "  $what" -ForegroundColor DarkGray }
   if ($Auto) { return $true }
   while ($true) {
-    $r = Read-Host "  [Enter] karo   [?] kyun   [q] ruk ja"
+    $r = Read-Host (T "go")
     if ($r -eq "" -or $r -eq "y") { return $true }
-    if ($r -eq "q") { Write-Host "  ruk gaye. Jitna hua wo saved hai — dobara chalao to wahin se aage." -ForegroundColor Green; exit 0 }
+    if ($r -eq "q") { Write-Host (T "stopped") -ForegroundColor Green; exit 0 }
     if ($r -eq "?") { Write-Host "  $why" -ForegroundColor DarkGray }
   }
 }
@@ -48,7 +67,7 @@ function StageOpt([string]$title, [string]$what, [string]$why) {
   Write-Host (Hr); if ($what) { Write-Host "  $what" -ForegroundColor DarkGray }
   if ($Auto) { return $false }   # scripted runs never install third-party software
   while ($true) {
-    $r = Read-Host "  [Enter] haan   [s] skip   [?] kyun   [q] ruk ja"
+    $r = Read-Host (T "opt")
     if ($r -eq "" -or $r -eq "y") { return $true }
     if ($r -eq "s" -or $r -eq "n") { Write-Host "  — skip" -ForegroundColor DarkGray; return $false }
     if ($r -eq "q") { exit 0 }
@@ -94,7 +113,7 @@ if ($env:AI_UNINSTALL -eq "1") {
 }
 
 # ── stage 1: teri machine (sirf dekhta hai) ──────────────────────────────────
-Stage "Teri machine" "Windows · RAM · GPU · Python · Ollama — sirf DEKHTA hai, kuch badalta nahi" "Aage ke faisle (kaunsa local model) isi pe tikte hain. Is stage me kuch install nahi hota." | Out-Null
+Stage (T "machine") (T "machine.what") "Aage ke faisle (kaunsa local model) isi pe tikte hain. Is stage me kuch install nahi hota." | Out-Null
 $os  = Get-CimInstance Win32_OperatingSystem
 $ram = [int]((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1MB)
 $freeDisk = [int]((Get-PSDrive -Name $Home_.Substring(0,1)).Free / 1MB)
@@ -159,7 +178,7 @@ if (StageOpt "Local brain (Ollama)" $what "Ollama tere user folder me install ho
 }
 
 # ── stage 4: files — sirf tere user folder me, manifest ke saath ────────────
-Stage "'ai' install" "ek Python file → $App\ai.py · 18 experts + packs → $Home_\.ai-experts* · shim → $BinDir\ai.cmd" "Zero dependencies: stdlib Python. Koi pip, koi venv, koi admin nahi. Har file manifest me." | Out-Null
+Stage "'ai' install" "ek Python file → $App\ai.py · 19 experts + packs (18 specialists + Aasmaan itself) → $Home_\.ai-experts* · shim → $BinDir\ai.cmd" "Zero dependencies: stdlib Python. Koi pip, koi venv, koi admin nahi. Har file manifest me." | Out-Null
 New-Item -ItemType Directory -Force -Path $App, $BinDir | Out-Null
 $srcDir = $null
 if ($PSScriptRoot -and (Test-Path (Join-Path $PSScriptRoot "ai.py"))) { $srcDir = $PSScriptRoot }
@@ -195,10 +214,10 @@ $prof = Join-Path $Home_ ".ai-setup-profile"
 if ($model -and -not (Test-Path $prof)) { Set-Content -Path $prof -Value "AI_TIER=PC`nAI_LOCAL_MODEL=$model`nAI_LOCAL_CTX=16384" -Encoding ASCII; Mf $prof }
 # /setup inside 'ai' re-runs this installer from the app copy; /update re-fetches from the repo
 $setupCmd = "AI_SETUP_CMD=powershell -NoProfile -ExecutionPolicy Bypass -File `"$App\install.ps1`""
-$keep = @(); if (Test-Path $prof) { $keep = Get-Content $prof | Where-Object { $_ -notmatch '^AI_SETUP_CMD=' } }
-Set-Content -Path $prof -Value ($keep + $setupCmd) -Encoding ASCII; Mf $prof
+$keep = @(); if (Test-Path $prof) { $keep = Get-Content $prof | Where-Object { $_ -notmatch '^AI_SETUP_CMD=' -and $_ -notmatch '^AI_LANG=' } }
+Set-Content -Path $prof -Value ($keep + $setupCmd + "AI_LANG=$Lang") -Encoding ASCII; Mf $prof
 Ok "ai.py ($((Get-Content (Join-Path $App 'ai.py')).Count) lines, one file — Notepad me khol ke poora padh sakte ho)"
-Ok "18 experts · $packs packs (persona + KB)"
+Ok "19 experts · $packs packs (persona + KB)"
 
 # ── stage 5: keys — env me pehle se hain to REUSE; naye ek 0600-jaisi file me ─
 Stage "Cloud brains (free keys)" "Groq · Cerebras · Gemini · OpenRouter — sab optional, sab free tier; blank + Enter = skip" "Keys $Home_\.ai-env me — sirf tera user padh sakta hai (icacls). 'ai' khud padhta hai; koi system env var nahi banta." | Out-Null
@@ -243,7 +262,7 @@ $out = ("/agents`n/quit`n" | & $py.Exe[0] @pyExtra (Join-Path $App "ai.py") 2>&1
 $agentsLine = [string](($out -split "`n" | Where-Object { $_ -match "agents:" } | Select-Object -First 1))
 $n = if ($agentsLine) { ([regex]::Matches($agentsLine, "[a-z]+\*")).Count } else { 0 }
 Remove-Item Env:AI_FORCE_OFFLINE
-if ($n -ge 18) { Ok "$n/18 expert packs load hote hain (offline, bina brain ke)" } else { Warn "packs load nahi hue ($n/18) — 'ai' me /agents chala ke dekho. Output:`n$out" }
+if ($n -ge 19) { Ok "$n/19 expert packs load hote hain (offline, bina brain ke)" } else { Warn "packs load nahi hue ($n/19) — 'ai' me /agents chala ke dekho. Output:`n$out" }
 Write-Host ""; Write-Host "  ✅ Aasmaan ready" -ForegroundColor Green
 Write-Host "  chalao (nayi window):  ai"
 Write-Host "  code:   /agent rachaka <paste traceback>   ·  /ctx <file>   ·  /do forge <tool naam>"

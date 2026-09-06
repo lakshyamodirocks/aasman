@@ -39,6 +39,7 @@ DISK=$(num_or "$DISK_RAW" 0)
 TTY=/dev/tty; ( exec 3</dev/tty ) 2>/dev/null || TTY=/dev/stdin
 
 # ── choices (state) ─────────────────────────────────────────────
+LANGC="${AI_LANG:-en}"   # step 0: en (default) | hinglish | hi
 PLAT=1 INTENT=1 BRAIN=2 CTXI=3
 EX_VOICE=0 EX_SCREEN=0 EX_FFMPEG=1 EX_PANEL=1 EX_PENTEST=0
 
@@ -99,6 +100,15 @@ bye(){ printf '\n  %skuch nahi likha. jab mann kare dobara chala lena.%s\n\n' "$
 pause(){ printf '\n  %sEnter…%s ' "$D" "$X"; read -r _ <"$TTY" || true; }
 
 # ═══ STEP 1 · device ════════════════════════════════════════════
+s_lang(){
+  clear 2>/dev/null; printf '%s  ─── setup wizard ───%s\n' "$D" "$X"
+  printf '\n%s  0️⃣  Language / भाषा%s   %s(Enter = English · badal sakte ho baad me: /lang)%s\n\n' "$B" "$X" "$D" "$X"
+  printf '  %s1%s English\n  %s2%s Hinglish  %s(Hindi, Roman letters — jaise ye line)%s\n  %s3%s हिन्दी  %s(Devanagari — model ke jawab; installer text Hinglish)%s\n' "$C" "$X" "$C" "$X" "$D" "$X" "$C" "$X" "$D" "$X"
+  printf '\n  %s[q] bahar%s' "$D" "$X"; askk
+  case "$REPLY" in
+    q|Q) bye ;;
+    2) LANGC=hinglish;; 3) LANGC=hi;; 1|'') LANGC=en;; *) return 0;;
+  esac; export AI_LANG="$LANGC"; STEP=1; return 0; }
 s_device(){
   hdr 1
   printf '\n  📱 %s%s%s   %s%s cores%s\n' "$B" "$DEV" "$X" "$D" "$CORES" "$X"
@@ -308,6 +318,7 @@ s_write(){
   cat > "$PROFILE" <<EOF
 # akasha setup profile — $(date -u +%FT%TZ) · wizard v2
 # Installer ise padh ke chalta hai. Haath se badal sakte ho, ya:  bash setup-wizard.sh
+AI_LANG=$LANGC
 AI_TIER=$tn
 AI_LOCAL_MODEL=$(bf "$BRAIN" 2)
 AI_LOCAL_CTX=$ctxv
@@ -327,9 +338,10 @@ EOF
   printf '  %sbadalna ho:%s   bash akasha-fold/setup-wizard.sh   %s(ya setup-menu)%s\n\n' "$D" "$X" "$D" "$X"; }
 
 # ═══ main loop ══════════════════════════════════════════════════
-STEP=1
+STEP=0
 while :; do
   case $STEP in
+    0) s_lang ;;
     1) s_device ;;  2) s_intent ;;  3) s_brain ;;
     4) s_ctx ;;     5) s_extras ;;
     6) s_fitcheck; [ "$STEP" = 7 ] && { STEP=6; s_review; } ;;

@@ -17,12 +17,16 @@ docs/ARCHITECTURE.md
 docs/COMMUNITY.md
 docs/FAQ.md
 docs/FLAGS.md
+docs/HANDS.md
+docs/PAIRING.md
 docs/ROADMAP.md
 docs/TRUST.md
 docs/WHY.md
 docs/index.html
 docs/status.json
 experts.json
+experts/aasmaan/KB.md
+experts/aasmaan/PERSONA.md
 experts/alankar/KB.md
 experts/alankar/PERSONA.md
 experts/ankak/KB.md

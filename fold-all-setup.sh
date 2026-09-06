@@ -33,6 +33,7 @@ echo "  $DEV · Android $ANDROID (sdk $SDK) · $ARCH · $CORES cores · ${RAM_MB
 WIZ="$HOME/.ai-setup-profile"
 if [ -f "$WIZ" ]; then
   . "$WIZ" 2>/dev/null || true
+  export UX_LANG="${AI_LANG:-en}"
   c 36 "  📋 setup profile mila: tier=${AI_TIER:-?} · brain=${AI_LOCAL_MODEL:-cloud-only} · ctx=${AI_LOCAL_CTX:-auto}"
   WIZ_MODEL="${AI_LOCAL_MODEL-__unset__}"
 fi
@@ -269,7 +270,6 @@ OWNER=_P.get("owner") or "You"
 ASSISTANT=_P.get("assistant") or "Assistant"
 SYSTEM=_P.get("system") or (
  f"You are a terminal assistant running {'in Termux on '+OWNER+chr(39)+'s Android device' if IS_TERMUX else 'on '+OWNER+chr(39)+'s PC ('+(platform.system() or 'desktop')+')'}. "
- "Answer in the user's language (Hinglish -> Hinglish in roman script; English -> English). "
  "Direct, short, no filler. Shell tasks: the exact command in a code block, then one line. "
  "If unsure of a fact, say so. Lines under MEMORY are facts the user asked you to keep."
  + (" About the user: "+_P["about"] if _P.get("about") else ""))
@@ -382,7 +382,7 @@ def route(prompt,names,cap,localmodel,fmt=None,images=None):
     order=list(PROVIDERS) if names is None else [p for n in names for p in PROVIDERS if p["n"]==n]
     if os.environ.get("AI_FORCE_OFFLINE")=="1":
         # /net off must be a wall, not a hint: the local brain only, whatever the mode says
-        dropped=[p["n"] for p in order if p["n"]!="local"]; order=[p for p in order if p["n"]=="local"]
+        dropped=[p["n"] for p in order if not (p["n"]=="local" or p.get("local"))]; order=[p for p in order if p["n"]=="local" or p.get("local")]
         if dropped: sys.stderr.write(f"[ai] offline mode: {', '.join(dropped)} ko nahi bheja (local only). /net on se kholo.\n")
     if images:
         # an image can only go to a brain that can see; a text-only brain would answer as if no image existed
@@ -396,17 +396,17 @@ def route(prompt,names,cap,localmodel,fmt=None,images=None):
         # privacy router: the local brain gets the raw text (it never leaves the phone);
         # every CLOUD brain gets a scrubbed copy.
         sendp=prompt
-        if q["n"]!="local" and os.environ.get("AI_PRIVACY","1")!="0":
+        if q["n"]!="local" and not q.get("local") and os.environ.get("AI_PRIVACY","1")!="0":
             sendp,hits=redact(prompt)
             if hits: sys.stderr.write(f"[privacy] {q['n']} ko bheja: {', '.join(hits)} redact karke\n")
         t0=time.time()
         try:
             a=call(q,sendp,cap,fmt,images); rec_metric(q["n"],True,time.time()-t0)
-            if q["n"]!="local": net_mark(True)      # real evidence beats the probe
+            if q["n"]!="local" and not q.get("local"): net_mark(True)      # real evidence beats the probe
             return a,q["n"]
         except Exception as e:
             if _brain_fault(e): rec_metric(q["n"],False,time.time()-t0)
-            if q["n"]!="local" and isinstance(e,(urllib.error.URLError,OSError)) and not isinstance(e,urllib.error.HTTPError):
+            if q["n"]!="local" and not q.get("local") and isinstance(e,(urllib.error.URLError,OSError)) and not isinstance(e,urllib.error.HTTPError):
                 net_mark(False,type(e).__name__)    # a cloud brain unreachable == the link is down
             errs.append(f"{q['n']}: {e}")
     sys.stderr.write("[ai] all failed:\n  "+"\n  ".join(errs)+"\n")
@@ -560,15 +560,38 @@ _jobs_load()
 # a bg job is a WRITER too — /bg ask now archives to the corpus, /bg do writes traces.
 JOB_TOUCHES={"link":["vault"],"do":["bin","tools","traces","corpus"],"ask":["corpus"],
              "shell":["bin","vault"],"kb":["kbindex","vault"]}
+import threading as _thr
+_CURJOB=_thr.local(); _JOBPROC={}   # jid -> Popen a job registered (so cancel can kill it); never serialised
+def job_cancelled(jid=None):
+    """Cooperative brake for long jobs: poll this. jid defaults to the calling job's own id."""
+    jid=jid or getattr(_CURJOB,"jid",None); j=JOBS.get(jid) if jid else None
+    return bool(j and j.get("cancel"))
+def job_cancel(jid=None):
+    """'ruk' for background work: flags every running job (or one), kills any process it registered. Returns [ids]."""
+    did=[]
+    for j in list(JOBS.values()):
+        if jid and j["id"]!=jid: continue
+        if j.get("state")!="running": continue
+        j["cancel"]=True; p=_JOBPROC.pop(j["id"],None)
+        if p is not None:
+            try: p.kill()
+            except Exception: pass
+        j["state"]="cancelled"; j["secs"]=round(time.time()-j["t0"],1); did.append(j["id"])
+    if did: _jobs_save()
+    return did
 def job_start(kind,label,fn,touches=None):
     import threading
     _JOBSEQ[0]+=1; jid=_JOBSEQ[0]
-    JOBS[jid]={"id":jid,"kind":kind,"label":label[:90],"state":"running","t0":time.time(),
+    JOBS[jid]={"id":jid,"kind":kind,"label":label[:90],"state":"running","t0":time.time(),"cancel":False,
                "out":"","secs":0.0,"err":"","touches":list(touches if touches is not None else JOB_TOUCHES.get(kind,[]))}
     def _run():
+        _CURJOB.jid=jid
         try:
-            r=fn(); JOBS[jid]["out"]=("" if r is None else str(r))[:20000]; JOBS[jid]["state"]="done"
+            r=fn()
+            if JOBS[jid]["state"]=="cancelled": return
+            JOBS[jid]["out"]=("" if r is None else str(r))[:20000]; JOBS[jid]["state"]="done"
         except Exception as e:
+            if JOBS[jid]["state"]=="cancelled": return
             JOBS[jid]["err"]=f"{type(e).__name__}: {e}"[:400]; JOBS[jid]["state"]="failed"
         JOBS[jid]["secs"]=round(time.time()-JOBS[jid]["t0"],1)
         _jobs_save()
@@ -810,7 +833,7 @@ def webget(url,maxc=8000):
     u=(url or "").strip().split()[0] if (url or "").strip() else ""
     if not u.startswith("http"): return "[webget] usage: webget <url>"
     try:
-        req=urllib.request.Request(u,headers={"User-Agent":"Mozilla/5.0 (Android) akasha"})
+        req=urllib.request.Request(u,headers={"User-Agent":"Mozilla/5.0 (Android) "+BRAND.lower()})
         with urllib.request.urlopen(req,timeout=20) as r: raw=r.read(400000).decode("utf-8","ignore")
     except Exception as e: return f"[webget] failed: {e}"
     raw=re.sub(r"(?is)<(script|style|noscript|svg)[^>]*>.*?</\1>"," ",raw)
@@ -819,7 +842,7 @@ def webget(url,maxc=8000):
     txt=re.sub(r"[ \t\r\f\v]+"," ",txt); txt=re.sub(r"\n\s*\n+","\n",txt)
     return txt.strip()[:maxc] or "[webget] page had no readable text"
 def _http(url,data=None,timeout=25,maxb=600000):
-    req=urllib.request.Request(url,data=data,headers={"User-Agent":"Mozilla/5.0 (Android) akasha"})
+    req=urllib.request.Request(url,data=data,headers={"User-Agent":"Mozilla/5.0 (Android) "+BRAND.lower()})
     with urllib.request.urlopen(req,timeout=timeout) as r: return r.read(maxb).decode("utf-8","ignore")
 def _ddg_html(q,n):
     raw=_http("https://html.duckduckgo.com/html/",urllib.parse.urlencode({"q":q}).encode())
@@ -889,7 +912,7 @@ def imagegen(prompt,outdir=None):
          "?width=1024&height=1024&nologo=true&seed="+str(int(time.time())%100000))
     fp=os.path.join(d,"img-%d.jpg"%int(time.time()))
     try:
-        req=urllib.request.Request(url,headers={"User-Agent":"akasha"})
+        req=urllib.request.Request(url,headers={"User-Agent":BRAND.lower()})
         with urllib.request.urlopen(req,timeout=120) as r: b=r.read()
         # must read as "[imagegen] failed:" so the /do ladder keeps descending instead of
         # treating an empty image as a delivered result.
@@ -898,17 +921,184 @@ def imagegen(prompt,outdir=None):
     except Exception as e: return f"[imagegen] failed: {e}"
     if shutil.which("termux-open"): subprocess.run(["termux-open",fp],capture_output=True)
     return f"[imagegen] {len(b)//1024} KB -> {fp}  (keyless · pollinations)"
-def speak(text):
-    """TTS that degrades instead of failing: Termux:API -> espeak -> plain text."""
+# ══ VOICE — push-to-talk, never an always-on mic (H-voice-loop §1.6/§5). The same rules as chat, spoken:
+# stop-words first · self-intents keep their typed gate · hands run through hand_run · SAFE chat rows run
+# at once · non-destructive rows get a SPOKEN yes/no · the destructive tier (/quit /clear /keys /update /setup
+# /net /bg !) always needs a typed yes, because mis-heard Hindi through an en-US recogniser is a real failure.
+# Speech is ONE SHORT SENTENCE PER PROCESS: Android's TTS engine lives in another app and cannot be cut
+# mid-utterance, so the sentence is the stop granularity everywhere. Transcripts are NOT journalled unless
+# /voice log on (they are the most intimate data this product touches, and STT errors would be permanent).
+VOICE={"on":os.environ.get("AI_VOICE","1")!="0","speaking":None,"cancel":False,"log":False,"last_engine":""}
+YESW=re.compile(r"^\s*(?:haan|han|haa|ha|ji|yes|yeah|yep|ok|okay|kar do|kardo|chalao|chala do|theek|thik|sure|go)\b",re.I)
+NOW =re.compile(r"^\s*(?:nahi|nahin|nah|na|no|nope|mat|rehne do|cancel|ruk)\b",re.I)
+VOICE_TYPED_ONLY={"/quit","/q","/exit","/clear","/keys","/update","/setup","/net","/bg","/run","/serve"}   # never voice-confirmed
+_TTS_SPLIT=re.compile(r"(?<=[.!?।])\s+|\n+")
+LISTEN=[None]      # tests inject a fake recogniser here; production leaves it None
+def _say_voices():
+    try: return subprocess.run(["say","-v","?"],capture_output=True,text=True,timeout=8).stdout
+    except Exception: return ""
+def _player():
+    for p in ("paplay","aplay","afplay","termux-media-player","play","ffplay"):
+        if shutil.which(p): return p
+    return ""
+def _piper_model(lang):
+    m=os.environ.get("AI_PIPER_MODEL","")
+    if m and os.path.exists(os.path.expanduser(m)): return os.path.expanduser(m)
+    want=("hi_IN" if lang=="hi" else "en_")
+    for d in ("~/.local/share/piper","~/piper-voices","~/piper","~/.ai-voices"):
+        for f in sorted(glob.glob(os.path.expanduser(d)+"/*.onnx")):
+            if want in os.path.basename(f): return f
+    for d in ("~/.local/share/piper","~/piper-voices","~/piper","~/.ai-voices"):
+        for f in sorted(glob.glob(os.path.expanduser(d)+"/*.onnx")): return f
+    return ""
+def _tts_argv(lang=None):
+    """The engine for THIS device and language: a code-owned argv that reads the sentence from stdin.
+    AI_TTS_ARGV (JSON list) overrides — tests and odd setups. Returns [] when nothing can speak."""
+    ov=os.environ.get("AI_TTS_ARGV","")
+    if ov:
+        try: return list(json.loads(ov))
+        except ValueError: pass
+    lang=lang or lang_now()
+    if IS_TERMUX:
+        if shutil.which("say"): return ["say"]                       # setup-menu wrapper: kokoro → piper → Termux TTS
+        if shutil.which("termux-tts-speak"): return ["termux-tts-speak","-s","MUSIC"]+(["-l","hi","-n","IN"] if lang=="hi" else [])
+        return []
+    if sys.platform=="darwin" and shutil.which("say"):
+        if lang=="hi":
+            v=_say_voices()
+            if "Lekha" in v: return ["say","-v","Lekha"]
+            print("[ai] Hindi voice (Lekha) not installed — System Settings → Accessibility → Spoken Content → Manage Voices; speaking the default voice.")
+        return ["say"]
+    if shutil.which("say"): return ["say"]                           # a user wrapper on Linux
+    if shutil.which("spd-say"): return ["spd-say","-e"]+(["-l","hi"] if lang=="hi" else [])
+    for e in ("espeak-ng","espeak"):
+        if shutil.which(e): return [e]+(["-v","hi"] if lang=="hi" else [])
+    if os.name=="nt" and _ps51():
+        if lang=="hi": print("[ai] Windows System.Speech usually has no Hindi voice — speaking the default voice.")
+        return [_ps51(),"-NoProfile","-NonInteractive","-Command","$t=[Console]::In.ReadToEnd(); Add-Type -AssemblyName System.Speech; (New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak($t)"]
+    return []
+def _piper_say(text,model,player):
+    f=os.path.join(tempfile_dir(),f"aasmaan-say-{os.getpid()}.wav")
+    p=subprocess.Popen(["piper","-m",model,"--output_file",f],stdin=subprocess.PIPE,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,text=True); VOICE["speaking"]=p
+    p.communicate(text,timeout=120)
+    if VOICE["cancel"] or not os.path.exists(f): return
+    argv={"termux-media-player":["termux-media-player","play",f],"ffplay":["ffplay","-nodisp","-autoexit","-loglevel","quiet",f],"play":["play","-q",f]}.get(player,[player,f])
+    q=subprocess.Popen(argv,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL); VOICE["speaking"]=q; q.wait(timeout=120)
+    try: os.remove(f)
+    except OSError: pass
+def tempfile_dir():
+    import tempfile; return tempfile.gettempdir()
+def stop_speaking():
+    """Cut the current sentence and prevent the next. Returns True if something was speaking."""
+    VOICE["cancel"]=True; p=VOICE.get("speaking"); was=False
+    if p is not None:
+        try: p.kill(); was=True
+        except Exception: pass
+        VOICE["speaking"]=None
+    return was
+def speak(text,lang=None):
+    """TTS that degrades instead of failing, one sentence per process so /stop lands between sentences."""
     t=(text or "").strip()
     if not t: return "[speak] usage: speak <text>"
-    for cmd in (["termux-tts-speak"],["say"],["espeak-ng"],["espeak"],["piper","--output_raw"]):
-        if shutil.which(cmd[0]):
-            try:
-                subprocess.run(cmd,input=t,text=True,capture_output=True,timeout=120)
-                return f"[speak] spoken via {cmd[0]}"
+    if not VOICE["on"]: return "[speak] voice is off (/voice on)"
+    VOICE["cancel"]=False
+    argv=_tts_argv(lang); piper=None
+    if not argv and shutil.which("piper"):
+        m=_piper_model(lang or lang_now()); pl=_player()
+        if m and pl: piper=(m,pl)
+    if not argv and not piper: return "[speak] no TTS engine on this device — text form:\n"+t
+    n=0
+    for c in _TTS_SPLIT.split(t):
+        c=c.strip()
+        if not c: continue
+        if VOICE["cancel"]: return f"[speak] stopped after {n} sentence(s)"
+        try:
+            if argv:
+                p=subprocess.Popen(argv,stdin=subprocess.PIPE,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,text=True); VOICE["speaking"]=p
+                p.communicate(c[:400],timeout=120)
+            else: _piper_say(c[:400],*piper)
+        except Exception:
+            try: VOICE["speaking"].kill()
             except Exception: pass
-    return "[speak] no TTS engine on this device — text form:\n"+t
+        VOICE["speaking"]=None; n+=1
+    VOICE["last_engine"]=argv[0] if argv else "piper"
+    return f"[speak] spoken via {os.path.basename(VOICE['last_engine'])} ({n} sentence{'s' if n!=1 else ''})"
+def voice_out(text): speak(text)
+def listen_once(timeout=25):
+    """Push-to-talk: one utterance → text, or ''. Barge-in: anything speaking is cut first. Ladder = what
+    this device has: Termux:API STT (Google, en-US only — Hindi comes out garbled; offline Hindi = whisper via
+    setup-menu → 2) → whisper-stt wrapper (records + transcribes) → arecord + whisper-cli → Windows dictation."""
+    if LISTEN[0]: return (LISTEN[0]() or "").strip()
+    if not VOICE["on"]: return ""
+    stop_speaking()
+    def run(argv,inp=None,to=timeout+20):
+        try:
+            o=subprocess.run(argv,input=inp,capture_output=True,text=True,timeout=to); return (o.stdout or "").strip()
+        except Exception: return ""
+    if IS_TERMUX and shutil.which("termux-speech-to-text"):
+        t=run(["termux-speech-to-text"])
+        if t: return t
+    if shutil.which("whisper-stt"):
+        t=run(["whisper-stt"],to=90)
+        if t and not t.lower().startswith(("need ","whisper.cpp not")): return t
+    cli=shutil.which("whisper-cli") or shutil.which("whisper-cpp") or shutil.which("whisper")
+    if cli and shutil.which("arecord"):
+        f=os.path.join(tempfile_dir(),f"aasmaan-listen-{os.getpid()}.wav")
+        model=next((m for m in glob.glob(os.path.expanduser("~/whisper.cpp/models/ggml-*.bin"))+glob.glob(os.path.expanduser("~/.ai-voices/ggml-*.bin"))),"")
+        if model:
+            print("[voice] 🎤 bolo… (8s)"); run(["arecord","-q","-d","8","-f","S16_LE","-r","16000","-c","1",f],to=20)
+            t=run([cli,"-m",model,"-f",f,"-nt","-l","auto"],to=120)
+            try: os.remove(f)
+            except OSError: pass
+            if t: return re.sub(r"\s+"," ",t).strip()
+    if os.name=="nt" and _ps51():
+        t=run([_ps51(),"-NoProfile","-NonInteractive","-Command",
+               f"Add-Type -AssemblyName System.Speech; $r=New-Object System.Speech.Recognition.SpeechRecognitionEngine([Globalization.CultureInfo]'en-US'); $r.LoadGrammar((New-Object System.Speech.Recognition.DictationGrammar)); $r.SetInputToDefaultAudioDevice(); $x=$r.Recognize([TimeSpan]::FromSeconds({int(timeout)})); if($x){{$x.Text}}"],to=timeout+15)
+        if t: return t
+    return ""
+def voice_in(): return listen_once()
+def voice_once(st,hist):
+    """One push-to-talk turn. Returns a slash command for the REPL to dispatch (safe rows, or non-destructive rows
+    the user confirmed BY VOICE), or None when the turn was fully handled here."""
+    if not VOICE["on"]: print("[voice] off — /voice on"); return None
+    t=listen_once()
+    if not t: print("[voice] kuch suna nahi — mic path: /capabilities (STT_HINT: "+STT_HINT+")"); return None
+    print(f"[voice] > {t}")
+    if VOICE["log"]:
+        try: journal("voice",t)
+        except Exception: pass
+    if STOP_RX.match(t): stop_speaking(); hands_stop(); return None
+    if handle_self_intent(t): return None                       # update/setup/keys/pair keep their typed y/N
+    hi=hands_intent(t)
+    if hi: hand_run(st,hi[0],hi[1],source="voice"); return None  # X/D hands still need a typed yes (tty) — voice never widens
+    cc=chat_command(t)
+    if cc:
+        cmd,safe=cc
+        if safe: print(f"[voice] → {cmd}"); return cmd
+        if cmd.split()[0] in VOICE_TYPED_ONLY:
+            speak("ye typed haan maangta hai" if lang_now()!="en" else "this one needs a typed yes"); print(f"[voice] {cmd} needs a typed yes — likho:  {cmd}"); return None
+        speak((f"{cmd} chalaun?" if lang_now()!="en" else f"run {cmd}?")); a=listen_once(12); print(f"[voice] confirm> {a or '(silence)'}")
+        if a and YESW.match(a) and not NOW.match(a): return cmd
+        speak("nahi chalaya" if lang_now()!="en" else "not run"); return None
+    a=ask(st,hist,t)
+    if a: speak(a[:1200])
+    return None
+def voice_cmd(st,hist,a):
+    a=(a or "").strip().lower()
+    if a in ("","once","listen"): return voice_once(st,hist)
+    if a=="on": VOICE["on"]=True; print("[voice] on — /voice (ya sirf v) = ek baar suno · /voice off"); return None
+    if a=="off": VOICE["on"]=False; stop_speaking(); print("[voice] off — mic kabhi nahi khulega, /api/voice-* bhi nahi"); return None
+    if a=="stop": stop_speaking(); print("[voice] ruk gaya"); return None
+    if a in ("log on","log off"): VOICE["log"]=a.endswith("on"); print("[voice] transcript journal: "+("ON — har suna hua vault me likhega" if VOICE["log"] else "off (default — sirf outcome journal hota hai)")); return None
+    if a in ("status","?"):
+        print(f"[voice] {'on' if VOICE['on'] else 'off'} · TTS: {(_tts_argv() or ['none'])[0]} · STT: {STT_HINT} · log {'on' if VOICE['log'] else 'off'} · lang {lang_now()} · typed-only: {' '.join(sorted(VOICE_TYPED_ONLY))}"); return None
+    if a=="notify" and IS_TERMUX and shutil.which("termux-notification"):
+        # pinned push-to-talk. Action strings are CODE-OWNED literals (termux-notification feeds them to dash -c).
+        subprocess.run(["termux-notification","-i","aasmaan-voice","--ongoing","--alert-once","-t",BRAND,"-c","🎤 bol · ⏹ ruk",
+                        "--button1","🎤 bol","--button1-action","ai voice once","--button2","⏹ ruk","--button2-action","ai stop",
+                        "--button3","✕","--button3-action","termux-notification-remove aasmaan-voice"],capture_output=True,timeout=15)
+        print("[voice] notification pinned — buttons: bol / ruk"); return None
+    print("[voice] /voice [once|on|off|stop|log on|log off|status|notify]"); return None
 def _yt_id(u):
     m=re.search(r"(?:v=|youtu\.be/|/shorts/|/embed/)([A-Za-z0-9_-]{11})",u or "")
     return m.group(1) if m else ""
@@ -1456,6 +1646,7 @@ def expert_kb(name,q,maxc=2400):
 # Zero-token expert routing. 18 naam yaad rakhna wahi bojh hai jo hashtags ka tha —
 # so /agent auto <task> picks. Heuristic scoring, no model call.
 EXPERT_HINTS={
+ "aasmaan":"aasmaan install uninstall update pair qr offline privacy telemetry roadmap planned version license free product itself yourself",
  "rachaka":"code script python bash termux bug fix function error debug program compile refactor module class api json regex parse log install dependency",
  "alankar":"ui ux design layout screen button color font spacing usability interface",
  "chitrakar":"image picture thumbnail poster art draw generate visual banner logo",
@@ -1540,9 +1731,60 @@ def agent_prompt(name,persona,q,transcript,kbctx,packctx=""):
     if kbctx: L+=[fence(f"KNOWLEDGE BASE ({OWNER}'s repo)",kbctx),""]
     if transcript: L+=[fence("GROUP CHAT so far (other agents)",transcript),""]
     L+=["Answer AS this agent in your own voice, concise (<=120 words). Build on or challenge the "
-        "others — do not repeat what's already said. Hinglish if the question is Hinglish.",
+        "others — do not repeat what's already said. "+lang_line(),
         f"Question: {q}",f"{name.upper()}:"]
     return "\n".join(L)
+# ══ SELF-KB — the product explaining itself (expert 'aasmaan', KB generated at build from the shipped docs).
+# Gate 3 of the plain-text path: gates 1-2 (self-intents, chat rules) return MEASURED state and always win;
+# this gate only takes product questions they did not claim. With a brain: run_agent('aasmaan') with
+# capabilities() prefixed (measured, trusted). With no brain at all: self_answer() — BM25 over the KB, so a raw
+# user with no key and no Ollama still gets the install/update/pair/privacy answer with its exact command.
+_SELF_NOT=re.compile(r"\b(?:mera|meri|is|ye|us|this|that|my)\s+(?:code|script|file|function|program|repo|project|error|bug|app ka code)\b|traceback|stack ?trace|\bpython me\b|\bkaise likh|```|\bin (?:python|js|bash|java)\b"
+                     r"|\b(?:python|numpy|pandas|node|npm|pip|docker|git|java|rust|golang|react|django|flask|excel|word)\b",re.I)   # the user's tooling, not this product
+_SELF_SUBJ=re.compile(r"\b(?:aasmaan|aasman|आसमान|ye (?:app|tool|program|software|ai|cheez)|is (?:app|tool|program|software)|tu|tum|tera|teri|you|your|yourself|khud|apne aap|iska|iski|isme|ismein|isko)\b",re.I)
+_SELF_TOPIC=re.compile(r"\b(?:install|uninstall|hata(?:na|do| do)|setup|update|upgrade|naya version|offline|bina net|net ke bina|without internet|internet ke bina"
+                       r"|key|keys|api ?key|token|kaunsa model|which model|local model|ollama|brain|mera data|data kahan|kahan (?:jata|jaata|rakh|save)|privacy|telemetry|kya bhejta"
+                       r"|pair|jodna|judega|jude|qr|free hai|paisa|cost|licen[cs]e|open ?source|expert|experts|windows|android|termux|macos|linux|iphone|ios|phone"
+                       r"|planned|roadmap|kab aayega|kisne banaya|who made|kyun bana|feedback|bug kahan|report|hands|voice|bol|language|hindi|hinglish)\b",re.I)
+_BARE_OK=re.compile(r"\b(?:install|uninstall|update|pair|qr|offline|roadmap|planned|licen[cs]e|telemetry|kisne banaya|who made|feedback|judega|jodna|jode|jodo"
+                    r"|keys? kahan|kaunsa model|which model|local model|ollama|mera data|my data|data kahan|kahan (?:jata|jaata)|bug kahan|report karu|kahan report"
+                    r"|(?:windows|android|macos|mac|linux|iphone|ios|termux|phone|laptop|pc) (?:pe|par|me|mein|pr) (?:chalega|chalta|chal sakta|hoga|install))\b",re.I)
+def self_kb_route(t):
+    """Is this a question about the PRODUCT (not about the user's own code/data)? Deterministic, whole message."""
+    t=(t or "").strip()
+    if not t or t.startswith("/") or len(t)>160 or _SELF_NOT.search(t): return False
+    return bool(_SELF_TOPIC.search(t)) and bool(_SELF_SUBJ.search(t) or _BARE_OK.search(t))
+def self_answer(q,maxc=1400):
+    """Keyless, model-less Q&A over the aasmaan KB: the best-matching section (Okapi BM25 over sections, title hits
+    count double) + the commands it contains. No lexical hit → says so, never bluffs. -> (headline, body, cmds)."""
+    md=expert_pack("aasmaan","KB.md")
+    if not md: return ("","self-KB nahi mila — /update ya dobara install.",[])
+    secs=[(t,b) for t,b in _md_sections(md) if t and not re.match(r"^[\d. ]*(sources?|references?)\b",t.lower())]
+    if not secs: return ("","self-KB khali hai.",[])
+    docs=[re.findall(r"[a-z0-9]+",(t+" "+b).lower()) for t,b in secs]
+    N=len(docs); avg=sum(len(d) for d in docs)/N or 1; df={}
+    for d in docs:
+        for w in set(d): df[w]=df.get(w,0)+1
+    _stop={"kya","hai","hain","ka","ki","ke","ko","me","mein","se","the","is","a","an","of","to","in","on","it","ye","yeh","kaise","how","do","does","i","this","that","and","or","aur","hoga","hogi","bhi"}
+    qw=[w for w in re.findall(r"[a-z0-9]+",(q or "").lower()) if w not in _stop] or re.findall(r"[a-z0-9]+",(q or "").lower()); k1,b_=1.5,0.75; sc=[]
+    for i,d in enumerate(docs):
+        tf={}
+        for w in d: tf[w]=tf.get(w,0)+1
+        s_=0.0
+        for w in qw:
+            if w in tf:
+                idf=math.log(1+(N-df[w]+0.5)/(df[w]+0.5)); s_+=idf*(tf[w]*(k1+1))/(tf[w]+k1*(1-b_+b_*len(d)/avg))
+        ttl=set(re.findall(r"[a-z0-9]{3,}",secs[i][0].lower())); sc.append(s_+3.0*len(set(qw)&ttl))
+    i=max(range(N),key=lambda j:sc[j])
+    if sc[i]<=0: return ("Iska seedha jawab meri KB me nahi hai.","Poori list:  /help   ·   ye install abhi kya kar sakta hai:  /capabilities",[])
+    t,body=secs[i]
+    cmds=re.findall(r"(?m)^\s*(?:\$ )?((?:/|ai |curl |irm |pkg )\S[^\n]*)",body)[:4]
+    return (t,_fit(body,maxc),cmds)
+def self_kb_version_note():
+    """KB VERSION vs the running install — a stale KB says so before it answers."""
+    md=expert_pack("aasmaan","KB.md") or ""; m=re.search(r"(?m)^VERSION:\s*(.+)$",md); ver=(self_version()[0] or "").strip()
+    if m and ver and not ver.startswith("dev") and not m.group(1).strip().startswith("dev") and m.group(1).strip()!=ver: return f"[ai] self-KB {m.group(1).strip()[:30]} ≠ install {ver[:30]} — /update laayega naya KB"
+    return ""
 def run_agent(st,name,q,transcript=""):
     persona=agent_persona(name)
     if not persona:
@@ -1560,7 +1802,12 @@ def run_agent(st,name,q,transcript=""):
         hits=kb_query(q,3)
         if hits: kb="\n\n".join(f"[{r['p']} :: {r['h']}]\n{r['t']}" for _,r in hits)
     names=(brain_order(q,st) if st["mode"]=="auto" else MODES.get(st["mode"])); cap=160 if st["short"] else None
-    a,who=route(agent_prompt(name,persona,q,transcript,kb,expert_kb(name,q)),names,cap,st["model"])
+    packctx=expert_kb(name,q)
+    if name=="aasmaan":   # the product about itself: MEASURED state rides first (trusted — it is our own output), then the KB
+        n=self_kb_version_note()
+        if n: print(n)
+        packctx="MEASURED, right now, on this install (trust this over the KB):\n"+capabilities()+"\n\n"+packctx
+    a,who=route(agent_prompt(name,persona,q,transcript,kb,packctx),names,cap,st["model"])
     if a: print(f"\n### {name} [{who}]\n{a.strip()}")
     return a.strip() if a else None
 
@@ -1615,7 +1862,7 @@ def build(st,hist,text,run):
         if hits: parts.append((f"KNOWLEDGE BASE ({OWNER}'s repo)",
             "\n\n".join(f"[{r['p']} :: {r['h']}]\n{r['t']}" for _,r in hits)))
     kept=[(l,(bm25(t,text,float(st["budget"])) if toks(t)>120 else t)) for l,t in parts]
-    L=[SYSTEM,""]
+    L=[SYSTEM,lang_line(st),""]
     # Retrieved/loaded content is DATA, never instructions. The vault and KB can contain text
     # anyone was able to write (panel feedback, a fetched page, an ingested link), so it is
     # fenced and labelled — an injected "ignore all prior rules" arrives as quoted material.
@@ -1636,8 +1883,25 @@ def _first_cloud_note(who):
     if os.path.exists(_FIRST_CLOUD): return
     try: open(_FIRST_CLOUD,"w").write(time.strftime("%Y-%m-%d %H:%M"))
     except OSError: pass
-    print(f"[ai] pehla cloud jawab: ye sawaal {who} ke server pe gaya (email/phone jaisa kuch pehle hata diya). Kahan-kahan gaya:  /egress   ·  sirf apne device pe rehna ho:  /local")
+    print("[ai] "+_t("first.cloud",who=who))
 def ask(st,hist,text,run=None,brain=None,rec=True):
+    if brain is None:                      # rung 0: deterministic tools answer before any brain (calc, date, units…)
+        lt=local_tool(text)
+        if lt:
+            a,recd=lt; print(f"\n{a}\n\n[tool0 (tere device pe) · 0.0s]")
+            if rec and recd: hist+=[("user",text),("assistant",a)]; journal(OWNER,text); journal("tool0",a)
+            return a
+        if self_kb_route(text) and has_pack("aasmaan"):     # gate 3: a question about the product itself
+            if has_local() or any(os.environ.get(pp["k"]) for pp in PROVIDERS if pp["k"]):
+                a=run_agent(st,"aasmaan",text)
+                if a:
+                    if rec: hist+=[("user",text),("assistant",a)]; journal(OWNER,text); journal("aasmaan",a)
+                    return a
+            h,b,cmds=self_answer(text)
+            a=(f"{h}\n{b}" if h else b)+("\n\nchalao:\n  "+"\n  ".join(cmds) if cmds else "")
+            print(f"\n{a}\n\n[aasmaan KB (tere device pe, bina brain) · 0.0s · /capabilities = measured sach]")
+            if rec: hist+=[("user",text),("assistant",a)]; journal(OWNER,text); journal("aasmaan",a)
+            return a
     if _cache_ok(st,run,brain):
         hit=cache_get(text)
         if hit:
@@ -1654,14 +1918,14 @@ def ask(st,hist,text,run=None,brain=None,rec=True):
     try: a,who=route(prompt,names,cap,st["model"],images=list(IMAGES))
     except KeyboardInterrupt: print("\n[ai] cancelled"); return None
     if not a:
-        if net_up(): print("[ai] kisi brain ne jawab nahi diya — key nahi lagi.\n"
-                           f"     free key daalo:  {SETUP_HINT}  ·  ya bina key ye chalta hai:  /do research <q> · /do image <p> · /kb <q>")
-        else: print("[ai] offline aur local brain bhi nahi. Bina net ye chalta hai:  /memory · /kb <q> · /ctx <files>")
+        if net_up(): print("[ai] "+_t("nobrain.online",st,hint=SETUP_HINT))
+        else: print("[ai] "+_t("offline.wall",st))
         return None
     a=a.strip(); ctx=f" · ctx {raw}→{kpt} tok" if raw else ""
     pf=(LAST_ROUTE["profile"]+" · ") if (st["mode"]=="auto" and not brain) else ""
-    print(f"\n{a}\n\n[{who} {'(tere device pe)' if who=='local' else '(cloud)'} · {pf}{time.time()-t0:.1f}s · prompt {toks(prompt)} tok{ctx}]")
-    if who and who!="local": _first_cloud_note(who)
+    _isloc=who=="local" or (who=="custom" and (custom_provider() or {}).get("local"))
+    print(f"\n{a}\n\n[{who} {'(tere device pe)' if _isloc else '(cloud)'} · {pf}{time.time()-t0:.1f}s · prompt {toks(prompt)} tok{ctx}]")
+    if who and not _isloc: _first_cloud_note(who)
     if rec:
         hist+=[("user",text),("assistant",a)]; journal(OWNER,text); journal(who,a)
         # cache_put() archives on its way through. The else-branch is the half the corpus used to
@@ -2429,8 +2693,13 @@ def do_list_text(cfg=None):
     L.append("  ladder (never a 'no'): "+" -> ".join(f"{i+1} {r.split(' (')[0]}" for i,r in enumerate(RUNGS)))
     L.append("  any name works — an unknown capability gets forged.  force the forge: /do <cap> use=forge <input>")
     return "\n".join(L)
+CAP_ALIAS={"image":"image_generation","img":"image_generation","imagegen":"image_generation","speak":"tts","say":"tts",
+           "search":"research","web":"research","fetch":"scrape","read":"scrape"}   # what people type -> the map's name
 def do_capability(st,cap,forced,rest):
     cfg=tools_cfg(); caps=cfg.get("capabilities",{}); provs=cfg.get("providers",{})
+    cap=CAP_ALIAS.get(cap,cap)   # '/do image' must never forge a tool named 'image' (G-raw-user: first tip was a dead end)
+    if cap in _h_table() and not forced:   # rung 0 — a device hand: no key, no net, no brain (see HANDS)
+        return hand_run(st,cap,args=rest,source="do")
     if cap=="list" and not forced and not (rest or "").strip():
         # every doc + this file's own message says "/do list shows the known ones". The REPL honoured
         # that; the CLI (`ai do list`), serve and /bg all reached here and tried to FORGE a tool named
@@ -2458,6 +2727,10 @@ def do_capability(st,cap,forced,rest):
             if pr.get("net") and not net_up(): why=f"{name}: net down"
             else: builtin.append((name,pr)); continue
         elif c in ("browser","manual") or inv=="manual": manual.append((name,pr)); continue
+        elif c=="mcp":
+            okm,whym=mcp_ready(pr)
+            if okm: runnable.append((name,pr)); continue
+            why=f"{name}: {whym}"
         elif c=="api" and not net_up(): why=f"{name}: net down"
         elif c=="local" and not shutil.which(inv): why=f"{name}: '{inv}' not installed. {pr.get('note','')}"
         elif c=="api" and not os.environ.get(pr.get("key",""),""): why=f"{name}: key {pr.get('key')} not set. {pr.get('note','')}"
@@ -2480,6 +2753,10 @@ def do_capability(st,cap,forced,rest):
     runnable=_prefer(cap,runnable); builtin=_prefer(cap,builtin)
     denied=[]   # providers whose ARGUMENTS permit() refused — a fixable "not like that", not a "no"
     for name,pr in runnable:   # rung 1 — something that ACTUALLY RUNS beats something that only prints how-to
+        if pr.get("connect")=="mcp":   # an MCP tool: the text is one JSON argument, never a shell; attended only (mcp_ready)
+            t0=time.time(); out=mcp_run(pr,rest,name)
+            if LAST_RC[0]==0: trace_put(cap,rest,name,"1 mcp",rest,out,time.time()-t0); return
+            print(f"[ai] {name} (mcp) failed — agla rung."); continue
         inv=pr.get("invoke","")
         # A rung that FAILS is not an answer. Before this, one missing binary or one non-zero exit
         # ended the ladder right here — the "never a no" promise broken by the very first rung.
@@ -2553,7 +2830,7 @@ def do_capability(st,cap,forced,rest):
 RESOURCES={
  "env":      {"path":"~/.ai-env",        "readers":["har brain","canary","serve"],       "why":"keys — galat hua to har cloud call marta hai"},
  "tools":    {"path":"~/.ai-tools.json", "readers":["/do ladder","forge registry"],       "why":"capability routing"},
- "experts":  {"path":"~/.ai-experts.json","readers":["/agent","auto-router"],             "why":"18 experts ki personas"},
+ "experts":  {"path":"~/.ai-experts.json","readers":["/agent","auto-router"],             "why":"19 experts ki personas (18 specialists + aasmaan)"},
  "packs":    {"path":"~/.ai-experts/",   "readers":["/agent","/group"],                    "why":"har expert ka base — persona + KB"},
  "cache":    {"path":"~/.ai-cache.jsonl","readers":["har jawab"],                         "why":"purana jawab naye sach ko haraa sakta hai"},
  "kbindex":  {"path":"~/.ai-kb.jsonl",   "readers":["/kb query","auto-retrieve"],         "why":"vault badla to index baasi"},
@@ -2749,7 +3026,7 @@ def attach_file(path):
     return f"ATTACHED FILE {os.path.basename(path)}:\n{d[:8000]}", f"{os.path.basename(path)} · {len(d)} chars · preview:\n"+"\n".join("    │ "+l[:100] for l in head.splitlines())
 # ══ SELF: the assistant knows WHAT it is (version, sha, files) and HOW to update itself — so "update
 # yourself" in chat becomes a real, confirmed action, never a hallucinated "done". Nothing here runs
-# without a visible y/N; the update check is a 3-second GET of a 60-byte VERSION file, once a day,
+# without a visible y/N; the update check is a 3-second GET of a tiny (~43-byte) VERSION file, once a day,
 # opt-out AI_UPDATE_CHECK=0. It never applies anything by itself.
 UPDATE_STATE=os.path.expanduser("~/.ai-update.json")
 def self_version():
@@ -2763,7 +3040,7 @@ def self_version():
     except OSError: sha="?"
     return ver,slug,sha
 def self_files():
-    return [x for x in ["ai.py (this program)","~/.ai-experts.json + ~/.ai-experts/ (18 expert packs)","~/.ai-tools.json (tool router)",
+    return [x for x in ["ai.py (this program)","~/.ai-experts.json + ~/.ai-experts/ (19 expert packs)","~/.ai-tools.json (tool router)",
                         "~/.ai-env (your API keys, only you can read)","~/.ai-setup-profile (installer choices)","~/ai-vault/ (memory)"]]
 def self_info():
     ver,slug,sha=self_version()
@@ -2873,7 +3150,7 @@ def run_self_cmd(kind):
     rc=subprocess.run(cmd,shell=True).returncode
     print(f"[ai] {kind} {'done' if rc==0 else 'exit '+str(rc)} — 'ai' dobara start karo.")
     return rc==0
-KNOWN_KEYS=[p["k"] for p in PROVIDERS if p["k"]]+["AI_SERVE_TOKEN","TELEGRAM_BOT_TOKEN","DISCORD_WEBHOOK_URL","OPENROUTER_API_KEY","TAVILY_API_KEY","EXA_API_KEY","JINA_API_KEY","TOGETHER_API_KEY","FAL_KEY","STABILITY_API_KEY","REPLICATE_API_TOKEN"]
+KNOWN_KEYS=[p["k"] for p in PROVIDERS if p["k"]]+["AI_OAI_KEY","AI_SERVE_TOKEN","TELEGRAM_BOT_TOKEN","DISCORD_WEBHOOK_URL","OPENROUTER_API_KEY","TAVILY_API_KEY","EXA_API_KEY","JINA_API_KEY","TOGETHER_API_KEY","FAL_KEY","STABILITY_API_KEY","REPLICATE_API_TOKEN"]
 def _env_file(): return os.path.expanduser("~/.ai-env")
 def _upsert_env(name,val):
     """Write/replace `export NAME=val` in ~/.ai-env (0600) and in this process. Empty val = remove."""
@@ -2937,7 +3214,7 @@ def _pair_help(kind):
     if kind=="iphone": L.append("     iPhone: QR scan → Safari me khulega → Share → 'Add to Home Screen' = app jaisa icon. (iOS pe alag install nahi hota; brain is computer ka.)")
     elif kind=="android": L+=["     Android ke do raaste:",
                               "       1) pair — is computer ka ai phone ke browser me (Chrome → ⋮ → 'Add to Home screen'). Tez, phone pe kuch install nahi.",
-                              f"       2) FULL install phone pe (Termux, F-Droid se): voice, floater, offline brain phone ke andar:  pkg install -y curl python && curl -fsSL {raw}/install.sh | bash"]
+                              f"       2) FULL install phone pe (Termux, F-Droid se): voice, floater, offline brain phone ke andar:  pkg upgrade -y && pkg install -y curl python && curl -fsSL {raw}/install.sh | bash   (mirror error aaye to: termux-change-repo, phir dobara)"]
     return "\n".join(L)
 def handle_pair_intent(text):
     kind=_phone_kind(text)
@@ -2961,9 +3238,9 @@ def handle_self_intent(text):
     hint={"update":"/update — naya version fetch + reinstall (keys/memory rehte hain)",
           "setup":"/setup — guided installer dobara (keys, model, PATH badalne ke liye)",
           "keys":"/keys — keys list/add/remove (typing hidden)"}[k]
-    print(f"[ai] lagta hai ye chahiye:  {hint}")
+    print("[ai] "+_t("self.hint",hint=hint))
     if not sys.stdin.isatty():   # piped/scripted: name the command, never guess, never fall through to a brain
-        print(f"[ai] terminal me chalao:  {update_cmd() if k=='update' else setup_cmd() if k=='setup' else 'ai keys NAME'}"); return True
+        print("[ai] "+_t("self.piped",cmd=update_cmd() if k=='update' else setup_cmd() if k=='setup' else 'ai keys NAME')); return True
     if not _confirm("[ai] chalaun?"): return False
     if k=="update": run_self_cmd("update")
     elif k=="setup": run_self_cmd("setup")
@@ -2987,6 +3264,8 @@ _CC=[ # (regex, command-builder, safe)
  (r"\b(?:wishes?|wish ?list|pending wishes?)\s*(?:dikhao|batao|show|list|run|chalao|grant)?", lambda m:"/wish run" if re.search(r"run|chalao|grant",m.group(0)) else "/wish", False),
  (r"\b(?:bg|background)\s+(?:jobs?|tasks?)\s*(?:dikhao|batao|list|show)?|\bjobs? (?:list|dikhao)", lambda m:"/bg", True),
  (r"\b(?:metrics|stats|routing stats|kitna (?:time|token))\b", lambda m:"/metrics", True),
+ (r"\b(?:models?|brains?)\s*(?:dikhao|batao|list|installed|kaun ?se|which)\b|\bwhich models\b|\bkaunse model (?:hain|hai)\b|\bollama me kya hai\b", lambda m:"/models", True),
+ (r"^(?:mcp|mcp servers?)\s*(?:list|dikhao|batao)?$", lambda m:"/mcp list", True),
  (r"\b(?:why|kyun)\s+(?:that|ye|this|is)\s+brain\b|\blast route\b|\bkis brain ne\b", lambda m:"/why", True),
  (r"^(?:clear|reset)\s+(?:chat|history|conversation)|^(?:chat|history)\s+(?:clear|saaf)", lambda m:"/clear", False),
  (r"\b(?:kb|knowledge ?base|vault)\s+(?:build|index|rebuild|banao)|\b(?:index|reindex)\s+(?:the\s+)?(?:vault|kb|notes)", lambda m:"/kb build", False),
@@ -2996,7 +3275,7 @@ _CC=[ # (regex, command-builder, safe)
  (r"\b(?:egress|network (?:calls?|log)|kahan (?:kahan )?(?:bheja|gaya)|what did you send|kya bheja|outbound)\b", lambda m:"/egress", True),
  (r"^(?:export|save)\s+(?:the\s+)?corpus\b", lambda m:"/corpus export", False),
  (r"^(?:serve|start (?:the )?(?:panel|web ?ui|server))\b|\bpanel (?:kholo|open|start)", lambda m:"/serve", False),
- (r"^(?:quit|exit|bye|band karo|nikal|khatam)$", lambda m:"/quit", True),
+ (r"^(?:quit|exit|bye|nikal|khatam)$", lambda m:"/quit", True),   # "band karo" = /stop (a hand brake), not quit
 ]
 _CCX=[(re.compile(rx,re.I),fn,safe) for rx,fn,safe in _CC]
 def chat_command(text):
@@ -3019,6 +3298,10 @@ def capabilities():
        f"brains keyed: {', '.join(keyed) or 'none (keyless + local only)'} · alive at last check ({brt}): {', '.join(alive) or 'none'}",
        f"vision (images): {', '.join(seers) or 'none — GEMINI_API_KEY ya AI_VISION_MODEL'}",
        f"/do capabilities: {', '.join(caps)}",
+       f"models (Ollama): {', '.join(m['name']+'['+m['role'][0]+']' for m in ollama_models()[:8]) or 'none reachable'} · custom endpoint: {(custom_provider() or {}).get('u','none')}",
+       f"voice: {'on' if VOICE['on'] else 'off'} · TTS {(_tts_argv() or ['none'])[0].split(os.sep)[-1]} · STT {STT_HINT} · push-to-talk only (/voice)",
+       f"language: {_LANG_NAMES.get(lang_now(),lang_now())}{' (pinned)' if lang_explicit() else ' (auto — mirrors you)'} · /lang",
+       f"hands ({hand_os()}): {', '.join(h for h,hh in _h_table().items() if hand_available(hh)[0]) or 'none on this device'}  (/hands)",
        f"experts: {len(experts())} ({sum(1 for n in experts() if has_pack(n))} with full packs) · memory: {len(memory().splitlines()) if memory() else 0} facts · vault: {VAULT}",
        "self: /update /setup /keys /version · attach: /attach <file|png|pdf> · chat me plain words bhi chalte hain (\"agents dikhao\", \"go offline\", \"update yourself\")"]
     dm=daemon_state()
@@ -3040,7 +3323,7 @@ def _tg_api(cfg,method,payload=None):
 def _tg_install_text():
     slug=self_version()[1] or "REPO_SLUG"; raw=f"https://raw.githubusercontent.com/{slug}/main"
     return ("Install (ek command, apne device pe):\n"
-            f"• Android (Termux, F-Droid wala):\n  pkg install -y curl python && curl -fsSL {raw}/install.sh | bash\n"
+            f"• Android (Termux, F-Droid wala):\n  pkg upgrade -y && pkg install -y curl python && curl -fsSL {raw}/install.sh | bash\n  (mirror error → termux-change-repo, phir dobara)\n"
             f"• Linux / macOS:\n  curl -fsSL {raw}/install.sh | bash\n"
             f"• Windows (PowerShell, admin nahi):\n  irm {raw}/install.ps1 | iex\n"
             f"Har step poochhta hai; kuch chupke install nahi hota. Docs: https://github.com/{slug}")
@@ -3234,6 +3517,14 @@ def _tailscale_ip():
     if not shutil.which("tailscale"): return ""
     try: return (subprocess.run(["tailscale","ip","-4"],capture_output=True,text=True,timeout=3).stdout.strip().split() or [""])[0]
     except Exception: return ""
+def _tailscale_dns():
+    """This machine's MagicDNS name (e.g. laptop.tail1234.ts.net) — the Host header a `tailscale serve` HTTPS
+    front-end forwards. Without it in AI_SERVE_HOSTS the DNS-rebinding guard would 403 the HTTPS rung."""
+    if not shutil.which("tailscale"): return ""
+    try:
+        j=json.loads(subprocess.run(["tailscale","status","--json"],capture_output=True,text=True,timeout=4).stdout or "{}")
+        return (j.get("Self",{}).get("DNSName") or "").rstrip(".").lower()
+    except Exception: return ""
 def pair_url(host,port,token): return f"http://{host}:{port}/?t={token}"
 def _all_ips():
     """Every IPv4 this machine has (private LAN first, then Tailscale, then the rest) — a VPN or a second NIC
@@ -3265,7 +3556,8 @@ def pair(argv):
     if not tok:
         tok=secrets.token_urlsafe(18); _upsert_env("AI_SERVE_TOKEN",tok)
         print("[pair] ek password bana ke ~/.ai-env me rakh diya (AI_SERVE_TOKEN) — jiske paas ye QR hai wahi is computer ka ai khol sakta hai. Badalna: ai keys rm AI_SERVE_TOKEN")
-    os.environ["AI_SERVE_HOST"]="0.0.0.0"; os.environ["AI_SERVE_HOSTS"]=",".join(ips)     # bind all; host-check accepts each
+    dns=_tailscale_dns() if ts else ""
+    os.environ["AI_SERVE_HOST"]="0.0.0.0"; os.environ["AI_SERVE_HOSTS"]=",".join(ips+([dns] if dns else []))   # bind all; host-check accepts each (+ the MagicDNS name for the HTTPS rung)
     url=pair_url(show,port,tok)
     print(f"\n[pair] phone ke camera se scan karo — {'same Wi-Fi' if show!=ts else 'Tailscale (encrypted, ghar ke bahar bhi)'}:\n")
     print(qr_text(url)); print(f"\n  {url}")
@@ -3274,6 +3566,8 @@ def pair(argv):
     print("\n  Jo bhi ye QR scan karega wo YAHI seat use karega — same memory, same files. Family profiles abhi nahi hain; QR sirf apne logon ko.")
     print("  iPhone: Safari me khula → Share → 'Add to Home Screen' = app jaisa icon.  Android: Chrome → ⋮ → 'Add to Home screen' (shortcut; http pe 'Install app' nahi aata).")
     print("  LAN http encrypted nahi hai — ghar ke bahar Tailscale dono device pe lagao, phir ai pair --tailscale.")
+    if dns: print(f"  HTTPS chahiye (phone ka mic/notifications browser me sirf https pe khulte hain)?  tailscale serve --bg {port}  → https://{dns}/?t=<token>   (tailnet-only; 'funnel' kabhi nahi — wo public internet hai)")
+    print("  Ye panel US computer ko chalata hai jispe 'ai pair' chala — phone ko nahi: browser phone ka volume/music/torch nahi chhoo sakta. Poori list: docs/PAIRING.md")
     try:
         if "microsoft" in open("/proc/version").read().lower(): print("  ⚠ WSL: ye address WSL ke andar ka hai — phone ise NAHI pahunch sakta (NAT). Windows 11: Settings → WSL → Networking mode 'Mirrored'; ya Windows-native install (install.ps1) use karo.")
     except OSError: pass
@@ -3284,13 +3578,1176 @@ def pair(argv):
         else: print("  Termux: Termux:API nahi — screen off pe Android ise maar sakta hai. Termux:API install karo ya screen on rakho.")
     print("  Rokna: Ctrl-C. Phone hataana: ai keys rm AI_SERVE_TOKEN (turant, running server bhi maan lega).\n")
     return serve(port)
-KNOWN_CMDS=['/agent', '/agents', '/ask', '/attach', '/bg', '/budget', '/cache', '/canary', '/capabilities', '/clear', '/corpus', '/ctx', '/device', '/do', '/egress', '/embed', '/explain', '/group', '/help', '/impact', '/json', '/kb', '/keys', '/memory', '/metrics', '/mode', '/model', '/net', '/panel', '/privacy', '/remember', '/route', '/run', '/save', '/serve', '/setup', '/short', '/tags', '/tool', '/trace', '/update', '/version', '/why', '/wish']   # every c=="/x" in the dispatcher; the typo-suggester matches against this
+# ══ HANDS — device control. Rung 0 of /do: no key, no net, no brain. A hand is a CODE-OWNED argv template
+# (never read from JSON — data must not reshape a command), typed params, the binaries it needs, a risk
+# letter, and an undo or a stop. Unmet `needs` = the hand is hidden, never a runtime failure. Text params
+# are only ever a whole argv element or stdin — never inside an osascript -e / -Command / rish -c script
+# (those are shells of their own); only int/enum/derived values may be embedded. Enforced by hands_check()
+# at import and pinned by golden. Research: fold-node/research/hands/{A..D}-*.md (2026-09-06).
+#   risk  R = reads only · S = safe, undoable · X = asks first · D = destructive / not reversible, asks first
+#   conf  run = executed on this platform by us · doc = from the vendor's documentation · unv = unverified on real hardware
+HANDS_STATE=os.path.expanduser("~/.ai-hands.json")
+def hand_os():
+    if IS_TERMUX: return "termux"
+    if sys.platform=="darwin": return "darwin"
+    if os.name=="nt": return "nt"
+    try:
+        if os.environ.get("WSL_DISTRO_NAME") or "microsoft" in open("/proc/version").read().lower(): return "wsl"
+    except OSError: pass
+    return "linux"
+def _ps51():
+    """Windows PowerShell 5.1 by absolute path: System.Speech/WinRT hands do not exist in pwsh 7 (B-windows §PS 5.1)."""
+    p=os.path.join(os.environ.get("WINDIR",r"C:\Windows"),"System32","WindowsPowerShell","v1.0","powershell.exe")
+    return p if os.path.exists(p) else (shutil.which("powershell") or "")
+_PSA=["{ps51}","-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass","-Command"]
+_OSA=["osascript","-e"]
+_H_MEDIA_VERBS={"pause":"pause","play":"play","playpause":"playpause","next":"next track","previous":"previous track"}
+HANDS={
+ "darwin":{
+  "notify":     {"what":"desktop notification","argv":["osascript","-e","on run argv","-e","display notification (item 1 of argv) with title \"Aasmaan\"","-e","end run","--","{text}"],
+                 "params":[("text","text",{"max":400})],"risk":"S","undo":None,"stop":None,"conf":"doc",
+                 "says":[r"^(?:notify|notification (?:bhej|de|do)|notif)[: ]+(?P<text>.+)$"]},
+  "volume_set": {"what":"output volume 0-100","argv":_OSA+["set volume output volume {level}"],"params":[("level","int",{"min":0,"max":100})],
+                 "read":(_OSA+["output volume of (get volume settings)"],"int"),"risk":"S","undo":"volume_set","conf":"doc",
+                 "says":[r"^(?:set (?:the )?)?(?:volume|awaaz|sound)(?: ko| to)?\s*(?P<level>\d{1,3})\s*(?:%|percent|kar(?: do)?|pe|par)?$"]},
+  "volume_get": {"what":"current volume","argv":_OSA+["output volume of (get volume settings)"],"params":[],"risk":"R","conf":"doc",
+                 "says":[r"^(?:volume|awaaz|sound)\s*(?:kitn[ai](?: hai)?|level|\?|kya hai)?$"]},
+  "mute":       {"what":"mute / unmute","argv":_OSA+["set volume output muted {state}"],"params":[("state","enum",{"in":["on","off"],"map":{"on":"true","off":"false"}})],
+                 "risk":"S","undo":{"hand":"mute","vals":{"state":"off"}},"conf":"doc",
+                 "says":[r"^(?:mute|chup(?: kar(?: do)?| ho ja)?|awaaz band(?: kar(?: do)?)?|sound off)$",r"^(?P<_unmute>unmute|awaaz (?:chalu|on)(?: kar(?: do)?)?|sound on)$"]},
+  "say":        {"what":"speak text aloud (say)","argv":["say"],"stdin":"text","params":[("text","text",{"max":4000})],"long":True,"risk":"S","stop":"kill","conf":"doc",
+                 "says":[r"^(?:say|speak|bol(?: ke suna(?:o)?)?|padh ke suna(?:o)?|read (?:this )?(?:out|aloud))[: ]+(?P<text>.+)$"]},
+  "clip_get":   {"what":"read clipboard","argv":["pbpaste"],"params":[],"risk":"R","secret":True,"conf":"doc",
+                 "says":[r"^(?:clipboard(?: me)?(?: kya hai)?|clipboard (?:padh|dikha)(?:o)?|what'?s (?:in|on) (?:the |my )?clipboard|paste)$"]},
+  "clip_put":   {"what":"put text on clipboard","argv":["pbcopy"],"stdin":"text","params":[("text","text",{"max":20000})],"risk":"S","undo":None,"conf":"doc",
+                 "says":[r"^(?:copy|clipboard me (?:daal|rakh)(?:o| do)?)[: ]+(?P<text>.+)$"]},
+  "battery":    {"what":"battery status","argv":["pmset","-g","batt"],"params":[],"risk":"R","conf":"doc",
+                 "says":[r"^(?:battery(?: kitni(?: hai)?| status| level|\?)?|charge kitn[ai](?: hai)?|how much battery(?: is left)?)$"]},
+  "open_url":   {"what":"open a link in the browser","argv":["open","{url}"],"params":[("url","url",{})],"risk":"S","undo":None,"conf":"doc",
+                 "says":[r"^(?:open|kholo?)\s+(?P<url>https?://\S+)$"]},
+  "open_app":   {"what":"open an app by name","argv":["open","-a","{name}"],"params":[("name","text",{"max":80})],"risk":"S","undo":None,"conf":"doc",
+                 "says":[r"^(?:open|kholo?|launch|start)\s+(?P<name>[A-Za-z][\w .-]{1,40}?)(?: app| kholo| khol do)?$"]},
+  "find":       {"what":"find files by name (Spotlight)","argv":["mdfind","-name","{q}"],"params":[("q","text",{"max":120})],"risk":"R","conf":"doc",
+                 "says":[r"^(?:find|dhoondh?o?|search)\s+(?:file|files)?\s*(?:named?|jiska naam)?\s*[: ]?\s*(?P<q>\S.{1,60})$"]},
+  "screenshot": {"what":"screenshot → ~/Pictures/aasmaan-<ts>.png","argv":["screencapture","-x","{shot}"],"params":[],"risk":"S","undo":None,"perm":"Screen Recording (System Settings → Privacy) — macOS asks once","conf":"doc",
+                 "says":[r"^(?:screenshot(?: le(?: lo)?| lo)?|take (?:a )?screenshot|screen ?shot(?: kar(?: do)?)?)$"]},
+  "music":      {"what":"Music.app: play/pause/next/previous","argv":_OSA+["tell application \"Music\" to {verb}"],"needs":["path:/System/Applications/Music.app"],
+                 "params":[("verb","enum",{"in":list(_H_MEDIA_VERBS),"map":_H_MEDIA_VERBS})],"perm":"Automation → Music (macOS asks once)","risk":"S","undo":{"hand":"music","vals":{"verb":"pause"}},"conf":"doc",
+                 "says":[r"^(?P<verb>pause|play|next|previous)(?: (?:the )?(?:music|song|track|gaana))?$",r"^(?:gaana|music|song) (?P<verb>pause|play|next)$",
+                         r"^(?:gaana )?(?:rok(?:o| do)?|band kar(?: do)?)$|^(?:gaana|music) (?:chala(?:o| do)?|resume)$|^(?:agla|next) (?:gaana|song|track)$|^(?:pichla|previous|last) (?:gaana|song|track)$"]},
+  "music_now":  {"what":"what is playing (Music.app)","argv":_OSA+["tell application \"Music\" to get (name of current track) & \" — \" & (artist of current track)"],"needs":["path:/System/Applications/Music.app"],
+                 "params":[],"perm":"Automation → Music","risk":"R","conf":"doc",
+                 "says":[r"^(?:what'?s playing|now playing|kya baj raha hai|kaunsa gaana(?: chal raha hai)?|which song)$"]},
+  "stay_awake": {"what":"keep the Mac awake for N minutes (caffeinate)","argv":["caffeinate","-d","-i","-t","{secs}"],"params":[("minutes","int",{"min":1,"max":720,"default":60})],
+                 "long":True,"risk":"S","stop":"kill","conf":"doc",
+                 "says":[r"^(?:stay awake|sone mat (?:do|dena)|keep (?:the )?(?:mac|screen|laptop) awake|caffeinate)(?: (?:for )?(?P<minutes>\d{1,3})(?: ?min(?:ute)?s?)?)?$"]},
+  "sleep_now":  {"what":"put the Mac to sleep","argv":["pmset","sleepnow"],"params":[],"risk":"X","undo":None,"conf":"doc",
+                 "says":[r"^(?:sleep(?: now)?|so ja(?:o)?|mac (?:ko )?sula do|go to sleep)$"]},
+  "_stop":["music"],
+ },
+ "nt":{
+  "vol_up":     {"what":"volume up (5 steps)","argv":_PSA+["$w=New-Object -ComObject WScript.Shell; 1..5|%{$w.SendKeys([char]175)}"],"params":[],"needs":["ps51"],"risk":"S","undo":"vol_down","conf":"unv",
+                 "says":[r"^(?:volume|awaaz|sound) (?:up|badha(?:o| do)?|zyada(?: kar(?: do)?)?|increase)$|^(?:louder|tez kar(?: do)?)$"]},
+  "vol_down":   {"what":"volume down (5 steps)","argv":_PSA+["$w=New-Object -ComObject WScript.Shell; 1..5|%{$w.SendKeys([char]174)}"],"params":[],"needs":["ps51"],"risk":"S","undo":"vol_up","conf":"unv",
+                 "says":[r"^(?:volume|awaaz|sound) (?:down|kam(?: kar(?: do)?)?|ghata(?:o| do)?|decrease|lower)$|^(?:quieter|dheema kar(?: do)?)$"]},
+  "mute":       {"what":"mute toggle","argv":_PSA+["(New-Object -ComObject WScript.Shell).SendKeys([char]173)"],"params":[],"needs":["ps51"],"risk":"S","undo":"mute","conf":"unv",
+                 "says":[r"^(?:mute|unmute|chup(?: kar(?: do)?| ho ja)?|awaaz (?:band|chalu)(?: kar(?: do)?)?|sound (?:off|on))$"]},
+  "media":      {"what":"play-pause / next / previous (media keys)","argv":_PSA+["(New-Object -ComObject WScript.Shell).SendKeys([char]{key})"],"needs":["ps51"],
+                 "params":[("verb","enum",{"in":["playpause","pause","play","next","previous"],"map":{"playpause":"179","pause":"179","play":"179","next":"176","previous":"177"}},)],
+                 "risk":"S","undo":{"hand":"media","vals":{"verb":"playpause"}},"conf":"unv","_embed":{"key":"verb"},
+                 "says":[r"^(?P<verb>pause|play|next|previous|playpause)(?: (?:the )?(?:music|song|track|gaana))?$",r"^(?:gaana|music|song) (?P<verb>pause|play|next)$",
+                         r"^(?:gaana )?(?:rok(?:o| do)?|band kar(?: do)?)$|^(?:gaana|music) (?:chala(?:o| do)?|resume)$|^(?:agla|next) (?:gaana|song|track)$|^(?:pichla|previous|last) (?:gaana|song|track)$"]},
+  "say":        {"what":"speak text aloud (System.Speech)","argv":_PSA+["$t=[Console]::In.ReadToEnd(); Add-Type -AssemblyName System.Speech; (New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak($t)"],
+                 "stdin":"text","params":[("text","text",{"max":4000})],"needs":["ps51"],"long":True,"risk":"S","stop":"kill","conf":"doc",
+                 "says":[r"^(?:say|speak|bol(?: ke suna(?:o)?)?|padh ke suna(?:o)?|read (?:this )?(?:out|aloud))[: ]+(?P<text>.+)$"]},
+  "clip_get":   {"what":"read clipboard","argv":_PSA+["Get-Clipboard -Raw"],"params":[],"needs":["ps51"],"risk":"R","secret":True,"conf":"doc",
+                 "says":[r"^(?:clipboard(?: me)?(?: kya hai)?|clipboard (?:padh|dikha)(?:o)?|what'?s (?:in|on) (?:the |my )?clipboard|paste)$"]},
+  "clip_put":   {"what":"put text on clipboard","argv":_PSA+["Set-Clipboard -Value ([Console]::In.ReadToEnd())"],"stdin":"text","params":[("text","text",{"max":20000})],"needs":["ps51"],"risk":"S","undo":None,"conf":"doc",
+                 "says":[r"^(?:copy|clipboard me (?:daal|rakh)(?:o| do)?)[: ]+(?P<text>.+)$"]},
+  "battery":    {"what":"battery status (empty = desktop)","argv":_PSA+["$b=Get-CimInstance Win32_Battery; if($b){\"$($b.EstimatedChargeRemaining)% (status $($b.BatteryStatus))\"}else{'no battery — desktop'}"],"params":[],"needs":["ps51"],"risk":"R","conf":"doc",
+                 "says":[r"^(?:battery(?: kitni(?: hai)?| status| level|\?)?|charge kitn[ai](?: hai)?|how much battery(?: is left)?)$"]},
+  "screenshot": {"what":"screenshot → Pictures\\aasmaan-<ts>.png","argv":_PSA+["Add-Type -AssemblyName System.Drawing,System.Windows.Forms; $s=[System.Windows.Forms.SystemInformation]::VirtualScreen; $b=New-Object System.Drawing.Bitmap $s.Width,$s.Height; $g=[System.Drawing.Graphics]::FromImage($b); $g.CopyFromScreen($s.Left,$s.Top,0,0,$b.Size); $p=Join-Path $env:USERPROFILE 'Pictures\\aasmaan-{ts}.png'; $b.Save($p,[System.Drawing.Imaging.ImageFormat]::Png); Write-Output $p"],
+                 "params":[],"needs":["ps51"],"risk":"S","undo":None,"conf":"doc",
+                 "says":[r"^(?:screenshot(?: le(?: lo)?| lo)?|take (?:a )?screenshot|screen ?shot(?: kar(?: do)?)?)$"]},
+  "open_url":   {"what":"open a link in the browser","py":"startfile","target":"{url}","params":[("url","url",{})],"risk":"S","undo":None,"conf":"doc",
+                 "says":[r"^(?:open|kholo?)\s+(?P<url>https?://\S+)$"]},
+  "settings":   {"what":"open a Settings page (sound, bluetooth, nightlight, quiethours, project, powersleep, display)","py":"startfile","target":"ms-settings:{page}",
+                 "params":[("page","enum",{"in":["sound","bluetooth","nightlight","quiethours","project","powersleep","display","apps-volume"]})],"risk":"S","undo":None,"conf":"doc",
+                 "says":[r"^(?:open |kholo? )?(?P<page>sound|bluetooth|nightlight|quiethours|project|powersleep|display) settings?$",r"^(?P<_nl>night ?light)(?: settings?| kholo| open| on| off)?$",r"^(?P<_fa>focus assist|dnd|do not disturb)(?: settings?| kholo| open| on| off)?$",r"^(?P<_cast>cast|screen cast|mirror|project)(?: (?:to )?(?:tv|screen))?(?: settings?| kholo| open)?$"]},
+  "windows":    {"what":"which windows are open","argv":_PSA+["Get-Process | ? MainWindowTitle | Select Id,ProcessName,MainWindowTitle | Format-Table -AutoSize | Out-String -Width 200"],"params":[],"needs":["ps51"],"risk":"R","conf":"doc",
+                 "says":[r"^(?:what'?s open|kya kya khula hai|open windows|windows list|kaunsi windows? khuli hai)$"]},
+  "minimize_all":{"what":"minimize every window","argv":_PSA+["(New-Object -ComObject Shell.Application).MinimizeAll()"],"params":[],"needs":["ps51"],"risk":"S","undo":"restore_all","conf":"doc",
+                 "says":[r"^(?:minimi[sz]e (?:all|everything|sab)|sab minimi[sz]e(?: kar(?: do)?)?|show desktop|desktop dikhao)$"]},
+  "restore_all":{"what":"undo minimize-all","argv":_PSA+["(New-Object -ComObject Shell.Application).UndoMinimizeALL()"],"params":[],"needs":["ps51"],"risk":"S","undo":"minimize_all","conf":"doc","says":[r"^(?:restore (?:all|windows)|windows wapas(?: lao)?)$"]},
+  "lock":       {"what":"lock the PC","argv":["rundll32.exe","user32.dll,LockWorkStation"],"params":[],"risk":"X","undo":None,"conf":"doc",
+                 "says":[r"^(?:lock(?: (?:the )?(?:screen|pc|laptop|computer))?|screen lock(?: kar(?: do)?)?|lock kar(?: do)?|pc lock)$"]},
+  "_stop":["media"],
+ },
+ "linux":{
+  "volume_set": {"what":"output volume 0-100","chain":[["wpctl","set-volume","-l","1.0","@DEFAULT_AUDIO_SINK@","{level}%"],["pactl","set-sink-volume","@DEFAULT_SINK@","{level}%"],["amixer","-q","sset","Master","{level}%"]],
+                 "params":[("level","int",{"min":0,"max":100})],"needs":["env:DISPLAY|WAYLAND_DISPLAY|XDG_RUNTIME_DIR"],"read":(["wpctl","get-volume","@DEFAULT_AUDIO_SINK@"],"pct"),"risk":"S","undo":"volume_set","conf":"doc",
+                 "says":[r"^(?:set (?:the )?)?(?:volume|awaaz|sound)(?: ko| to)?\s*(?P<level>\d{1,3})\s*(?:%|percent|kar(?: do)?|pe|par)?$"]},
+  "volume_get": {"what":"current volume","chain":[["wpctl","get-volume","@DEFAULT_AUDIO_SINK@"],["pactl","get-sink-volume","@DEFAULT_SINK@"],["amixer","sget","Master"]],"params":[],"needs":["env:DISPLAY|WAYLAND_DISPLAY|XDG_RUNTIME_DIR"],"risk":"R","conf":"doc",
+                 "says":[r"^(?:volume|awaaz|sound)\s*(?:kitn[ai](?: hai)?|level|\?|kya hai)?$"]},
+  "mute":       {"what":"mute / unmute","chain":[["wpctl","set-mute","@DEFAULT_AUDIO_SINK@","{state}"],["pactl","set-sink-mute","@DEFAULT_SINK@","{state}"]],
+                 "params":[("state","enum",{"in":["on","off"],"map":{"on":"1","off":"0"}})],"needs":["env:DISPLAY|WAYLAND_DISPLAY|XDG_RUNTIME_DIR"],"risk":"S","undo":{"hand":"mute","vals":{"state":"off"}},"conf":"doc",
+                 "says":[r"^(?:mute|chup(?: kar(?: do)?| ho ja)?|awaaz band(?: kar(?: do)?)?|sound off)$",r"^(?P<_unmute>unmute|awaaz (?:chalu|on)(?: kar(?: do)?)?|sound on)$"]},
+  "media":      {"what":"any MPRIS player: play/pause/next/previous/stop (busctl, no package)","chain":[["busctl","--user","call","{mpris}","/org/mpris/MediaPlayer2","org.mpris.MediaPlayer2.Player","{verb}"],["playerctl","{verb_lc}"]],
+                 "params":[("verb","enum",{"in":["playpause","play","pause","next","previous","stop"],"map":{"playpause":"PlayPause","play":"Play","pause":"Pause","next":"Next","previous":"Previous","stop":"Stop"}})],
+                 "needs":["env:DBUS_SESSION_BUS_ADDRESS|XDG_RUNTIME_DIR"],"risk":"S","undo":{"hand":"media","vals":{"verb":"pause"}},"conf":"doc",
+                 "says":[r"^(?P<verb>pause|play|next|previous|playpause)(?: (?:the )?(?:music|song|track|gaana))?$",r"^(?:gaana|music|song) (?P<verb>pause|play|next)$",
+                         r"^(?:gaana )?(?:rok(?:o| do)?|band kar(?: do)?)$|^(?:gaana|music) (?:chala(?:o| do)?|resume)$|^(?:agla|next) (?:gaana|song|track)$|^(?:pichla|previous|last) (?:gaana|song|track)$"]},
+  "notify":     {"what":"desktop notification","argv":["notify-send","Aasmaan","{text}"],"params":[("text","text",{"max":400})],"needs":["env:DBUS_SESSION_BUS_ADDRESS|XDG_RUNTIME_DIR"],"risk":"S","undo":None,"conf":"doc",
+                 "says":[r"^(?:notify|notification (?:bhej|de|do)|notif)[: ]+(?P<text>.+)$"]},
+  "say":        {"what":"speak text aloud (spd-say / espeak-ng)","chain":[["spd-say","-e"],["espeak-ng"],["espeak"]],"stdin":"text","params":[("text","text",{"max":4000})],"long":True,"risk":"S","stop":"kill","conf":"run",
+                 "says":[r"^(?:say|speak|bol(?: ke suna(?:o)?)?|padh ke suna(?:o)?|read (?:this )?(?:out|aloud))[: ]+(?P<text>.+)$"]},
+  "battery":    {"what":"battery from /sys (cannot fail)","py":"battery_sysfs","params":[],"risk":"R","conf":"run",
+                 "says":[r"^(?:battery(?: kitni(?: hai)?| status| level|\?)?|charge kitn[ai](?: hai)?|how much battery(?: is left)?)$"]},
+  "clip_get":   {"what":"read clipboard","chain":[["wl-paste","-n"],["xclip","-selection","clipboard","-o"],["xsel","-b","-o"]],"params":[],"needs":["env:DISPLAY|WAYLAND_DISPLAY"],"risk":"R","secret":True,"conf":"doc",
+                 "says":[r"^(?:clipboard(?: me)?(?: kya hai)?|clipboard (?:padh|dikha)(?:o)?|what'?s (?:in|on) (?:the |my )?clipboard|paste)$"]},
+  "clip_put":   {"what":"put text on clipboard","chain":[["wl-copy"],["xclip","-selection","clipboard"],["xsel","-b","-i"]],"stdin":"text","params":[("text","text",{"max":20000})],"needs":["env:DISPLAY|WAYLAND_DISPLAY"],"risk":"S","undo":None,"conf":"doc",
+                 "says":[r"^(?:copy|clipboard me (?:daal|rakh)(?:o| do)?)[: ]+(?P<text>.+)$"]},
+  "open_url":   {"what":"open a link in the browser","argv":["xdg-open","{url}"],"params":[("url","url",{})],"needs":["env:DISPLAY|WAYLAND_DISPLAY"],"risk":"S","undo":None,"conf":"doc",
+                 "says":[r"^(?:open|kholo?)\s+(?P<url>https?://\S+)$"]},
+  "lock":       {"what":"lock the session (logind)","argv":["loginctl","lock-session"],"params":[],"needs":["env:DISPLAY|WAYLAND_DISPLAY"],"risk":"X","undo":None,"conf":"doc",
+                 "says":[r"^(?:lock(?: (?:the )?(?:screen|pc|laptop|computer))?|screen lock(?: kar(?: do)?)?|lock kar(?: do)?|pc lock)$"]},
+  "timer":      {"what":"remind me in N minutes (systemd-run --user + notify)","argv":["systemd-run","--user","--quiet","--on-active={mins}m","--unit=aasmaan-timer-{ts}","notify-send","Aasmaan","{text}"],
+                 "params":[("mins","int",{"min":1,"max":1440}),("text","text",{"max":200,"default":"time!"})],"needs":["env:DBUS_SESSION_BUS_ADDRESS|XDG_RUNTIME_DIR"],"risk":"S","undo":None,"conf":"doc",
+                 "says":[r"^(?:remind me in|(?P<mins>\d{1,4}) min(?:ute)?s? (?:me|mein|baad) (?:yaad dila(?:o| do)?|remind)(?:[: ]+(?P<text>.+))?)$",r"^(?:remind me in|timer) (?P<mins>\d{1,4}) ?min(?:ute)?s?(?:[: ]+(?P<text>.+))?$"]},
+  "_stop":["media"],
+ },
+ "wsl":{   # no compositor, no session bus, no PipeWire: the OS hands live on the Windows side (documented interop)
+  "clip_put":   {"what":"put text on the Windows clipboard","argv":["clip.exe"],"stdin":"text","params":[("text","text",{"max":20000})],"needs":["clip.exe"],"risk":"S","undo":None,"conf":"doc",
+                 "says":[r"^(?:copy|clipboard me (?:daal|rakh)(?:o| do)?)[: ]+(?P<text>.+)$"]},
+  "clip_get":   {"what":"read the Windows clipboard","argv":["powershell.exe","-NoProfile","-Command","Get-Clipboard -Raw"],"params":[],"needs":["powershell.exe"],"risk":"R","secret":True,"conf":"doc",
+                 "says":[r"^(?:clipboard(?: me)?(?: kya hai)?|clipboard (?:padh|dikha)(?:o)?|what'?s (?:in|on) (?:the |my )?clipboard|paste)$"]},
+  "say":        {"what":"speak via Windows (System.Speech)","argv":["powershell.exe","-NoProfile","-Command","$t=[Console]::In.ReadToEnd(); Add-Type -AssemblyName System.Speech; (New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak($t)"],
+                 "stdin":"text","params":[("text","text",{"max":4000})],"needs":["powershell.exe"],"long":True,"risk":"S","stop":"kill","conf":"unv",
+                 "says":[r"^(?:say|speak|bol(?: ke suna(?:o)?)?|padh ke suna(?:o)?|read (?:this )?(?:out|aloud))[: ]+(?P<text>.+)$"]},
+  "open_url":   {"what":"open a link in the Windows browser","argv":["explorer.exe","{url}"],"params":[("url","url",{})],"needs":["explorer.exe"],"risk":"S","undo":None,"conf":"doc",
+                 "says":[r"^(?:open|kholo?)\s+(?P<url>https?://\S+)$"]},
+  "battery":    {"what":"battery from /sys (usually absent in WSL — says so)","py":"battery_sysfs","params":[],"risk":"R","conf":"run",
+                 "says":[r"^(?:battery(?: kitni(?: hai)?| status| level|\?)?|charge kitn[ai](?: hai)?|how much battery(?: is left)?)$"]},
+  "_stop":[],
+ },
+ "termux":{
+  # T3 — plain Termux, no add-on app, no Shizuku: the floor every Android install has
+  "open_url":   {"what":"open a link (any app that handles it)","argv":["termux-open-url","{url}"],"params":[("url","url",{})],"risk":"S","undo":None,"conf":"doc",
+                 "says":[r"^(?:open|kholo?)\s+(?P<url>https?://\S+)$"]},
+  "spotify":    {"what":"search Spotify (opens the app if installed)","argv":["termux-open-url","https://open.spotify.com/search/{q|urlq}"],"params":[("q","text",{"max":120})],"risk":"S","undo":None,"conf":"doc",
+                 "says":[r"^(?:spotify (?:pe |me |par )?(?:chala(?:o| do)?|kholo?|play|search)|play on spotify|spotify)[: ]+(?P<q>.+)$"]},
+  "youtube":    {"what":"search YouTube (opens the app if installed)","argv":["termux-open-url","https://www.youtube.com/results?search_query={q|urlq}"],"params":[("q","text",{"max":120})],"risk":"S","undo":None,"conf":"doc",
+                 "says":[r"^(?:youtube (?:pe |me |par )?(?:chala(?:o| do)?|kholo?|play|search)|play on youtube|youtube)[: ]+(?P<q>.+)$"]},
+  "whatsapp":   {"what":"open a WhatsApp chat with a prefilled message (nothing is sent)","argv":["termux-open-url","https://wa.me/{number}?text={text|urlq}"],
+                 "params":[("number","digits",{"min_len":8,"max_len":15}),("text","text",{"max":500,"default":""})],"risk":"S","undo":None,"conf":"doc",
+                 "says":[r"^(?:whatsapp|wa)\s+(?P<number>\+?[\d ]{8,18})(?:[: ]+(?P<text>.+))?$"]},
+  "wake_lock":  {"what":"keep the CPU awake (screen off)","argv":["termux-wake-lock"],"params":[],"risk":"S","undo":"wake_unlock","conf":"doc",
+                 "says":[r"^(?:stay awake|sone mat (?:do|dena)|wake ?lock|keep (?:the )?(?:phone|cpu) awake)$"]},
+  "wake_unlock":{"what":"release the wake lock","argv":["termux-wake-unlock"],"params":[],"risk":"S","undo":"wake_lock","conf":"doc","says":[r"^(?:wake ?unlock|release wake ?lock|so sakta hai)$"]},
+  # T1 — Termux:API (package + the F-Droid app, same signature; probe = a real call with a timeout)
+  "volume_set": {"what":"volume 0-15 (stream: music/ring/alarm/notification/system/call)","argv":["termux-volume","{stream}","{level}"],"needs":["termux-api"],
+                 "params":[("level","int",{"min":0,"max":25}),("stream","enum",{"in":["music","ring","alarm","notification","system","call"],"default":"music"})],
+                 "read":(["termux-volume"],"tvol"),"risk":"S","undo":"volume_set","conf":"doc",
+                 "says":[r"^(?:set (?:the )?)?(?:(?P<stream>music|ring|alarm|notification) )?(?:volume|awaaz|sound)(?: ko| to)?\s*(?P<level>\d{1,2})\s*(?:kar(?: do)?|pe|par)?$"]},
+  "volume_get": {"what":"all stream volumes","argv":["termux-volume"],"params":[],"needs":["termux-api"],"risk":"R","conf":"doc",
+                 "says":[r"^(?:volume|awaaz|sound)\s*(?:kitn[ai](?: hai)?|level|\?|kya hai)?$"]},
+  "brightness": {"what":"screen brightness 0-255","argv":["termux-brightness","{n}"],"params":[("n","int",{"min":1,"max":255})],"needs":["termux-api"],"perm":"Modify system settings — Android asks once","risk":"S","undo":{"hand":"brightness_auto","vals":{}},"conf":"doc",
+                 "says":[r"^(?:brightness|roshni|screen (?:brightness|roshni))(?: ko| to)?\s*(?P<n>\d{1,3})$"]},
+  "brightness_auto":{"what":"brightness back to auto","argv":["termux-brightness","auto"],"params":[],"needs":["termux-api"],"risk":"S","undo":None,"conf":"doc","says":[r"^(?:brightness|roshni) auto$"]},
+  "torch":      {"what":"flashlight on/off","argv":["termux-torch","{state}"],"params":[("state","enum",{"in":["on","off"],"map":{"on":"on","off":"off"}})],"needs":["termux-api"],"risk":"S","undo":{"hand":"torch","vals":{"state":"off"}},"conf":"doc",
+                 "says":[r"^(?:torch|flash(?:light)?|light|tourch) (?P<state>on|off)$",r"^(?:torch|flash(?:light)?|light) (?:chalu|jala(?:o| do)?)$|^(?P<_off>(?:torch|flash(?:light)?|light) (?:band|bujha(?:o| do)?)(?: kar(?: do)?)?)$"]},
+  "vibrate":    {"what":"buzz once","argv":["termux-vibrate","-d","400"],"params":[],"needs":["termux-api"],"risk":"S","undo":None,"conf":"doc","says":[r"^(?:vibrate|buzz(?: kar(?: do)?)?|vibration)$"]},
+  "toast":      {"what":"small on-screen message","argv":["termux-toast","{text}"],"params":[("text","text",{"max":200})],"needs":["termux-api"],"risk":"S","undo":None,"conf":"doc","says":[r"^toast[: ]+(?P<text>.+)$"]},
+  "notify":     {"what":"notification","argv":["termux-notification","-i","aasmaan","-t","Aasmaan","-c","{text}"],"params":[("text","text",{"max":400})],"needs":["termux-api"],"risk":"S","undo":"notify_clear","conf":"doc",
+                 "says":[r"^(?:notify|notification (?:bhej|de|do)|notif)[: ]+(?P<text>.+)$"]},
+  "notify_clear":{"what":"remove the Aasmaan notification","argv":["termux-notification-remove","aasmaan"],"params":[],"needs":["termux-api"],"risk":"S","undo":None,"conf":"doc","says":[r"^(?:notification hatao|clear notification)$"]},
+  "say":        {"what":"speak text aloud (Android TTS)","argv":["termux-tts-speak"],"stdin":"text","params":[("text","text",{"max":4000})],"needs":["termux-api"],"long":True,"risk":"S","stop":"kill","conf":"doc",
+                 "says":[r"^(?:say|speak|bol(?: ke suna(?:o)?)?|padh ke suna(?:o)?|read (?:this )?(?:out|aloud))[: ]+(?P<text>.+)$"]},
+  "battery":    {"what":"battery status","argv":["termux-battery-status"],"params":[],"needs":["termux-api"],"risk":"R","conf":"doc",
+                 "says":[r"^(?:battery(?: kitni(?: hai)?| status| level|\?)?|charge kitn[ai](?: hai)?|how much battery(?: is left)?)$"]},
+  "clip_get":   {"what":"read clipboard","argv":["termux-clipboard-get"],"params":[],"needs":["termux-api"],"risk":"R","secret":True,"conf":"doc",
+                 "says":[r"^(?:clipboard(?: me)?(?: kya hai)?|clipboard (?:padh|dikha)(?:o)?|what'?s (?:in|on) (?:the |my )?clipboard|paste)$"]},
+  "clip_put":   {"what":"put text on clipboard","argv":["termux-clipboard-set"],"stdin":"text","params":[("text","text",{"max":20000})],"needs":["termux-api"],"risk":"S","undo":None,"conf":"doc",
+                 "says":[r"^(?:copy|clipboard me (?:daal|rakh)(?:o| do)?)[: ]+(?P<text>.+)$"]},
+  "api_stop":   {"what":"stop the Termux:API service (cuts speech mid-sentence — the only TTS brake Android gives)","argv":["termux-api-stop"],"params":[],"needs":["termux-api"],"risk":"S","undo":None,"conf":"doc","says":[]},
+  # T2 — Shizuku via rish (ADB-shell identity, no root). rish -c takes ONE string = a shell: enum/int only, never text.
+  "media":      {"what":"ANY app's music: play/pause/next/previous/stop (media_session)","argv":["{rish}","-c","cmd media_session dispatch {key}"],"needs":["rish"],
+                 "params":[("verb","enum",{"in":["playpause","play","pause","next","previous","stop"],"map":{"playpause":"play-pause","play":"play","pause":"pause","next":"next","previous":"previous","stop":"stop"}})],
+                 "risk":"S","undo":{"hand":"media","vals":{"verb":"pause"}},"conf":"doc","_embed":{"key":"verb"},
+                 "says":[r"^(?P<verb>pause|play|next|previous|playpause|stop)(?: (?:the )?(?:music|song|track|gaana))?$",r"^(?:gaana|music|song) (?P<verb>pause|play|next)$",
+                         r"^(?:gaana )?(?:rok(?:o| do)?|band kar(?: do)?)$|^(?:gaana|music) (?:chala(?:o| do)?|resume)$|^(?:agla|next) (?:gaana|song|track)$|^(?:pichla|previous|last) (?:gaana|song|track)$"]},
+  "media_now":  {"what":"which app is playing","argv":["{rish}","-c","cmd media_session list-sessions"],"params":[],"needs":["rish"],"risk":"R","conf":"doc",
+                 "says":[r"^(?:what'?s playing|now playing|kya baj raha hai|kaunsa gaana(?: chal raha hai)?|which song)$"]},
+  "dnd":        {"what":"do-not-disturb on/off","argv":["{rish}","-c","cmd notification set_dnd {mode}"],"params":[("mode","enum",{"in":["on","off","priority","alarms"],"map":{"on":"on","off":"off","priority":"priority","alarms":"alarms"}})],
+                 "needs":["rish"],"risk":"X","undo":{"hand":"dnd","vals":{"mode":"off"}},"conf":"doc",
+                 "says":[r"^(?:dnd|do not disturb|disturb mat karo|silent mode) ?(?P<mode>on|off)?$"]},
+  "_stop":["media","api_stop"],
+ },
+}
+_H_SAY_MAP={"_unmute":("state","off"),"_off":("state","off"),"_nl":("page","nightlight"),"_fa":("page","quiethours"),"_cast":("page","project")}   # a named group that names the OPPOSITE value (regex alternation can't set a value)
+_H_HINGLISH_VERB={"rok":"pause","roko":"pause","rok do":"pause","band kar":"pause","band kar do":"pause","chalao":"play","chala do":"play","chala":"play","resume":"play","agla":"next","pichla":"previous","last":"previous"}
+_H_RX=re.compile(r"\{(\w+)(?:\|(\w+))?\}")
+def _h_derived():
+    ts=int(time.time()); pics=os.path.expanduser("~/Pictures")
+    try: os.makedirs(pics,exist_ok=True)
+    except OSError: pass
+    d={"ts":str(ts),"shot":os.path.join(pics,f"aasmaan-{ts}.png"),"ps51":_ps51(),"rish":_rish_path()}
+    return d
+def _rish_path():
+    return shutil.which("rish") or (os.path.expanduser("~/rish") if os.path.exists(os.path.expanduser("~/rish")) else "")
+_H_PROBE={}; _H_PROCS={}   # pid -> Popen for hands started in THIS process (poll() distinguishes finished from killed)
+_H_EX={"volume_set":"awaaz 30","volume_get":"volume kitna hai","mute":"mute / unmute","media":"pause · next · gaana roko","music":"pause · next · gaana roko","music_now":"kya baj raha hai",
+       "say":"say hello","notify":"notify: chai ready","clip_get":"clipboard me kya hai","clip_put":"copy: some text","battery":"battery kitni hai","open_url":"open https://…",
+       "open_app":"open Safari","find":"find file report.pdf","screenshot":"screenshot le","stay_awake":"stay awake for 30 min","sleep_now":"so jao","vol_up":"volume up","vol_down":"volume down",
+       "settings":"night light / cast / focus assist","windows":"kya kya khula hai","minimize_all":"show desktop","restore_all":"windows wapas","lock":"lock","timer":"remind me in 10 min: chai",
+       "spotify":"spotify pe chalao arijit","youtube":"youtube: lofi","whatsapp":"whatsapp 9198… : hi","wake_lock":"stay awake","wake_unlock":"wake unlock","brightness":"brightness 120",
+       "brightness_auto":"brightness auto","torch":"torch on / torch band kar do","vibrate":"buzz","toast":"toast: hello","notify_clear":"notification hatao","media_now":"kya baj raha hai","dnd":"dnd on"}
+def _h_probe(tok):
+    """needs tokens: a binary name · path:/abs · env:A|B (any set) · termux-api (a real call with a timeout —
+    package without the app HANGS, so the timeout IS the test) · rish (Shizuku alive now, uid 2000) · ps51."""
+    if tok in _H_PROBE: return _H_PROBE[tok]
+    ok=False
+    try:
+        if tok.startswith("path:"): ok=os.path.exists(tok[5:])
+        elif tok.startswith("env:"): ok=any(os.environ.get(k) for k in tok[4:].split("|"))
+        elif tok=="ps51": ok=bool(_ps51())
+        elif tok=="termux-api":
+            ok=bool(shutil.which("termux-battery-status")) and subprocess.run(["termux-battery-status"],capture_output=True,timeout=6).returncode==0
+        elif tok=="rish":
+            r=_rish_path(); ok=bool(r) and "uid=2000" in (subprocess.run([r,"-c","id"],capture_output=True,text=True,timeout=8).stdout or "")
+        else: ok=bool(shutil.which(tok))
+    except Exception: ok=False
+    _H_PROBE[tok]=ok; return ok
+def _h_table(osk=None): return {k:v for k,v in HANDS.get(osk or hand_os(),{}).items() if not k.startswith("_")}
+def _h_chain_pick(h):
+    """The first argv template whose binary is on this box (chain), else the single template."""
+    if "chain" in h:
+        for a in h["chain"]:
+            if shutil.which(a[0]): return a
+        return None
+    return h.get("argv")
+def hand_available(h,osk=None):
+    """(ok, why-not). Hidden = a need is unmet or every chain binary is missing. Never a runtime error."""
+    for n in h.get("needs",[]):
+        if not _h_probe(n):
+            why={"termux-api":"Termux:API chahiye — pkg install termux-api + F-Droid se 'Termux:API' app (same signature)",
+                 "rish":"Shizuku + rish chahiye (setup-menu → S)","ps51":"Windows PowerShell 5.1 nahi mila"}.get(n,
+                 f"env {n[4:]} set nahi (koi desktop session nahi?)" if n.startswith("env:") else f"{n.split(':',1)[-1]} nahi mila")
+            return False,why
+    if "py" in h: return True,""
+    a=_h_chain_pick(h)
+    if a is None: return False,"chain me se koi binary nahi: "+", ".join(c[0] for c in h["chain"])
+    if not a[0].startswith("{") and not shutil.which(a[0]): return False,f"{a[0]} nahi mila"
+    return True,""
+def hands_check(table=None):
+    """Load-time invariants — a hand that breaks one is a bug, not a config. Returns [] or the violations."""
+    bad=[]
+    for osk,tab in (table or HANDS).items():
+        for hid,h in tab.items():
+            if hid.startswith("_"): continue
+            ptypes={p[0]:p[1] for p in h.get("params",[])}
+            if h.get("risk") not in ("R","S","X","D"): bad.append(f"{osk}/{hid}: risk letter missing")
+            if h.get("risk")!="R" and not (h.get("undo") is not None or h.get("stop") or h.get("long")) and "undo" not in h: bad.append(f"{osk}/{hid}: no undo/stop declared")
+            if h.get("conf") not in ("run","doc","unv"): bad.append(f"{osk}/{hid}: conf missing")
+            if not h.get("says") and hid not in ("api_stop",): bad.append(f"{osk}/{hid}: no says rules")
+            tmpls=h.get("chain") or ([h["argv"]] if "argv" in h else []) or ([[h["target"]]] if h.get("target") else [])
+            for t in tmpls:
+                for el in t:
+                    for nm,fn in _H_RX.findall(el):
+                        whole=(el==f"{{{nm}}}")
+                        src=h.get("_embed",{}).get(nm,nm)
+                        ty=ptypes.get(src)
+                        if nm in ("ts","shot","ps51","rish","mpris","secs","verb_lc"): continue     # derived by code
+                        if ty is None: bad.append(f"{osk}/{hid}: template names unknown param {nm}")
+                        elif not whole and ty in ("text","url") and fn!="urlq": bad.append(f"{osk}/{hid}: {ty} param {nm} embedded inside a script element — must be a whole argv element or stdin")
+                        elif fn and fn!="urlq": bad.append(f"{osk}/{hid}: unknown transform {fn}")
+            if h.get("stdin") and h["stdin"] not in ptypes: bad.append(f"{osk}/{hid}: stdin names unknown param")
+            for rx in h.get("says",[]):
+                try: re.compile(rx,re.I)
+                except re.error as e: bad.append(f"{osk}/{hid}: bad says regex ({e})")
+    return bad
+_HANDS_BAD=hands_check()
+def _h_validate(h,vals):
+    """(vals, err) — typed, ranged, defaulted; the whole story for what may reach a template."""
+    out={}
+    for nm,ty,spec in h.get("params",[]):
+        v=vals.get(nm)
+        if v is None or v=="":
+            if "default" in spec: v=spec["default"]
+            else: return None,f"missing <{nm}>"
+        v=str(v).strip()
+        if ty=="int":
+            if not re.fullmatch(r"-?\d{1,6}",v): return None,f"<{nm}> must be a number"
+            iv=int(v)
+            if iv<spec.get("min",-10**6) or iv>spec.get("max",10**6): return None,f"<{nm}> must be {spec.get('min')}–{spec.get('max')}"
+            v=str(iv)
+        elif ty=="enum":
+            v=v.lower(); v=_H_HINGLISH_VERB.get(v,v)
+            if v not in spec["in"]: return None,f"<{nm}> must be one of {', '.join(spec['in'])}"
+            v=spec.get("map",{}).get(v,v)
+        elif ty=="text":
+            if len(v)>spec.get("max",4000): return None,f"<{nm}> is {len(v)} chars; cap {spec.get('max')}"
+            if _RX_CTRL_HARD.search(v): return None,f"<{nm}> has control characters"
+        elif ty=="url":
+            u,e=_v_url(v,{},nm)
+            if e: return None,e
+            if not re.match(r"https?://",u,re.I): return None,f"<{nm}> must start with http(s)://"
+            v=u
+        elif ty=="digits":
+            v=re.sub(r"[ +\-]","",v)
+            if not v.isdigit() or not spec.get("min_len",1)<=len(v)<=spec.get("max_len",32): return None,f"<{nm}> must be {spec.get('min_len')}–{spec.get('max_len')} digits"
+        out[nm]=v
+    return out,""
+def _h_build(h,vals):
+    """argv from the code-owned template. A whole-element {x} becomes one element; embedded {x} only for the
+    types hands_check() allows; {x|urlq} URL-encodes. Derived values ({ts} {shot} {ps51} {rish} {mpris}) come from code."""
+    import urllib.parse as _up
+    d=_h_derived(); d.update({k:v for k,v in vals.items()})
+    if "minutes" in vals: d["secs"]=str(int(vals["minutes"])*60)
+    for k,src in h.get("_embed",{}).items(): d[k]=vals.get(src,"")
+    if "verb" in vals: d["verb_lc"]=vals["verb"].lower()
+    t=_h_chain_pick(h)
+    if t is None: return None,"no runnable template"
+    if "{mpris}" in " ".join(t):
+        d["mpris"]=_h_mpris()
+        if not d["mpris"]: return None,"koi media player chal nahi raha (MPRIS par kuch nahi)"
+    out=[]
+    for el in t:
+        def sub(m):
+            nm,fn=m.group(1),m.group(2); v=d.get(nm)
+            if v is None: raise KeyError(nm)
+            return _up.quote(str(v),safe="") if fn=="urlq" else str(v)
+        try: out.append(_H_RX.sub(sub,el))
+        except KeyError as e: return None,f"template wants {e} and it was not bound"
+    if out and not out[0]: return None,"binary path resolved empty"
+    e=_argv_ok(out)
+    if e: return None,e
+    return out,""
+def _h_mpris():
+    try:
+        o=subprocess.run(["busctl","--user","--acquired","--no-legend","list"],capture_output=True,text=True,timeout=4).stdout
+        for w in o.split():
+            if w.startswith("org.mpris.MediaPlayer2."): return w
+    except Exception: pass
+    return ""
+def _h_read_prev(h):
+    """State hands capture the prior value BEFORE acting — an undo without a saved value is not an undo."""
+    if not h.get("read"): return None
+    argv,kind=h["read"]
+    try:
+        argv=[_h_derived().get(a[1:-1],a) if a.startswith("{") else a for a in argv]
+        if not shutil.which(argv[0]): return None
+        o=subprocess.run(argv,capture_output=True,text=True,timeout=8).stdout or ""
+        if kind=="int": m=re.search(r"\d+",o); return int(m.group()) if m else None
+        if kind=="pct": m=re.search(r"(\d+(?:\.\d+)?)",o); return int(round(float(m.group(1))*100)) if m and float(m.group(1))<=2 else (int(float(m.group(1))) if m else None)
+        if kind=="tvol":
+            for row in json.loads(o):
+                if row.get("stream")=="music": return int(row.get("volume",0))
+    except Exception: return None
+    return None
+def _h_state():
+    try: return json.load(open(HANDS_STATE))
+    except Exception: return {"pids":[],"last":[],"perm_seen":[]}
+def _h_state_save(s):
+    try: json.dump(s,open(HANDS_STATE,"w"))
+    except OSError: pass
+def _h_py(kind,h,vals):
+    if kind=="startfile":
+        tgt=_H_RX.sub(lambda m:str(vals.get(m.group(1),"")),h["target"])
+        if hasattr(os,"startfile"): os.startfile(tgt); return f"opened {tgt}"
+        return runargv(["xdg-open",tgt]) or ""
+    if kind=="battery_sysfs":
+        import glob as _g
+        rows=[]
+        for cap in _g.glob("/sys/class/power_supply/*/capacity"):
+            try:
+                st=open(os.path.join(os.path.dirname(cap),"status")).read().strip() if os.path.exists(os.path.join(os.path.dirname(cap),"status")) else "?"
+                rows.append(f"{os.path.basename(os.path.dirname(cap))}: {open(cap).read().strip()}% ({st})")
+            except OSError: pass
+        return "\n".join(rows) if rows else "no battery visible in /sys (desktop, VM, or WSL)"
+    return f"unknown py hand {kind}"
+def hands_intent(text,osk=None):
+    """Plain words → (hand_id, vals) or None. Whole-message rules only, per available hand; a coding question
+    ('how do I set the volume in JS') never matches because every rule is anchored at both ends."""
+    t=(text or "").strip()
+    if not t or t.startswith("/") or len(t)>160: return None
+    for hid,h in _h_table(osk).items():
+        for rx in h.get("says",[]):
+            m=re.match(rx+r"\Z",t,re.I)
+            if not m: continue
+            vals={k:v for k,v in m.groupdict().items() if v is not None and not k.startswith("_")}
+            for k,v in m.groupdict().items():
+                if v is not None and k in _H_SAY_MAP: vals[_H_SAY_MAP[k][0]]=_H_SAY_MAP[k][1]
+            # a rule with no capture for an enum param: the matched words name the value (Hinglish verbs)
+            for nm,ty,spec in h.get("params",[]):
+                if ty=="enum" and nm not in vals:
+                    w=m.group(0).lower()
+                    if "on" in spec["in"] and re.search(r"\b(?:on|chalu|jala)",w): vals[nm]="on"
+                    elif "off" in spec["in"] and re.search(r"\b(?:off|band|bujha)",w): vals[nm]="off"
+                    elif "pause" in spec["in"]:
+                        for k2,v2 in _H_HINGLISH_VERB.items():
+                            if re.search(r"\b"+re.escape(k2)+r"\b",w): vals[nm]=v2; break
+                        else:
+                            for v2 in spec["in"]:
+                                if re.search(r"\b"+v2+r"\b",w): vals[nm]=v2; break
+            return hid,vals
+    return None
+STOP_RX=re.compile(r"^(?:stop|ruk(?:o| ja(?:o)?)?|bas(?: karo| kar)?|chup(?: ho ja(?:o)?)?|band karo|cancel|halt|roko)[.!]?$",re.I)
+def hand_run(st,hid,vals=None,args="",osk=None,source="chat"):
+    """The one door every hand goes through: availability → params → risk gate → prior value → argv → run → record."""
+    tab=_h_table(osk); h=tab.get(hid)
+    if not h: print(f"[hand] '{hid}' is device pe nahi hai — /hands"); LAST_RC[0]=1; return None
+    ok,why=hand_available(h,osk)
+    if not ok: print(f"[hand] {hid}: {why}"); LAST_RC[0]=1; return None
+    vals=dict(vals or {})
+    if args:   # positional / k=v from /hand or /do
+        pos=[]
+        for tok in shlex.split(args) if not h.get("stdin") else [args]:
+            if "=" in tok and re.match(r"\w+=",tok) and not h.get("stdin"): k,v=tok.split("=",1); vals[k]=v
+            else: pos.append(tok)
+        names=[p[0] for p in h.get("params",[]) if p[0] not in vals]
+        if h.get("stdin") and pos: vals[h["stdin"]]=" ".join(pos)
+        else:
+            for nm,v in zip(names,pos): vals[nm]=v
+            if len(pos)>len(names) and names: vals[names[-1]]=" ".join(pos[len(names)-1:])
+    vals,e=_h_validate(h,vals)
+    if e:
+        print(f"[hand] {hid}: {e}\n  usage: /hand {hid} "+" ".join(f"<{p[0]}>" if "default" not in p[2] else f"[{p[0]}]" for p in h.get("params",[]))); LAST_RC[0]=2; return None
+    risk=h.get("risk","X")
+    if os.environ.get("AI_ATTENDED","1")=="0" and risk!="R":
+        print(f"[hand] {hid}: unattended (daemon) me sirf read hands chalte hain"); LAST_RC[0]=3; return None
+    if risk in ("X","D"):
+        note="  (wapas nahi hota)" if risk=="D" or not h.get("undo") else ""
+        if not sys.stdin.isatty() and source!="api": print(f"[hand] {hid} poochh ke chalta hai{note} — terminal me:  /hand {hid}"); LAST_RC[0]=3; return None
+        if not _confirm(f"[hand] {hid}: {h.get('what','')}{note} — chalaun?"): print("[hand] nahi chalaya"); LAST_RC[0]=3; return None
+    s=_h_state()
+    if h.get("perm") and hid not in s.get("perm_seen",[]):
+        print(f"[hand] pehli baar: {h['perm']} — OS khud poochhega, main nahi."); s.setdefault("perm_seen",[]).append(hid)
+    prev=_h_read_prev(h)
+    t0=time.time(); out=""
+    if "py" in h:
+        try: out=_h_py(h["py"],h,vals); LAST_RC[0]=0
+        except Exception as ex: out=f"{type(ex).__name__}: {ex}"; LAST_RC[0]=1
+        print(f"[hand] {hid}: {out}")
+    else:
+        argv,e=_h_build(h,vals)
+        if e: print(f"[hand] {hid}: {e}"); LAST_RC[0]=2; return None
+        text_in=vals.get(h["stdin"]) if h.get("stdin") else None
+        shown=" ".join(shlex.quote(x) for x in argv)
+        if h.get("long"):
+            try:
+                p=subprocess.Popen(argv,stdin=subprocess.PIPE if text_in is not None else None,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,text=True)
+                if text_in is not None:
+                    try: p.stdin.write(text_in); p.stdin.close()
+                    except OSError: pass
+                s.setdefault("pids",[]).append({"hand":hid,"pid":p.pid,"ts":t0}); _H_PROCS[p.pid]=p; LAST_RC[0]=0
+                print(f"[hand] {hid} chal raha hai (pid {p.pid}) — /stop se rukega\n$ {shown}")
+                out=f"started pid {p.pid}"
+            except (OSError,subprocess.SubprocessError) as ex: print(f"[hand] {hid}: {ex}"); LAST_RC[0]=1; return None
+        else:
+            print("$ "+shown)
+            try: o=subprocess.run(argv,input=text_in,capture_output=True,text=True,timeout=h.get("timeout",40)); LAST_RC[0]=o.returncode; out=((o.stdout or "")+(o.stderr or "")).strip()
+            except subprocess.TimeoutExpired: LAST_RC[0]=124; out="timed out"
+            except OSError as ex: LAST_RC[0]=126; out=str(ex)
+            if h.get("secret"): out=redact(out)[0]
+            if out: print(out[:4000])
+            if LAST_RC[0]: print(f"[exit {LAST_RC[0]}]")
+            elif not out: print(f"[hand] {hid}: done")
+    if LAST_RC[0]==0:
+        s.setdefault("last",[]).append({"hand":hid,"vals":vals,"prev":prev,"ts":t0}); s["last"]=s["last"][-20:]
+        try: trace_put(hid,args or " ".join(f"{k}={v}" for k,v in vals.items()),"hand","0 hand",args,out,time.time()-t0)
+        except Exception: pass
+    _h_state_save(s)
+    return out
+def hands_stop(hid=None,osk=None):
+    """/stop: (a) every process a hand started (terminate → kill), then (b) the platform's state brakes
+    (media pause, Termux:API stop). Never a silent no-op: says what it stopped or that nothing was running."""
+    s=_h_state(); did=[]; keep=[]; gone=[]
+    if stop_speaking(): did.append("speech")
+    if not hid:
+        for j in job_cancel(): did.append(f"bg #{j}")
+    for rec in s.get("pids",[]):
+        if hid and rec["hand"]!=hid: keep.append(rec); continue
+        p=_H_PROCS.pop(rec["pid"],None)
+        try:
+            if p is not None:
+                if p.poll() is not None: gone.append(rec["hand"]); continue     # finished on its own
+                p.terminate()
+                try: p.wait(2)
+                except subprocess.TimeoutExpired: p.kill(); p.wait(2)
+            else:
+                os.kill(rec["pid"],15); time.sleep(0.3)
+                try: os.kill(rec["pid"],9)
+                except OSError: pass
+            did.append(f"{rec['hand']} (pid {rec['pid']})")
+        except OSError: gone.append(rec["hand"])   # already gone
+    s["pids"]=keep; _h_state_save(s)
+    if gone: print("[stop] pehle hi khatam: "+", ".join(gone))
+    if hid and hid not in [d.split()[0] for d in did]:
+        h=_h_table(osk).get(hid)
+        if h and isinstance(h.get("stop"),str) and h["stop"]!="kill": hand_run(None,h["stop"],osk=osk,source="stop"); did.append(h["stop"])
+    if not hid:
+        tab=HANDS.get(osk or hand_os(),{})
+        for b in tab.get("_stop",[]):
+            h=tab.get(b)
+            if h and hand_available(h,osk)[0] and (b!="api_stop" or did):   # api_stop only if a say was live
+                vals={"verb":"pause"} if "verb" in [p[0] for p in h.get("params",[])] else {}
+                if hand_run(None,b,vals,osk=osk,source="stop") is not None: did.append(b)
+    print(_t("stop.done",what=", ".join(did)) if did else _t("stop.none"))
+    return did
+def hands_undo(osk=None):
+    s=_h_state(); L=s.get("last",[])
+    if not L: print("[undo] koi hand chala hi nahi"); return False
+    rec=L.pop(); s["last"]=L; _h_state_save(s)
+    h=_h_table(osk).get(rec["hand"]); u=h.get("undo") if h else None
+    if not u: print(f"[undo] {rec['hand']} ka undo nahi hai"+(" (wapas nahi hota)" if h and h.get("risk")=="D" else "")); return False
+    if isinstance(u,dict): return hand_run(None,u["hand"],dict(u.get("vals",{})),osk=osk,source="undo") is not None
+    if rec.get("prev") is None: print(f"[undo] {rec['hand']}: pehle ki value nahi mili thi — /hand {u} <value> haath se"); return False
+    first=h["params"][0][0] if h.get("params") else None
+    return hand_run(None,u,{first:str(rec["prev"])} if first else {},osk=osk,source="undo") is not None
+def hands_text(osk=None):
+    osk=osk or hand_os(); tab=_h_table(osk)
+    if not tab: return f"[hands] {osk}: is platform ke liye abhi koi hand nahi"
+    avail=[]; hidden=[]
+    for hid,h in tab.items():
+        ok,why=hand_available(h,osk)
+        (avail if ok else hidden).append((hid,h,why))
+    L=[f"[hands] {osk} · {len(avail)} chal sakte hain · {len(hidden)} chhupe (zaroorat poori nahi) · risk: R padhta hai · S safe/undo · X pehle poochhta hai · D wapas nahi"]
+    for hid,h,_ in avail:
+        ps=" ".join(f"<{p[0]}>" if "default" not in p[2] else f"[{p[0]}]" for p in h.get("params",[]))
+        ex=_H_EX.get(hid,"")
+        L.append(f"  {h['risk']}  {hid:<14} {ps:<22} {h.get('what','')}"+(f"  · bolo: \"{ex}\"" if ex else "")+("" if h.get("conf")!="unv" else "  · real hardware pe abhi unverified — batao"))
+    if hidden:
+        L.append("  chhupe: "+" · ".join(f"{hid} ({why})" for hid,h,why in hidden[:6])+(" …" if len(hidden)>6 else ""))
+    L.append("  /hand <id> [args] · /stop [id] · /undo · plain words bhi: \"awaaz 30\", \"pause\", \"battery\", \"say hello\" — voice se bhi wahi")
+    if _HANDS_BAD: L.append("  ⚠ hands_check: "+"; ".join(_HANDS_BAD[:3]))
+    return "\n".join(L)
+# ══ RUNG 0 TOOLS — deterministic, stdlib, offline: answer BEFORE any brain is asked. The keyless user's
+# first questions are arithmetic, a date, a conversion — not a wall (G-raw-user §1d). Whole-message
+# triggers only; a real question ("how do I compute EMI in Python?") never matches. Never eval(); the
+# calculator walks an allowlisted ast. Passwords bypass journal/corpus (returned with a no-record flag).
+_T0_NODES=(ast.Expression,ast.BinOp,ast.UnaryOp,ast.Constant,ast.Add,ast.Sub,ast.Mult,ast.Div,ast.FloorDiv,ast.Mod,ast.Pow,
+           ast.USub,ast.UAdd,ast.Call,ast.Name,ast.Load,ast.Tuple)
+_T0_FUNCS={"sqrt":math.sqrt,"abs":abs,"round":round,"sin":math.sin,"cos":math.cos,"tan":math.tan,"log":math.log,"log10":math.log10,
+           "log2":math.log2,"exp":math.exp,"floor":math.floor,"ceil":math.ceil,"min":min,"max":max,"pi":math.pi,"e":math.e}
+def calc(expr):
+    """Safe arithmetic. '15% of 4200', '2^10', '10 ka 18%', sqrt/log/sin, parentheses. Returns str or None."""
+    e=(expr or "").strip().rstrip("?").strip()
+    e=re.sub(r"\b(?:kitna|kitne|kya)\s*(?:hai|hoga|hote hain)?$","",e,flags=re.I).strip()
+    m=re.fullmatch(r"(-?\d+(?:\.\d+)?)\s*%\s*(?:of|ka|ke)\s*(-?\d+(?:\.\d+)?)",e,re.I)
+    if m: return _t0_num(float(m.group(1))/100*float(m.group(2)))
+    m=re.fullmatch(r"(-?\d+(?:\.\d+)?)\s*(?:ka|ke)\s*(-?\d+(?:\.\d+)?)\s*%",e,re.I)
+    if m: return _t0_num(float(m.group(2))/100*float(m.group(1)))
+    e=e.replace("^","**").replace("×","*").replace("÷","/").replace(",","")
+    e=re.sub(r"(\d)\s*%(?!\s*\d)","(\\1/100)",e)
+    if not re.fullmatch(r"[\d\s+\-*/().%a-z_]+",e,re.I) or not re.search(r"\d",e): return None
+    try: tree=ast.parse(e,mode="eval")
+    except SyntaxError: return None
+    for n in ast.walk(tree):
+        if not isinstance(n,_T0_NODES): return None
+        if isinstance(n,ast.Name) and n.id not in _T0_FUNCS: return None
+        if isinstance(n,ast.Call) and not (isinstance(n.func,ast.Name) and callable(_T0_FUNCS.get(n.func.id))): return None
+        if isinstance(n,ast.Constant) and not isinstance(n.value,(int,float)): return None
+        if isinstance(n,ast.BinOp) and isinstance(n.op,ast.Pow) and isinstance(n.right,ast.Constant) and abs(n.right.value)>1000: return None
+    try: v=eval(compile(tree,"<calc>","eval"),{"__builtins__":{}},dict(_T0_FUNCS))   # allowlisted ast only — see the walk above
+    except (ZeroDivisionError,ValueError,OverflowError,TypeError) as ex: return f"nahi: {ex}"
+    return _t0_num(v)
+def _t0_num(v):
+    if isinstance(v,float):
+        if v!=v or v in (float("inf"),float("-inf")): return "nahi: overflow"
+        return (f"{v:.10g}" if abs(v)<1e15 else f"{v:.6e}")
+    return str(v)
+_T0_TZ={"jaipur":"Asia/Kolkata","delhi":"Asia/Kolkata","mumbai":"Asia/Kolkata","india":"Asia/Kolkata","ist":"Asia/Kolkata","kolkata":"Asia/Kolkata","bangalore":"Asia/Kolkata","bengaluru":"Asia/Kolkata",
+        "boston":"America/New_York","new york":"America/New_York","nyc":"America/New_York","toronto":"America/Toronto","chicago":"America/Chicago","dallas":"America/Chicago",
+        "la":"America/Los_Angeles","los angeles":"America/Los_Angeles","san francisco":"America/Los_Angeles","seattle":"America/Los_Angeles","london":"Europe/London","uk":"Europe/London",
+        "paris":"Europe/Paris","berlin":"Europe/Berlin","dubai":"Asia/Dubai","uae":"Asia/Dubai","singapore":"Asia/Singapore","tokyo":"Asia/Tokyo","japan":"Asia/Tokyo","sydney":"Australia/Sydney",
+        "melbourne":"Australia/Melbourne","hong kong":"Asia/Hong_Kong","beijing":"Asia/Shanghai","shanghai":"Asia/Shanghai","moscow":"Europe/Moscow","utc":"UTC","gmt":"UTC","riyadh":"Asia/Riyadh",
+        "doha":"Asia/Qatar","nairobi":"Africa/Nairobi","lagos":"Africa/Lagos","cairo":"Africa/Cairo","karachi":"Asia/Karachi","dhaka":"Asia/Dhaka","kathmandu":"Asia/Kathmandu","colombo":"Asia/Colombo"}
+def _t0_zone(place):
+    from datetime import datetime,timezone
+    p=(place or "").strip().lower().replace("_"," ")
+    name=_T0_TZ.get(p)
+    if not name:
+        try:
+            import zoneinfo
+            cand=[z for z in zoneinfo.available_timezones() if z.lower().endswith("/"+p.replace(" ","_"))]
+            name=sorted(cand)[0] if cand else None
+        except Exception: name=None
+    if not name: return None,None
+    try:
+        import zoneinfo; tz=zoneinfo.ZoneInfo(name); return name,datetime.now(tz)
+    except Exception:   # Termux without tzdata → fixed offsets for the common ones
+        from datetime import timedelta
+        off={"Asia/Kolkata":5.5,"America/New_York":-4,"America/Chicago":-5,"America/Los_Angeles":-7,"Europe/London":1,"Europe/Paris":2,"Asia/Dubai":4,"Asia/Singapore":8,"Asia/Tokyo":9,"UTC":0}.get(name)
+        if off is None: return name,None
+        return name+" (fixed offset — pkg install tzdata for DST)",datetime.now(timezone(timedelta(hours=off)))
+def _t0_date(s):
+    from datetime import datetime
+    s=(s or "").strip()
+    for f in ("%d %b %Y","%d %B %Y","%d-%m-%Y","%d/%m/%Y","%Y-%m-%d","%b %d %Y","%B %d %Y","%d %b, %Y","%d %B, %Y","%d %b","%d %B","%d-%m","%d/%m"):
+        try:
+            d=datetime.strptime(s,f)
+            if "%Y" not in f: d=d.replace(year=datetime.now().year)
+            return d
+        except ValueError: continue
+    return None
+_T0_UNITS={ # canonical base per family; value = factor to base
+ "length":{"m":1,"meter":1,"metre":1,"km":1000,"cm":0.01,"mm":0.001,"mi":1609.344,"mile":1609.344,"miles":1609.344,"ft":0.3048,"feet":0.3048,"foot":0.3048,"in":0.0254,"inch":0.0254,"inches":0.0254,"yd":0.9144,"yard":0.9144,"nm":1852},
+ "mass":{"kg":1,"g":0.001,"gram":0.001,"mg":1e-6,"lb":0.45359237,"lbs":0.45359237,"pound":0.45359237,"pounds":0.45359237,"oz":0.028349523,"ounce":0.028349523,"ton":1000,"tonne":1000,"quintal":100},
+ "volume":{"l":1,"litre":1,"liter":1,"ml":0.001,"gal":3.785411784,"gallon":3.785411784,"gallons":3.785411784,"cup":0.2365882,"cups":0.2365882,"tbsp":0.0147868,"tsp":0.00492892},
+ "data":{"b":1,"byte":1,"bytes":1,"kb":1024,"mb":1024**2,"gb":1024**3,"tb":1024**4,"kib":1024,"mib":1024**2,"gib":1024**3},
+ "speed":{"kmh":1,"kph":1,"km/h":1,"mph":1.609344,"ms":3.6,"m/s":3.6,"knot":1.852,"knots":1.852},
+ "time":{"s":1,"sec":1,"second":1,"seconds":1,"min":60,"minute":60,"minutes":60,"h":3600,"hr":3600,"hour":3600,"hours":3600,"day":86400,"days":86400,"week":604800,"weeks":604800},
+ "area":{"sqm":1,"m2":1,"sqft":0.09290304,"ft2":0.09290304,"acre":4046.8564224,"acres":4046.8564224,"hectare":10000,"ha":10000,"bigha":2529.3,"sqyd":0.83612736,"gaj":0.83612736}}
+def convert(v,a,b):
+    a=a.lower().strip("."); b=b.lower().strip(".")
+    T={"c":"c","celsius":"c","f":"f","fahrenheit":"f","k":"k","kelvin":"k","°c":"c","°f":"f"}
+    if a in T and b in T:
+        a,b=T[a],T[b]; c=v if a=="c" else (v-32)*5/9 if a=="f" else v-273.15
+        r=c if b=="c" else c*9/5+32 if b=="f" else c+273.15
+        return f"{_t0_num(v)} °{a.upper()} = {_t0_num(round(r,4))} °{b.upper()}"
+    for fam,tab in _T0_UNITS.items():
+        if a in tab and b in tab:
+            r=v*tab[a]/tab[b]; note="  (bigha varies by state — Rajasthan pucca bigha used)" if "bigha" in (a,b) else ""
+            return f"{_t0_num(v)} {a} = {_t0_num(round(r,6))} {b}{note}"
+    return None
+def _t0_money(kind,args):
+    P,r,n=float(args[0]),float(args[1]),float(args[2])
+    if kind=="emi":
+        i=r/1200; m=n*12; emi=P*i*(1+i)**m/((1+i)**m-1) if i else P/m
+        return (f"EMI = P·i·(1+i)^n / ((1+i)^n − 1)  ·  P={_t0_num(P)}, i={r}%/12, n={int(m)} months\n"
+                f"EMI ≈ ₹{emi:,.2f}/month · total ≈ ₹{emi*m:,.0f} · interest ≈ ₹{emi*m-P:,.0f}\n"
+                "ye sirf ek calculator hai — koi investment/loan advice ya recommendation nahi; bank ka actual schedule alag ho sakta hai.")
+    if kind=="sip":
+        i=r/1200; m=n*12; fv=P*(((1+i)**m-1)/i)*(1+i) if i else P*m
+        return (f"FV = A·((1+i)^n − 1)/i·(1+i)  ·  A={_t0_num(P)}/month, i={r}%/12, n={int(m)} months\n"
+                f"invested ≈ ₹{P*m:,.0f} · value at {r}% assumed ≈ ₹{fv:,.0f}\n"
+                "ye sirf ek calculator hai, assumed return pe — koi investment advice, recommendation ya guarantee nahi. Mutual fund investments are subject to market risks.")
+    if kind=="lumpsum":
+        fv=P*(1+r/100)**n
+        return (f"FV = P·(1+r)^n  ·  P={_t0_num(P)}, r={r}%/yr, n={_t0_num(n)} yr\nvalue ≈ ₹{fv:,.0f}\n"
+                "ye sirf ek calculator hai, assumed return pe — koi investment advice, recommendation ya guarantee nahi.")
+def weather(place):
+    """Keyless: open-meteo geocoding + current weather (CC BY 4.0 — attribution is a licence term, printed every time)."""
+    if not net_up(): return "[weather] net nahi — mausam ke liye internet chahiye (key nahi)"
+    try:
+        q=urllib.parse.quote(place.strip())
+        g=json.loads(urllib.request.urlopen(f"https://geocoding-api.open-meteo.com/v1/search?name={q}&count=1&language=en&format=json",timeout=12).read().decode())
+        r=(g.get("results") or [None])[0]
+        if not r: return f"[weather] '{place}' nahi mila (spelling? bada sheher try karo)"
+        w=json.loads(urllib.request.urlopen(f"https://api.open-meteo.com/v1/forecast?latitude={r['latitude']}&longitude={r['longitude']}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,wind_speed_10m,weather_code&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=2",timeout=12).read().decode())
+        c=w.get("current",{}); d=w.get("daily",{})
+        code={0:"clear",1:"mostly clear",2:"partly cloudy",3:"overcast",45:"fog",48:"fog",51:"drizzle",53:"drizzle",55:"drizzle",61:"rain",63:"rain",65:"heavy rain",71:"snow",73:"snow",75:"snow",80:"showers",81:"showers",82:"heavy showers",95:"thunderstorm",96:"thunderstorm",99:"thunderstorm"}.get(c.get("weather_code"),"?")
+        L=[f"[weather] {r['name']}, {r.get('admin1','')} {r.get('country','')}: {c.get('temperature_2m')}°C (feels {c.get('apparent_temperature')}°C) · {code} · humidity {c.get('relative_humidity_2m')}% · wind {c.get('wind_speed_10m')} km/h"]
+        if d.get("temperature_2m_max"):
+            L.append(f"  today {d['temperature_2m_min'][0]}–{d['temperature_2m_max'][0]}°C · rain chance {d.get('precipitation_probability_max',['?'])[0]}%"+
+                     (f" · tomorrow {d['temperature_2m_min'][1]}–{d['temperature_2m_max'][1]}°C" if len(d['temperature_2m_max'])>1 else ""))
+        L.append("  Weather data by Open-Meteo.com (CC BY 4.0)")
+        return "\n".join(L)
+    except Exception as ex: return f"[weather] nahi mila: {type(ex).__name__}: {ex}"
+def local_tool(text):
+    """Plain text → (answer, record) or None. record=False means: never journal/corpus/cache this (passwords)."""
+    from datetime import datetime,timedelta
+    t=(text or "").strip()
+    if not t or t.startswith("/") or len(t)>300: return None
+    low=t.lower()
+    m=re.fullmatch(r"=\s*(.+)",t)
+    if m:
+        r=calc(m.group(1)); return (f"= {r}",True) if r is not None else ("[calc] samajh nahi aaya — sirf numbers, + - * / ^ % ( ) aur sqrt/log/sin",True)
+    m=re.fullmatch(r"(?:sqrt|square root)(?: of)?\s*\(?\s*(\d+(?:\.\d+)?)\s*\)?\??",t,re.I)
+    if m: return (f"= {calc('sqrt('+m.group(1)+')')}   (offline, bina brain)",True)
+    if (re.fullmatch(r"[\d\s+\-*/().%^×÷,]+(?:\s*(?:kitna|kitne|kya)\s*(?:hai|hoga|hote hain)?)?\s*\??",t,re.I) and re.search(r"\d\s*[+\-*/^%×÷]\s*[\d(]",t)) \
+       or re.fullmatch(r"-?\d+(?:\.\d+)?\s*%\s*(?:of|ka|ke)\s*-?\d+(?:\.\d+)?\s*(?:kitna(?: hai| hoga)?)?\??",t,re.I) \
+       or re.fullmatch(r"-?\d+(?:\.\d+)?\s*(?:ka|ke)\s*-?\d+(?:\.\d+)?\s*%\s*(?:kitna(?: hai| hoga)?)?\??",t,re.I):
+        r=calc(t)
+        if r is not None: return (f"= {r}   (offline, bina brain)",True)
+    if re.fullmatch(r"(?:date|today'?s date|what(?:'s| is) (?:the )?date(?: today)?|aaj (?:kya|kaunsi|konsi) (?:date|tareekh)(?: hai)?|aaj ki (?:date|tareekh)|tareekh|aaj kya din hai|what day is it(?: today)?|kaunsa din hai)\??",low):
+        n=datetime.now(); return (f"{n.strftime('%A, %d %B %Y')} · {n.strftime('%H:%M')} local",True)
+    if re.fullmatch(r"(?:time|kitne baje(?: hain| hai)?|what time is it|what'?s the time|samay(?: kya hai)?|abhi (?:kitne baje|time)(?: hai| hain)?)\??",low):
+        n=datetime.now(); return (f"{n.strftime('%H:%M:%S')} · {n.strftime('%A, %d %b')}",True)
+    m=re.fullmatch(r"(?:time|kitne baje|what time is it|samay)\s+(?:in|at|me|mein)\s+([A-Za-z_/ ]{2,30})\??",t,re.I) or re.fullmatch(r"([A-Za-z_/ ]{2,30}?)\s+(?:me|mein)\s+(?:kitne baje(?: hain| hai)?|(?:abhi )?time(?: kya hai)?)\??",t,re.I)
+    if m:
+        name,now=_t0_zone(m.group(1))
+        if not name: return (f"[time] '{m.group(1)}' ka timezone nahi pata — 'time in Asia/Kolkata' jaisa naam do",True)
+        return (f"{m.group(1).strip()}: {now.strftime('%H:%M · %a %d %b')}  ({name})" if now else f"[time] {name}: tzdata nahi (Termux: pkg install tzdata)",True)
+    m=re.fullmatch(r"(\d{1,4})\s*(?:days?|din)\s*(?:from (?:today|now)|baad|later|aage)(?:\s*(?:kya|kaunsi) (?:date|tareekh)(?: hogi)?)?\??",low)
+    if m: d=datetime.now()+timedelta(days=int(m.group(1))); return (f"{d.strftime('%A, %d %B %Y')}",True)
+    m=re.fullmatch(r"(\d{1,4})\s*(?:days?|din)\s*(?:ago|pehle|before)(?:\s*(?:kya|kaunsi) (?:date|tareekh)(?: thi)?)?\??",low)
+    if m: d=datetime.now()-timedelta(days=int(m.group(1))); return (f"{d.strftime('%A, %d %B %Y')}",True)
+    m=re.fullmatch(r"(?:age|umar|umr)(?: of| on)?[: ]+(.+?)(?: (?:ko|ke|ki)(?: umar| age)?)?\??",t,re.I)
+    if m:
+        d=_t0_date(m.group(1))
+        if not d: return ("[age] date samajh nahi aayi — jaise: age 16 Nov 1994",True)
+        n=datetime.now(); y=n.year-d.year-((n.month,n.day)<(d.month,d.day)); days=(n-d).days
+        return (f"{y} saal ({days:,} din) · born {d.strftime('%A, %d %b %Y')}",True)
+    m=re.fullmatch(r"(?:days? (?:until|till|to|left (?:until|till|for))|kitne din (?:baaki|bache|reh gaye)(?: hain)?)[: ]+(.+?)(?: (?:tak|ko|me|mein))?\??",t,re.I)
+    if m:
+        d=_t0_date(m.group(1))
+        if not d: return ("[days] date samajh nahi aayi — jaise: days until 25 Dec",True)
+        n=datetime.now().replace(hour=0,minute=0,second=0,microsecond=0); d=d.replace(hour=0,minute=0,second=0,microsecond=0)
+        if d<n and not re.search(r"\d{4}",m.group(1)): d=d.replace(year=n.year+1)
+        return (f"{(d-n).days} din · {d.strftime('%A, %d %b %Y')}",True)
+    m=re.fullmatch(r"(?:conv(?:ert)?\s+)?(-?\d+(?:\.\d+)?)\s*([a-zA-Z°/]{1,10})\s+(?:in|to|into|me|mein|=|->|ko)\s+([a-zA-Z°/]{1,10})\s*(?:(?:kitna|kitne)(?: hai| hoga| hote hain)?)?\??",t,re.I)
+    if m:
+        r=convert(float(m.group(1)),m.group(2),m.group(3))
+        if r: return (r,True)
+    m=re.fullmatch(r"(?:b64|base64)(?:\s+enc(?:ode)?)?[: ]+(.+)",t,re.I)
+    if m: import base64; return (base64.b64encode(m.group(1).encode()).decode(),True)
+    m=re.fullmatch(r"(?:b64d|unb64|base64\s+dec(?:ode)?)[: ]+(\S+)",t,re.I)
+    if m:
+        import base64
+        try: return (base64.b64decode(m.group(1)+"="*(-len(m.group(1))%4)).decode("utf-8","replace"),True)
+        except Exception: return ("[b64] valid base64 nahi",True)
+    m=re.fullmatch(r"(sha256|sha1|md5)[: ]+(.+)",t,re.I)
+    if m: import hashlib; return (getattr(hashlib,m.group(1).lower())(m.group(2).encode()).hexdigest(),True)
+    if re.fullmatch(r"uuid(?:4)?",low): import uuid; return (str(uuid.uuid4()),True)
+    m=re.fullmatch(r"epoch(?:\s+(\d{9,13}))?",low)
+    if m:
+        if m.group(1): v=int(m.group(1)); v=v/1000 if v>10**11 else v; return (datetime.fromtimestamp(v).strftime("%Y-%m-%d %H:%M:%S local"),True)
+        return (str(int(time.time())),True)
+    m=re.fullmatch(r"url(?:enc|encode)[: ]+(.+)",t,re.I)
+    if m: return (urllib.parse.quote(m.group(1),safe=""),True)
+    m=re.fullmatch(r"url(?:dec|decode)[: ]+(.+)",t,re.I)
+    if m: return (urllib.parse.unquote(m.group(1)),True)
+    m=re.fullmatch(r"json[: ]+(.+)",t,re.I|re.S)
+    if m:
+        try: return (json.dumps(json.loads(m.group(1)),indent=2,ensure_ascii=False),True)
+        except ValueError as ex: return (f"[json] invalid: {ex}",True)
+    m=re.fullmatch(r"(?:pw|password|passphrase)(?:\s+(\d{1,3}))?",low)
+    if m:
+        import secrets,string
+        n=max(8,min(int(m.group(1) or 20),128)); al=string.ascii_letters+string.digits+"!@#$%^&*-_=+"
+        return ("".join(secrets.choice(al) for _ in range(n))+"   (journal/corpus me nahi likha — ek hi baar dikhta hai)",False)
+    m=re.fullmatch(r"(?:wa|whatsapp link)\s+(\+?[\d ]{8,18})(?:[: ]+(.+))?",t,re.I)
+    if m:
+        n=re.sub(r"\D","",m.group(1)); return (f"https://wa.me/{n}"+(f"?text={urllib.parse.quote(m.group(2))}" if m.group(2) else ""),True)
+    m=re.fullmatch(r"upi\s+(\S+@\S+)\s+(\d+(?:\.\d{1,2})?)(?:\s+(.+))?",t,re.I)
+    if m:
+        pa,am,tn=m.group(1),m.group(2),(m.group(3) or "")
+        u=f"upi://pay?pa={urllib.parse.quote(pa)}&pn={urllib.parse.quote(pa.split('@')[0])}&am={am}&cu=INR"+(f"&tn={urllib.parse.quote(tn)}" if tn else "")
+        return (u+"\n"+qr_text(u)+"\n(sirf link/QR banaya — koi payment nahi hui; UPI app me kholne se pehle VPA check karo)",True)
+    m=re.fullmatch(r"qr[: ]+(.+)",t,re.I)
+    if m: return (qr_text(m.group(1)),True)
+    m=re.fullmatch(r"(emi|sip|lumpsum)\s+(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)",low)
+    if m: return (_t0_money(m.group(1),m.groups()[1:]),True)
+    if re.fullmatch(r"(?:emi|sip|lumpsum)(?: calculator| kaise| formula)?\??",low):
+        return ("emi <principal> <annual %> <years>  ·  sip <monthly> <annual %> <years>  ·  lumpsum <amount> <annual %> <years>   (sirf calculator, koi advice nahi)",True)
+    m=re.fullmatch(r"(?:weather|mausam)(?:\s+(?:in|of|at|me|mein|ka|ki))?\s+([A-Za-z .'-]{2,40}?)(?:\s+(?:ka|ki|me|mein)\s+(?:mausam|weather))?\??",t,re.I) or re.fullmatch(r"([A-Za-z .'-]{2,40}?)\s+(?:ka|ki|me|mein)\s+(?:mausam|weather)(?: kaisa hai)?\??",t,re.I)
+    if m: return (weather(m.group(1)),True)
+    return None
+def tour(st):
+    """60-second first run: every step RUNS on this device and prints the verb it used, so the user learns it. One step failing never stops the tour."""
+    print(f"  {BRAND} · 60-second tour. Har cheez abhi, is device pe chal rahi hai — kuch setup nahi.\n")
+    steps=[]
+    def step(n,label,verb,fn):
+        print(f"  {n}/6  {label:<14} > {verb}")
+        try:
+            r=fn(); print(f"       ✓ {r}" if r else "       ⊘ skip")
+        except KeyboardInterrupt: raise
+        except Exception as ex: print(f"       ✗ {type(ex).__name__}: {ex}")
+        print()
+    def s1():
+        open(vp("memory.md"),"a",encoding="utf-8").write(f"- {time.strftime('%Y-%m-%d')} tour chala tha #tour\n"); return f"vault me likh diya — {VAULT}. Ye tera hai, kahin nahi jaata."
+    step(1,"yaad rakhna","/remember tour chala tha #tour",s1)
+    step(2,"hisaab","= 2500000 * 8.5 / 100 / 12",lambda: (calc("2500000 * 8.5 / 100 / 12") or "")+"   (bina internet, bina brain)")
+    step(3,"awaaz","say Aasmaan taiyaar hai",lambda: speak(f"{BRAND} taiyaar hai").replace("[speak] ",""))
+    av=[h for h,hh in _h_table().items() if hand_available(hh)[0]]
+    step(4,"haath (hands)","/hands",lambda: (f"{len(av)} hand is device pe: {', '.join(av[:6])}{' …' if len(av)>6 else ''}  — 'battery', 'awaaz 30', 'pause' bol ke dekho" if av else
+                                          "abhi koi device hand nahi (desktop session / Termux:API chahiye) — /hands batata hai kyun"))
+    if net_up():
+        step(5,"khoj","/do research aaj ka sona bhav",lambda: (lambda r:(f"{len(r.splitlines())} lines — DuckDuckGo, keyless" if r else "kuch nahi mila"))(websearch("sona bhav aaj",3)))
+        step(6,"tasveer","/do image_generation sunset over Amber Fort",lambda: imagegen("sunset over Amber Fort, warm light")[:120])
+    else:
+        print("  5/6  khoj           ⊘ net band hai — ye rung skip (keyless search net pe chalta hai)\n  6/6  tasveer        ⊘ net band hai — skip\n")
+    print("  Ho gaya. Ye sab BINA kisi key ke chala.")
+    if not any(os.environ.get(pp["k"]) for pp in PROVIDERS if pp["k"]) and not has_local():
+        print(f"  Ab ek dimaag do — 1 minute:  {SETUP_HINT}\n  (abhi tak: tools chal rahe hain, baat-cheet ke liye brain chahiye. Ye jhooth nahi bolega.)")
+    else: print("  Dimaag pehle se lagi hai — ab seedha sawaal poocho.")
+    print("  Poori list: /help  ·  ye install abhi kya kar sakta hai: /capabilities  ·  device: /hands")
+# ══ LANGUAGE — English by default, the installer lets you pick, and if you never picked it mirrors what you type.
+# Precedence: AI_LANG (env / ~/.ai-setup-profile) or /lang = explicit, wins forever · else auto-mirror: 2 of the
+# last 3 plain messages agree → switch, with a visible line (never silent). Commands and pasted logs are not counted.
+# Detection is stdlib and deterministic (F-language §1): a script block wins (≥3 chars), else Hinglish marker words
+# — every marker that is also a common English word was removed (that collision mis-routed "show me the last errors").
+# UI strings: the MSG catalogue below covers the visible core in en + hinglish; the rest stay Hinglish for now (README says so).
+# Command names, flags, env names, paths and anything shown for copy-paste are never translated.
+_HIN=set(("hai hain hoga hogi hota hoti nahi nahin nai kya kyu kyun kaise kaisa kaun kab kahan karo kar karna karke kiya karu "
+ "karunga chahiye raha rahi rahe tha thi bhai yaar bhaiya mera meri tera teri tumhara aapka apna batao bata dikhao dikha samajh "
+ "samjha accha acha theek thik bohot bahut zyada thoda abhi phir lekin magar aur matlab wala wali sab kuch koi kitna jaldi paisa "
+ "paise chalo bolo dena lena gaya gayi jaana mein kyunki isliye ye yeh wo woh mujhe tujhe hum tum aap chal likha rakh daal hata "
+ "lagao mila milega pata kaam kro krna krdo kardo hoon hu nhi kese kaha").split())
+_BLK=((0x0900,0x097F,"hi"),(0xA8E0,0xA8FF,"hi"),(0x0980,0x09FF,"bn"),(0x0A00,0x0A7F,"pa"),(0x0A80,0x0AFF,"gu"),(0x0B00,0x0B7F,"or"),
+      (0x0B80,0x0BFF,"ta"),(0x0C00,0x0C7F,"te"),(0x0C80,0x0CFF,"kn"),(0x0D00,0x0D7F,"ml"),(0x0600,0x06FF,"ur"),(0x0750,0x077F,"ur"),(0x08A0,0x08FF,"ur"))
+def detect_lang(s):
+    """-> 'en' | 'hinglish' | 'hi' | one of ta/te/bn/gu/pa/or/kn/ml/ur. Devanagari cannot separate hi/mr/ne — documented, never advertised."""
+    c={}
+    for ch in s or "":
+        o=ord(ch)
+        for a,b,t in _BLK:
+            if a<=o<=b: c[t]=c.get(t,0)+1; break
+    if c:
+        t,n=max(c.items(),key=lambda kv:kv[1])
+        if n>=3: return t
+    w=re.findall(r"[a-z']+",(s or "").lower())
+    if not w: return "en"
+    h=sum(1 for x in w if x in _HIN)
+    if h>=2 or (h==1 and len(w)<=4) or h/len(w)>=0.34: return "hinglish"
+    return "en"
+LANGS=("en","hinglish","hi")
+_LANG_NAMES={"en":"English","hinglish":"Hinglish","hi":"Hindi (Devanagari)","auto":"auto (mirrors you)"}
+def lang_explicit(st=None):
+    """The pinned language, if any: AI_LANG (env/profile) beats /lang; 'auto' or junk = not pinned."""
+    v=(os.environ.get("AI_LANG") or "").strip().lower()
+    if v in LANGS: return v
+    if st and st.get("lang") in LANGS: return st["lang"]
+    return None
+_ST_REF=[None]   # the live chat state, set by repl()/main(): lang_now(None) then still sees /lang
+def lang_now(st=None):
+    """Effective language right now: explicit, else the auto-mirror's current pick (starts 'en')."""
+    st=st if st is not None else _ST_REF[0]
+    return lang_explicit(st) or ((st or {}).get("lang_auto") or "en")
+def lang_observe(st,text):
+    """Feed one plain (non-command) message to the mirror. Flips only on 2-of-3 agreement, says so out loud,
+    and never touches an explicit choice. Returns the notice line or ''."""
+    if st is None or lang_explicit(st): return ""
+    t=(text or "").strip()
+    if not t or t.startswith("/") or len(t)<2 or "\n" in t and len(t)>400: return ""   # pasted logs are English by nature
+    d=detect_lang(t); d=d if d in LANGS else "hinglish"          # other Indic scripts: the Roman-Hinglish UI is the honest fallback today
+    ring=(st.get("lang_ring") or [])[-2:]+[d]; st["lang_ring"]=ring
+    cur=st.get("lang_auto") or "en"
+    if d!=cur and ring.count(d)>=2:
+        st["lang_auto"]=d
+        try: save(st)
+        except Exception: pass
+        return f"[ai] {_LANG_NAMES.get(d,d)} me switch — /lang {cur} se wapas, /lang {d} se pin" if d=="hinglish" else f"[ai] switching to {_LANG_NAMES.get(d,d)} · /lang {cur} to go back, /lang {d} to pin"
+    return ""
+_LANG_LINE={
+ "en":"Always answer in English, whatever language the user writes in. Keep command names, file paths and flags exactly as they are.",
+ "hinglish":"Always answer in Hinglish — Hindi words written in Roman/Latin script, mixed with English technical terms. Never use Devanagari. Example: \"Ye command chalane se sirf ek file banegi, kuch delete nahi hoga.\" Keep command names, file paths and flags exactly as they are.",
+ "hi":"Always answer in Hindi in Devanagari script. Keep command names, file paths, flags and code in Latin script, unchanged.",
+}
+def lang_line(st=None):
+    return _LANG_LINE.get(lang_now(st),_LANG_LINE["en"])
+MSG={   # key: {en, hinglish}. hi falls back to hinglish text (readable to every Hindi speaker; Devanagari chrome breaks on Windows consoles).
+ "tip.nokey":      {"en":"tip: no brain key yet -> {hint}","hinglish":"tip: koi brain key nahi -> {hint}"},
+ "tip.keyless":    {"en":"keyless work still runs: = 2+2 · date · 5 km in miles · battery · /hands · /do research <q> · /do image <prompt> · ai tour (60 sec)",
+                    "hinglish":"keyless kaam phir bhi chalta hai: = 2+2 · date · 5 km in miles · battery · /hands · /do research <q> · /do image <prompt> · ai tour (60 sec)"},
+ "wish.pending":   {"en":"{n} wish pending (stopped while offline) — there is a brain now:  /wish run","hinglish":"{n} wish pending (jo offline ruk gaya tha) — ab brain hai:  /wish run"},
+ "nobrain.online": {"en":"no brain answered — no key is set.\n     free key:  {hint}  ·  or without a key:  /do research <q> · /do image <p> · /kb <q> · = 2+2 · /hands",
+                    "hinglish":"kisi brain ne jawab nahi diya — key nahi lagi.\n     free key daalo:  {hint}  ·  ya bina key ye chalta hai:  /do research <q> · /do image <p> · /kb <q> · = 2+2 · /hands"},
+ "offline.wall":   {"en":"offline, and no local brain either. Without net these work:  /memory · /kb <q> · /ctx <files> · = 2+2 · date · 5 km in miles · /hands · ai tour",
+                    "hinglish":"offline aur local brain bhi nahi. Bina net ye chalta hai:  /memory · /kb <q> · /ctx <files> · = 2+2 · date · 5 km in miles · /hands · ai tour"},
+ "cmd.suggest":    {"en":"no command named {c}. Did you mean {near}?","hinglish":"{c} naam ka koi command nahi. Shayad {near}?"},
+ "cmd.unknown":    {"en":"{c} does not exist — full list: /help","hinglish":"{c} nahi hai — poori list: /help"},
+ "confirm.run":    {"en":"run it?","hinglish":"chalaun?"},
+ "quit.jobs":      {"en":"{n} background job(s) still running — /quit will KILL them (threads die with the process).\n     finished results are saved. Leave anyway:  /quit force",
+                    "hinglish":"{n} background job abhi chal rahe hain — /quit karoge to wo MAR jayenge (threads process ke saath jaate hain).\n     result wala done kaam save ho jayega. Phir bhi nikalna ho:  /quit force"},
+ "lang.now":       {"en":"language: {name}{how}  ·  /lang en|hinglish|hi|auto","hinglish":"language: {name}{how}  ·  /lang en|hinglish|hi|auto"},
+ "lang.set":       {"en":"language pinned: {name}  (the model answers in it; UI strings where translated)","hinglish":"language pin ho gayi: {name}  (model isi me jawab dega; UI strings jahan translate hain)"},
+ "lang.auto":      {"en":"language: auto — mirrors what you type (2 of your last 3 messages decide)","hinglish":"language: auto — jo tu likhega usi me (last 3 me se 2 decide karte hain)"},
+ "self.hint":      {"en":"looks like you want:  {hint}","hinglish":"lagta hai ye chahiye:  {hint}"},
+ "self.piped":     {"en":"run it in a terminal:  {cmd}","hinglish":"terminal me chalao:  {cmd}"},
+ "hand.route":     {"en":"→ hand {hid}{args}","hinglish":"→ hand {hid}{args}"},
+ "stop.none":      {"en":"[stop] nothing was running (from hands) — /bg for background jobs","hinglish":"[stop] kuch chal nahi raha tha (hands se) — /bg background jobs ke liye"},
+ "stop.done":      {"en":"[stop] stopped: {what}","hinglish":"[stop] ruka: {what}"},
+ "first.cloud":    {"en":"first cloud answer: this question went to {who}'s server (email/phone-like text was stripped first). Where it went:  /egress  ·  stay on-device:  /local",
+                    "hinglish":"pehla cloud jawab: ye sawaal {who} ke server gaya (email/phone jaisa text pehle hata diya). Kahan gaya:  /egress  ·  device pe hi rehna ho:  /local"},
+}
+def _t(k,st=None,**kw):
+    """One catalogue lookup. A missing key or language falls back (hinglish → en → the key) — never a crash, never blank."""
+    m=MSG.get(k) or {}; L=lang_now(st); s=m.get(L) or m.get("hinglish") or m.get("en") or k
+    try: return s.format(**kw)
+    except (KeyError,IndexError): return s
+def lang_cmd(st,a):
+    a=(a or "").strip().lower()
+    if not a:
+        ex=lang_explicit(st); L=lang_now(st)
+        how=(" (AI_LANG in ~/.ai-setup-profile)" if (os.environ.get("AI_LANG") or "").lower() in LANGS else " (/lang)") if ex else " (auto — mirrors you)"
+        print("[ai] "+_t("lang.now",st,name=_LANG_NAMES.get(L,L),how=how)); return
+    if a=="auto":
+        st["lang"]=None; save(st); print("[ai] "+_t("lang.auto",st))
+        if (os.environ.get("AI_LANG") or "").lower() in LANGS: print(f"[ai] note: AI_LANG={os.environ['AI_LANG']} in ~/.ai-setup-profile still pins it — remove that line (or  ai setup ) for true auto.")
+        return
+    if a not in LANGS: print(f"[ai] /lang en | hinglish | hi | auto   (abhi: {lang_now(st)})"); return
+    st["lang"]=a; save(st); print("[ai] "+_t("lang.set",st,name=_LANG_NAMES[a]))
+    if (os.environ.get("AI_LANG") or "").lower() in LANGS and os.environ["AI_LANG"].lower()!=a:
+        print(f"[ai] note: AI_LANG={os.environ['AI_LANG']} in ~/.ai-setup-profile wins at next start — change it there too (ai setup) or unset it.")
+# ══ MODELS & CONNECTORS — what is attached is DISCOVERED, not hard-coded (owner, 2026-09-06: "jo bhi offline model
+# user download kare — voice, image, chat — harness se attached ho?"). Three doors:
+#   · Ollama: GET /api/tags → every pulled model, classified by tag into chat | vision | embed; roles that are unset
+#     attach themselves at startup (said out loud once); a pinned model that is not installed falls to one that is.
+#   · Any OpenAI-compatible endpoint (LM Studio, llama.cpp server, Jan, vLLM, a gateway): AI_OAI_URL/MODEL/KEY →
+#     provider "custom"; a loopback/private URL counts as LOCAL (raw text, no redaction, survives /net off).
+#   · MCP servers as /do providers (connect:"mcp", streamable-HTTP or stdio), attended-only, from the user's own
+#     ~/.ai-tools.json — the tool's text argument is JSON, never a shell; results are data (fenced downstream).
+# Voice engines (whisper/piper/kokoro/say/espeak) already attach by presence on PATH — see _tts_argv/listen_once.
+# What "tuning" means here: routing (brain_order by question profile + aliveness + cooldowns), context by RAM tier,
+# exemplars learned from successful runs (/trace), the answer cache — never model weights (no on-device fine-tuning).
+_VISION_RX=re.compile(r"llava|vision|gemma3(?!n)|qwen2\.5vl|qwen2\.5-vl|qwen3-vl|minicpm-v|moondream|bakllava|pixtral|llama3\.2-vision|granite3\.2-vision",re.I)
+_EMBED_RX=re.compile(r"embed|nomic|bge-|mxbai|minilm|e5-|arctic|snowflake|gte-",re.I)
+def _model_role(name):
+    n=(name or "").lower()
+    return "embed" if _EMBED_RX.search(n) else "vision" if _VISION_RX.search(n) else "chat"
+def ollama_models():
+    """[{name, mb, role}] — what Ollama actually has, right now. [] when Ollama is down."""
+    try:
+        with urllib.request.urlopen(urllib.request.Request(OLLAMA+"/api/tags"),timeout=3) as x: j=json.loads(x.read(400000).decode())
+        out=[]
+        for m in j.get("models",[]):
+            nm=m.get("name") or m.get("model") or ""
+            if nm: out.append({"name":nm,"mb":int((m.get("size") or 0)/1048576),"role":_model_role(nm)})
+        return sorted(out,key=lambda r:(r["role"],-r["mb"]))
+    except Exception: return []
+_MODELS_NOTE=[False]
+def models_autoattach(quiet=False):
+    """Startup: attach roles that are unset to what is installed. Never overrides an explicit choice; says what it did."""
+    ms=ollama_models()
+    if not ms: return []
+    names={m["name"] for m in ms}; base={n.split(":")[0] for n in names}; did=[]
+    global EMBED_MODEL
+    cur=[p for p in PROVIDERS if p["n"]=="local"][0]
+    if cur["m"] not in names and cur["m"].split(":")[0] not in base:
+        chat=[m for m in ms if m["role"]=="chat"]
+        if chat:
+            r=device_info()["ram_mb"] or 8000; cap=r*0.55   # weights must leave room for KV + the OS
+            fit=[m for m in chat if m["mb"]<=cap] or chat[-1:]
+            pick=max(fit,key=lambda m:m["mb"])["name"]
+            if not os.environ.get("AI_LOCAL_MODEL"): cur["m"]=pick; did.append(f"chat: {cur['m']} (pinned model not installed → using what is)")
+            else: did.append(f"chat: AI_LOCAL_MODEL={os.environ['AI_LOCAL_MODEL']} is NOT installed — ollama pull it, or /model {pick}")
+    if not os.environ.get("AI_VISION_MODEL"):
+        v=[m for m in ms if m["role"]=="vision"]
+        if v: os.environ["AI_VISION_MODEL"]=v[0]["name"]; did.append(f"vision: {v[0]['name']} (images now go here; AI_VISION_MODEL pins another)")
+    if EMBED_MODEL not in names and EMBED_MODEL.split(":")[0] not in base:
+        e=[m for m in ms if m["role"]=="embed"]
+        if e and not os.environ.get("AI_EMBED_MODEL"): EMBED_MODEL=e[0]["name"]; did.append(f"embed: {EMBED_MODEL} (semantic memory/cache on; AI_EMBED_MODEL pins another)")
+    if did and not quiet and not _MODELS_NOTE[0]:
+        _MODELS_NOTE[0]=True; print("[ai] models attached from what Ollama has:"); [print("   · "+d) for d in did]
+    return did
+def models_text(st=None):
+    ms=ollama_models(); cur=[p for p in PROVIDERS if p["n"]=="local"][0]["m"]; act=(st or {}).get("model") or cur
+    L=[f"[models] Ollama at {OLLAMA}: {'up · '+str(len(ms))+' model(s)' if ms else 'not reachable (ollama serve) — local roles empty'}"]
+    for m in ms:
+        tag={"chat":"chat  ","vision":"vision","embed":"embed "}[m["role"]]; on=[]
+        if m["name"]==act: on.append("ACTIVE chat")
+        if m["name"]==os.environ.get("AI_VISION_MODEL"): on.append("vision role")
+        if m["name"]==EMBED_MODEL: on.append("embed role")
+        L.append(f"  {tag}  {m['name']:<34} {m['mb']:>6} MB  {'· '+', '.join(on) if on else ''}")
+    if ms:
+        if not any(m["role"]=="vision" for m in ms): L.append("  (no vision model: images need GEMINI_API_KEY or  ollama pull gemma3:4b)")
+        if not any(m["role"]=="embed" for m in ms): L.append("  (no embed model: memory/cache search is keyword-only;  ollama pull nomic-embed-text  turns on semantic search)")
+    c=custom_provider()
+    L.append(f"[custom] {('OpenAI-compatible endpoint: '+c['u']+' · model '+(c['m'] or '?')+(' · local' if c.get('local') else ' · cloud (redacted)')) if c else 'none — LM Studio / llama.cpp / Jan / any gateway:  ai connect <url> [model] [key]'}")
+    keyed=[p["n"] for p in PROVIDERS if p["k"] and os.environ.get(p["k"])]
+    L.append(f"[cloud]  keyed: {', '.join(keyed) or 'none'}  · voice engines: TTS {(_tts_argv() or ['none'])[0].split(os.sep)[-1]} · STT {STT_HINT}")
+    mc=[n for n,pr in tools_cfg().get("providers",{}).items() if pr.get("connect")=="mcp"]
+    L.append(f"[mcp]    {', '.join(mc) if mc else 'none — /mcp add <name> <url|cmd> cap=<capability> tool=<tool>'}")
+    L.append("  set: /model <name> (chat) · AI_VISION_MODEL / AI_EMBED_MODEL in ~/.ai-env · ai connect · /mcp · tuning = routing/cooldowns/traces/cache, never weights")
+    return "\n".join(L)
+def _is_local_url(u):
+    try: h=urllib.parse.urlparse(u).hostname or ""
+    except Exception: return False
+    return h in ("localhost","127.0.0.1","::1","host.docker.internal") or re.match(r"^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)",h) is not None
+def custom_provider():
+    """AI_OAI_URL (+MODEL, +KEY) → one provider dict, or None. Local if the host is loopback/private."""
+    u=(os.environ.get("AI_OAI_URL") or "").strip()
+    if not u: return None
+    if not re.search(r"/chat/completions/?$",u): u=u.rstrip("/")+("/chat/completions" if u.rstrip("/").endswith("/v1") else "/v1/chat/completions")
+    return {"n":"custom","t":"oai","m":os.environ.get("AI_OAI_MODEL",""),"k":"AI_OAI_KEY" if os.environ.get("AI_OAI_KEY") else "","u":u,"local":_is_local_url(u)}
+def _providers_refresh():
+    """Insert/replace 'custom' in PROVIDERS: a local endpoint goes FIRST (cheapest, private), a remote one after the cloud tiers."""
+    PROVIDERS[:]=[p for p in PROVIDERS if p["n"]!="custom"]
+    c=custom_provider()
+    if c:
+        if c["local"]: PROVIDERS.insert(0,c)
+        else: PROVIDERS.insert(len(PROVIDERS)-1,c)
+def _oai_models(base_url,key=""):
+    """GET <base>/v1/models on an OpenAI-compatible server → [ids]."""
+    b=re.sub(r"/chat/completions/?$","",base_url.rstrip("/")); b=b if b.endswith("/v1") else b+"/v1"
+    h={"Accept":"application/json"}
+    if key: h["Authorization"]="Bearer "+key
+    try:
+        with urllib.request.urlopen(urllib.request.Request(b+"/models",headers=h),timeout=6) as x: j=json.loads(x.read(200000).decode())
+        return [d.get("id","") for d in (j.get("data") or []) if d.get("id")]
+    except Exception: return []
+def connect_cmd(st,a):
+    """ai connect <url> [model] [key] · ai connect off · ai connect  — an OpenAI-compatible endpoint as a brain."""
+    parts=(a or "").split()
+    if not parts:
+        c=custom_provider(); print("[connect] "+(f"{c['u']} · model {c['m'] or '(unset)'} · {'local' if c['local'] else 'cloud'}" if c else "none. Usage:  ai connect http://localhost:1234 [model] [key]   (LM Studio 1234 · llama.cpp 8080 · Jan 1337 · vLLM 8000)")); return
+    if parts[0] in ("off","rm","remove"):
+        for k in ("AI_OAI_URL","AI_OAI_MODEL","AI_OAI_KEY"): _upsert_env(k,""); os.environ.pop(k,None)
+        _providers_refresh(); print("[connect] custom endpoint removed"); return
+    url=parts[0]
+    if not re.match(r"https?://",url): print("[connect] url http(s):// se shuru ho — jaise http://localhost:1234"); return
+    model=parts[1] if len(parts)>1 else ""; key=parts[2] if len(parts)>2 else ""
+    ids=_oai_models(url,key)
+    if not model:
+        if not ids: print(f"[connect] {url}: /v1/models ne kuch nahi diya — server chal raha hai? model naam do:  ai connect {url} <model>"); return
+        model=ids[0]; print(f"[connect] models on server: {', '.join(ids[:8])}{' …' if len(ids)>8 else ''} → using {model}")
+    _upsert_env("AI_OAI_URL",url); _upsert_env("AI_OAI_MODEL",model)
+    os.environ["AI_OAI_URL"]=url; os.environ["AI_OAI_MODEL"]=model
+    if key: _upsert_env("AI_OAI_KEY",key); os.environ["AI_OAI_KEY"]=key
+    _providers_refresh(); c=custom_provider()
+    print(f"[connect] saved → ~/.ai-env: AI_OAI_URL, AI_OAI_MODEL{', AI_OAI_KEY' if key else ''} · treated as {'LOCAL (raw text, works with /net off)' if c['local'] else 'CLOUD (redacted before send)'}")
+    try:
+        global TIMEOUT; _sv=TIMEOUT; TIMEOUT=25
+        try: r=call(dict(c),"Reply with the single word: ok",4)
+        finally: TIMEOUT=_sv
+        print(f"[connect] ping ok → {str(r).strip()[:40]!r}  · ab brain order me hai (/canary, /why)")
+    except Exception as e: print(f"[connect] ping failed: {type(e).__name__}: {str(e)[:120]}  — saved anyway; check the URL/model")
+# ── MCP (stdlib): streamable-HTTP + stdio clients. Servers come ONLY from the user's own ~/.ai-tools.json.
+def _mcp_parse(body):
+    body=(body or "").strip()
+    if body.startswith("{"): return json.loads(body)
+    out=None
+    for line in body.splitlines():
+        if line.startswith("data:"):
+            try: out=json.loads(line[5:].strip())
+            except Exception: pass
+    return out or {}
+class MCPHttp:
+    def __init__(self,url,token=None,timeout=30): self.url,self.token,self.timeout,self.sid=url,token,timeout,None
+    def _post(self,payload,notify=False):
+        h={"Content-Type":"application/json","Accept":"application/json, text/event-stream","User-Agent":BRAND.lower()+"-mcp/0.1","MCP-Protocol-Version":"2025-06-18"}
+        if self.token: h["Authorization"]="Bearer "+self.token
+        if self.sid: h["Mcp-Session-Id"]=self.sid
+        req=urllib.request.Request(self.url,data=json.dumps(payload).encode(),headers=h)
+        with urllib.request.urlopen(req,timeout=self.timeout) as r:
+            sid=r.headers.get("Mcp-Session-Id") or r.headers.get("mcp-session-id")
+            if sid: self.sid=sid
+            raw=r.read(400000).decode("utf-8","ignore")
+        if notify: return None
+        o=_mcp_parse(raw)
+        if "error" in o: raise RuntimeError(str(o["error"])[:200])
+        return o.get("result")
+    def connect(self):
+        info=self._post({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":BRAND.lower(),"version":"0.1"}}})
+        self._post({"jsonrpc":"2.0","method":"notifications/initialized"},notify=True); return info
+    def tools(self): return ((self._post({"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}) or {}).get("tools",[]))
+    def call(self,name,args=None):
+        r=self._post({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":name,"arguments":args or {}}}) or {}
+        return "\n".join((c.get("text","") if c.get("type")=="text" else f"[{c.get('type')}]") for c in (r.get("content") or [])) or json.dumps(r)[:4000]
+    def close(self): pass
+class MCPStdio:
+    """`python -m server` / `npx -y server` style. Spawned through the key-scrubbed subprocess wrapper; every such server is
+    third-party code — attended-only, and only from the user's own config."""
+    def __init__(self,argv,timeout=60): self.argv,self.timeout=argv,timeout; self.p=None; self._id=0
+    def _rpc(self,method,params=None,notify=False):
+        self._id+=1
+        msg=json.dumps({"jsonrpc":"2.0","method":method,"params":params or {},**({} if notify else {"id":self._id})})+"\n"
+        self.p.stdin.write(msg); self.p.stdin.flush()
+        if notify: return None
+        t0=time.time()
+        while True:
+            if time.time()-t0>self.timeout: raise RuntimeError("mcp timeout")
+            line=self.p.stdout.readline()
+            if not line: raise RuntimeError("server closed")
+            try: o=json.loads(line)
+            except Exception: continue
+            if o.get("id")==self._id:
+                if "error" in o: raise RuntimeError(str(o["error"])[:200])
+                return o.get("result")
+    def connect(self):
+        self.p=subprocess.Popen(self.argv,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True,bufsize=1)
+        r=self._rpc("initialize",{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":BRAND.lower(),"version":"0.1"}})
+        self._rpc("notifications/initialized",notify=True); return r
+    def tools(self): return (self._rpc("tools/list") or {}).get("tools",[])
+    def call(self,name,args=None):
+        r=self._rpc("tools/call",{"name":name,"arguments":args or {}}) or {}
+        return "\n".join(c.get("text","") for c in (r.get("content") or []) if c.get("type")=="text") or json.dumps(r)[:4000]
+    def close(self):
+        try: self.p.terminate()
+        except Exception: pass
+def _mcp_client(pr):
+    if pr.get("url"): return MCPHttp(pr["url"],os.environ.get(pr.get("key",""),"") or None)
+    argv=pr.get("argv") or []
+    if not argv or not isinstance(argv,list) or not all(isinstance(x,str) for x in argv): raise RuntimeError("mcp provider needs url or argv[]")
+    return MCPStdio(argv)
+def mcp_ready(pr):
+    """(ok, why-not) — attended only; HTTP needs net unless loopback; stdio needs its binary."""
+    if os.environ.get("AI_ATTENDED","1")=="0": return False,"mcp servers run attended only (daemon/unattended: no)"
+    if pr.get("url"):
+        if not _is_local_url(pr["url"]) and not net_up(): return False,"net down"
+        if pr.get("key") and not os.environ.get(pr["key"]): return False,f"key {pr['key']} not set"
+        return True,""
+    argv=pr.get("argv") or []
+    if not argv: return False,"no url/argv"
+    if not shutil.which(argv[0]) and not os.path.exists(argv[0]): return False,f"'{argv[0]}' not installed"
+    return True,""
+def mcp_run(pr,text,name="mcp"):
+    """One MCP tool call: the user's text is ONE JSON argument (pr['arg'], default 'query'). Output printed + returned."""
+    tool=pr.get("tool")
+    if not tool: print(f"[mcp] {name}: provider has no 'tool' — /mcp tools {name} to pick one"); LAST_RC[0]=2; return None
+    args=dict(pr.get("args") or {}); args[pr.get("arg","query")]=text
+    print(f"[mcp] {name} → {tool}({json.dumps(args)[:120]})")
+    c=None
+    try:
+        c=_mcp_client(pr); c.connect(); out=c.call(tool,args); LAST_RC[0]=0
+        print((out or "")[:4000]); return out
+    except Exception as e: LAST_RC[0]=1; print(f"[mcp] {name}: {type(e).__name__}: {str(e)[:160]}"); return None
+    finally:
+        try: c and c.close()
+        except Exception: pass
+def mcp_cmd(st,a):
+    """/mcp add <name> <url|cmd …> cap=<capability> tool=<tool> [arg=query] [key=ENV] · /mcp list · /mcp tools <name> · /mcp rm <name>"""
+    parts=shlex.split(a or "")
+    cfgp=os.path.expanduser("~/.ai-tools.json")
+    try: cfg=json.load(open(cfgp))
+    except Exception: cfg={}
+    cfg.setdefault("providers",{}); cfg.setdefault("capabilities",{})
+    if not parts or parts[0]=="list":
+        mc={n:pr for n,pr in tools_cfg().get("providers",{}).items() if pr.get("connect")=="mcp"}
+        if not mc: print("[mcp] none. Add:  /mcp add <name> <http://host/mcp | python -m some_server> cap=<capability> tool=<tool>"); return
+        for n,pr in mc.items():
+            ok,why=mcp_ready(pr); print(f"  {'✓' if ok else '·'} {n:<14} {pr.get('url') or ' '.join(pr.get('argv',[]))}  · tool {pr.get('tool','?')} · caps {', '.join(pr.get('cap',[]))}{'' if ok else '  ('+why+')'}")
+        return
+    if parts[0]=="rm" and len(parts)>1:
+        n=parts[1]; cfg["providers"].pop(n,None)
+        for c,order in cfg["capabilities"].items():
+            if n in order: order.remove(n)
+        json.dump(cfg,open(cfgp,"w"),indent=1); print(f"[mcp] {n} removed"); return
+    if parts[0]=="tools" and len(parts)>1:
+        pr=tools_cfg().get("providers",{}).get(parts[1])
+        if not pr or pr.get("connect")!="mcp": print(f"[mcp] '{parts[1]}' nahi hai — /mcp list"); return
+        ok,why=mcp_ready(pr)
+        if not ok: print(f"[mcp] {parts[1]}: {why}"); return
+        c=None
+        try:
+            c=_mcp_client(pr); c.connect()
+            for t in c.tools(): print(f"  {t.get('name'):<28} {(t.get('description') or '')[:90]}")
+        except Exception as e: print(f"[mcp] {type(e).__name__}: {str(e)[:160]}")
+        finally:
+            try: c and c.close()
+            except Exception: pass
+        return
+    if parts[0]=="add" and len(parts)>=3:
+        n=parts[1]
+        if not _RX_TOKEN.match(n): print("[mcp] name: letters/digits/_ only"); return
+        kv={k:v for k,v in (p.split("=",1) for p in parts[2:] if "=" in p and not p.startswith("http"))}
+        rest=[p for p in parts[2:] if not ("=" in p and not p.startswith("http"))]
+        pr={"connect":"mcp","cap":[kv.get("cap","mcp_"+n)],"tool":kv.get("tool",""),"arg":kv.get("arg","query"),"note":"MCP server from ~/.ai-tools.json (attended only)"}
+        if rest and re.match(r"https?://",rest[0]): pr["url"]=rest[0]
+        else: pr["argv"]=rest
+        if kv.get("key"): pr["key"]=kv["key"].upper()
+        cfg["providers"][n]=pr
+        for c in pr["cap"]: cfg["capabilities"].setdefault(c,[]); (cfg["capabilities"][c].insert(0,n) if n not in cfg["capabilities"][c] else None)
+        json.dump(cfg,open(cfgp,"w"),indent=1)
+        ok,why=mcp_ready(pr); print(f"[mcp] {n} saved → {cfgp} · caps {', '.join(pr['cap'])} · tool {pr['tool'] or '(pick with /mcp tools '+n+')'}{'' if ok else ' · not ready: '+why}")
+        print(f"  use:  /do {pr['cap'][0]} <text>   — text goes to the tool as JSON, never a shell; results are data, fenced before any brain sees them"); return
+    print(mcp_cmd.__doc__)
+_providers_refresh()   # AI_OAI_URL from ~/.ai-env → provider 'custom' is in the ladder from the first call
+KNOWN_CMDS=['/agent', '/agents', '/ask', '/attach', '/bg', '/budget', '/cache', '/canary', '/capabilities', '/clear', '/corpus', '/ctx', '/device', '/do', '/egress', '/embed', '/explain', '/group', '/help', '/impact', '/json', '/kb', '/keys', '/memory', '/metrics', '/mode', '/model', '/net', '/panel', '/privacy', '/remember', '/route', '/run', '/save', '/serve', '/setup', '/short', '/tags', '/tool', '/trace', '/update', '/version', '/why', '/wish', '/auto', '/online', '/local', '/quit', '/q', '/exit', '/hands', '/hand', '/stop', '/undo', '/calc', '/tour', '/lang', '/voice', '/models', '/connect', '/mcp']   # every command literal in the dispatcher (c=="/x" and c in(...)); golden pins parity; the typo-suggester matches against this
 HELP="""commands — everything is optional, plain text just talks to the best brain.
  BRAIN   /auto /online /local · /ask <brain> <q> · /panel %s · /model <name> · /route <q> · /why · /metrics [reset]
  ANSWER  /short · /json <q> · /clear · /save · /mode
  MEMORY  /remember <fact> · /memory · /kb build|query <q> · /ctx <files> · /tags · /budget <n> · /cache on|off|clear
  LEARN   /corpus [export [redact] [path]]  — har jawab ka archive (dataset, model nahi)
          /trace [<goal>]                   — jo /do chal gaya wo agli baar ka example ban jaata hai
+ MODELS  /models (Ollama me kya hai: chat/vision/embed, kaun attached) · /model <name> · ai connect <url> [model] [key] (LM Studio / llama.cpp / Jan / vLLM / koi gateway) · /mcp add|list|tools|rm
+ VOICE   /voice (ya sirf  v ) = ek baar suno · /voice on|off|stop|log on|status|notify  — push-to-talk; safe commands turant, baaki bol ke haan; /quit /clear /keys /update /setup /net /bg ! sirf typed
+ LANG    /lang [en|hinglish|hi|auto]  — English by default; installer asks; auto = mirrors what you type (2 of last 3)
+ TOOLS0  = 2+2 · 15% of 4200 · date · time in Boston · 5 km in miles · age 16 Nov 1994 · b64/sha256/uuid/json · pw 20 · wa/upi/qr links · emi/sip · mausam Jaipur  — offline, bina brain; /calc <expr> · /tour
+ HANDS   /hands · /hand <id> [args] · /stop [id] · /undo  — device control (volume, music, clipboard, notify, torch…); plain words + voice: "awaaz 30", "pause", "battery"
  DO      /do list · /do <cap> <input> · /do <cap> use=<provider|forge> <input> · /tool <name> <what it should do> · /wish [run|clear]
  IMPACT  /impact <action> [target]  — kya chhuega, kaun depend karta hai, pehle/beech/baad kya
  BG      /bg <question> · /bg do <cap> <input> · /bg !<shell cmd> · /bg  (list) · /bg <id>  — kaam peeche, baat chalu
@@ -3302,20 +4759,22 @@ HELP="""commands — everything is optional, plain text just talks to the best b
  EXIT    /quit
  the DO ladder never answers 'no': 1 provider -> 2 keyless builtin -> 3 recipe -> 4 brain -> 5 forge the tool."""
 def repl(st):
-    hist=[]; run=None; _next=[]      # _next: a corrected command queued by the typo-suggester
+    _ST_REF[0]=st; hist=[]; run=None; _next=[]      # _next: a corrected command queued by the typo-suggester
     print(f"ai ({EDITION}) · mode={st['mode']} budget={st['budget']} ctx={' '.join(st['ctx']) or 'off'} vault={VAULT}")
     try: device_adapt()          # new phone / more RAM / Shizuku just enabled -> re-tune, no reinstall
     except Exception: pass
+    try: models_autoattach()     # what Ollama actually has → chat/vision/embed roles, said once
+    except Exception: pass
     if not any(os.environ.get(pp["k"]) for pp in PROVIDERS if pp["k"]):
-        print(f"[ai] tip: koi brain key nahi -> {SETUP_HINT}")
-        print("[ai] keyless kaam phir bhi chalta hai: /do scrape <url> · /do research <q> · /do image <prompt>")
+        print("[ai] "+_t("tip.nokey",st,hint=SETUP_HINT))
+        print("[ai] "+_t("tip.keyless",st))
     else:
         n=canary_nudge()
         if n: print(n)
     try:
         _op=[w for w in _jsonl(WISHES) if w.get("status")=="open"]
         if _op and (net_up() or has_local()):
-            print(f"[ai] {len(_op)} wish pending (jo offline ruk gaya tha) — ab brain hai:  /wish run")
+            print("[ai] "+_t("wish.pending",st,n=len(_op)))
     except Exception: pass
     try:
         _dm=daemon_state()
@@ -3331,10 +4790,18 @@ def repl(st):
         except KeyboardInterrupt: print("\n[ai] /quit to exit"); continue
         if not text: continue
         if not text.startswith("/"):
+            _ln=lang_observe(st,text)
+            if _ln: print(_ln)
+            if STOP_RX.match(text): hands_stop(); continue          # "ruk" / "stop" / "band karo": brake first, always
+            if text.lower() in ("v","voice","bolo","suno"): text="/voice"
             if handle_self_intent(text):
                 _cc=chat_command(text)
                 if _cc: print(f"[ai] tune ye bhi kaha tha — wo maine abhi nahi chalaya:  {_cc[0]}")
                 continue
+            _hi=hands_intent(text)
+            if _hi:                                                  # a device hand, by plain words (or voice → same path)
+                print(f"[ai] → hand {_hi[0]}"+(" "+" ".join(f"{k}={v}" for k,v in _hi[1].items()) if _hi[1] else ""))
+                hand_run(st,_hi[0],_hi[1]); continue
             cc=chat_command(text)
             if cc:
                 cmd,safe=cc; print(f"[ai] → {cmd}")
@@ -3346,8 +4813,7 @@ def repl(st):
             if c in("/quit","/q","/exit"):
                 _run=[j for j in jobs_list() if j.get("state")=="running"]
                 if _run and a!="force":
-                    print(f"[ai] {len(_run)} background job abhi chal rahe hain — /quit karoge to wo MAR jayenge (threads process ke saath jaate hain).")
-                    print("     result wala done kaam save ho jayega. Phir bhi nikalna ho:  /quit force")
+                    print("[ai] "+_t("quit.jobs",st,n=len(_run)))
                     continue
                 break
             elif c=="/help": print(HELP % ",".join(st["panel"]))
@@ -3368,7 +4834,11 @@ def repl(st):
                     for b in st["panel"]: print(f"\n===== {b} ====="); ask(st,hist,a,run,brain=b,rec=False)
                     hist+=[("user",a)]; journal(OWNER,a)
                 else: print("[ai] usage: /panel <q> | /panel set local,gemini")
-            elif c=="/model": st["model"]="" if a in("","reset") else a; save(st); print("[ai] local model="+(st["model"] or "default"))
+            elif c=="/model":
+                st["model"]="" if a in("","reset") else a; save(st); print("[ai] local model="+(st["model"] or "default"))
+                if st["model"]:
+                    _ms=[m["name"] for m in ollama_models()]
+                    if _ms and st["model"] not in _ms and st["model"].split(":")[0] not in {m.split(":")[0] for m in _ms}: print(f"[ai] note: '{st['model']}' Ollama me nahi hai —  ollama pull {st['model']}   (installed: {', '.join(_ms[:6])})")
             elif c=="/short": st["short"]=not st["short"]; save(st); print("[ai] short="+str(st["short"]))
             elif c=="/remember":
                 if a:
@@ -3410,6 +4880,22 @@ def repl(st):
                     m=metrics()
                     print("\n".join(f"  {x['brain']:11s} {x['rate']:3d}% answered · {x['avg']}s avg · n={x['n']}" for x in m) or "[ai] no metrics yet")
             elif c=="/device": print(device_report())
+            elif c=="/lang": lang_cmd(st,a)
+            elif c=="/models": print(models_text(st))
+            elif c=="/connect": connect_cmd(st,a)
+            elif c=="/mcp": mcp_cmd(st,a)
+            elif c=="/voice":
+                _vc=voice_cmd(st,hist,a)
+                if _vc: _next.append(_vc)
+            elif c=="/calc": print(("= "+(calc(a) or "samajh nahi aaya")) if a else "[ai] usage: /calc <expr>   (ya seedha:  = 2+2 )")
+            elif c=="/tour": tour(st)
+            elif c=="/hands": print(hands_text())
+            elif c=="/hand":
+                hp=a.split(None,1)
+                if not hp: print(hands_text())
+                else: hand_run(st,hp[0],args=hp[1] if len(hp)>1 else "")
+            elif c=="/stop": hands_stop(a.strip() or None)
+            elif c=="/undo": hands_undo()
             elif c=="/canary": canary()
             elif c=="/wish": wish_cmd(st,a)
             elif c=="/impact":
@@ -3432,10 +4918,18 @@ def repl(st):
                     print(f"    {TRACES}  — safal /do runs ke exemplars (arg redact hoke, output ka sirf shape).  /trace")
                     print("  test:  /privacy mera number 9876543210 hai aur mail x@y.com")
             elif c=="/bg":
-                if not a or a.isdigit() or a=="list": print(job_report(a))
+                if a.startswith("stop"):       # /bg stop [id]
+                    ids=job_cancel(int(a.split()[1]) if len(a.split())>1 and a.split()[1].isdigit() else None)
+                    print(f"[bg] cancelled: {', '.join('#'+str(i) for i in ids)}" if ids else "[bg] koi running job nahi")
+                elif not a or a.isdigit() or a=="list": print(job_report(a))
                 elif a.startswith("!"):        # /bg !<shell cmd>
                     cmd=a[1:].strip()
-                    jid=job_start("shell",cmd,lambda c=cmd: subprocess.run(c,shell=True,capture_output=True,text=True,timeout=1800).stdout[-8000:])
+                    def _sh(c=cmd):
+                        p=subprocess.Popen(c,shell=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True); _JOBPROC[getattr(_CURJOB,"jid",0)]=p
+                        try: o,_=p.communicate(timeout=1800)
+                        finally: _JOBPROC.pop(getattr(_CURJOB,"jid",0),None)
+                        return (o or "")[-8000:]
+                    jid=job_start("shell",cmd,_sh)
                     print(f"[bg] #{jid} chal raha hai — tu baat karta reh, /bg {jid} se result dekh lena.")
                 elif a.startswith("do "):      # /bg do <cap> <input>
                     import io as _io, contextlib as _cl
@@ -3588,8 +5082,8 @@ def repl(st):
             else:
                 import difflib
                 near=difflib.get_close_matches(c,KNOWN_CMDS,n=1,cutoff=0.6)
-                if near and _confirm(f"[ai] {c} naam ka koi command nahi. Shayad {near[0]}?"): _next.append(near[0]+(" "+a if a else ""))
-                else: print(f"[ai] {c} nahi hai — poori list: /help")
+                if near and _confirm("[ai] "+_t("cmd.suggest",st,c=c,near=near[0])): _next.append(near[0]+(" "+a if a else ""))
+                else: print("[ai] "+_t("cmd.unknown",st,c=c))
         except KeyboardInterrupt: print("\n[ai] interrupted — session alive")
         except Exception as e:
             print(f"[ai] {c} failed: {type(e).__name__}: {e}")
@@ -3632,21 +5126,6 @@ def tail_logs(n=60):
             try: out.append(f"== {f} ==\n"+"".join(open(pp,encoding="utf-8",errors="ignore").readlines()[-n:]))
             except OSError: pass
     return "\n".join(out)
-def voice_in():
-    for cmd in ("listen","termux-speech-to-text","whisper-stt"):
-        if shutil.which(cmd):
-            try:
-                o=subprocess.run(cmd,shell=True,capture_output=True,text=True,timeout=40)
-                t=(o.stdout or "").strip()
-                if t: return t
-            except Exception: pass
-    return ""
-def voice_out(text):
-    if not text: return
-    for cmd in ("say","termux-tts-speak"):
-        if shutil.which(cmd):
-            try: subprocess.run(cmd,input=text,shell=True,text=True,timeout=60); return
-            except Exception: pass
 def _read_first(paths,fallback):
     for pth in paths:
         pth=os.path.expanduser(pth)
@@ -3670,7 +5149,7 @@ def _serve_token():
 def serve(port=8765):
     import http.server
     st=load(); hist=[]; ATTACH=[]
-    try: device_adapt()          # server also re-tunes itself to whatever hardware it woke up on
+    try: device_adapt(); models_autoattach(quiet=True)   # server also re-tunes itself to whatever hardware it woke up on
     except Exception: pass
     host=os.environ.get("AI_SERVE_HOST","127.0.0.1")
     if not _serve_token():
@@ -3822,15 +5301,10 @@ def serve(port=8765):
                 else:
                     jid=job_start("ask",q,lambda qq=q: (respond(st,qq) or {}).get("answer",""))
                 return self._json({"id":jid,"state":"running"})
-            if path=="/api/listen":  # floater mic -> whatever STT this device actually has
-                for cmd in (["whisper-stt"],["termux-speech-to-text"]):
-                    if shutil.which(cmd[0]):
-                        try:
-                            o=subprocess.run(cmd,capture_output=True,text=True,timeout=60)
-                            t=(o.stdout or "").strip()
-                            if t: return self._json({"text":t,"via":cmd[0]})
-                        except Exception as e: return self._json({"error":str(e)[:120]})
-                return self._json({"error":"no STT on this device — "+STT_HINT})
+            if path=="/api/listen":  # floater mic -> the HOST's push-to-talk ladder (off when /voice off)
+                if not VOICE["on"]: return self._json({"error":"voice is off on the host (/voice on)"},403)
+                t=listen_once()
+                return self._json({"text":t}) if t else self._json({"error":"no STT on this device — "+STT_HINT})
             if path=="/api/feedback":  # collected locally, never sent anywhere
                 row={"ts":time.strftime("%Y-%m-%d %H:%M"),"v":str(d.get("v",""))[:12],
                      "note":str(d.get("note",""))[:1000],"page":str(d.get("page",""))[:80]}
@@ -3852,7 +5326,7 @@ def serve(port=8765):
                    for mm in msgs[:-1] if mm.get("role") in ("user","assistant")]
                 r=respond(st,q,h[-24:])
                 comp=toks(r["answer"])
-                return self._json({"id":"akasha-1","object":"chat.completion","model":r["brain"],
+                return self._json({"id":BRAND.lower()+"-1","object":"chat.completion","model":r["brain"],
                     "choices":[{"index":0,"message":{"role":"assistant","content":r["answer"]},"finish_reason":"stop"}],
                     "usage":{"prompt_tokens":r["prompt_tok"],"completion_tokens":comp,"total_tokens":r["prompt_tok"]+comp}})
             if path=="/api/ask":
@@ -3910,7 +5384,7 @@ def serve(port=8765):
     finally: srv.server_close()
 
 def main():
-    st=load()
+    st=load(); _ST_REF[0]=st
     if len(sys.argv)>1:
         if sys.argv[1]=="serve":
             port=int(sys.argv[2]) if len(sys.argv)>2 and sys.argv[2].isdigit() else int(os.environ.get("AI_SERVE_PORT","8765"))
@@ -3929,6 +5403,18 @@ def main():
         if sys.argv[1]=="pair": return pair(sys.argv[2:])
         if sys.argv[1]=="announce": return announce(" ".join(sys.argv[2:]))
         if sys.argv[1]=="capabilities": print(capabilities()); return
+        if sys.argv[1]=="tour": return tour(st)
+        if sys.argv[1]=="models": print(models_text(st)); return
+        if sys.argv[1]=="connect": return connect_cmd(st," ".join(sys.argv[2:]))
+        if sys.argv[1]=="mcp": return mcp_cmd(st," ".join(sys.argv[2:]))
+        if sys.argv[1]=="voice":             # ai voice once|stop|notify|status — the notification buttons call these
+            _ST_REF[0]=st; _vc=voice_cmd(st,[]," ".join(sys.argv[2:]) or "once")
+            if _vc: print(f"[voice] {_vc}: chat me chalao (typed) — notification se sirf safe kaam"); return
+            return
+        if sys.argv[1]=="hands": print(hands_text()); return
+        if sys.argv[1]=="hand": return hand_run(st,sys.argv[2] if len(sys.argv)>2 else "",args=" ".join(sys.argv[3:]),source="cli")
+        if sys.argv[1]=="stop": hands_stop(sys.argv[2] if len(sys.argv)>2 else None); return
+        if sys.argv[1]=="undo": hands_undo(); return
         if sys.argv[1]=="egress": print(egress_report(int(sys.argv[2]) if len(sys.argv)>2 and sys.argv[2].isdigit() else 20)); return
         if sys.argv[1]=="keys": return keys_cmd(" ".join(sys.argv[2:]))
         if sys.argv[1]=="canary":            # cron/termux-job friendly: ai canary

@@ -12,7 +12,7 @@ Read this in two minutes. Every claim below can be checked in `ai.py` by searchi
 | `/do scrape <url>` | the URL | that site | — |
 | `/do image <prompt>` | the prompt | Pollinations (keyless) | **yes** |
 | `/attach shot.png` then ask | the image | only a brain that can see (Gemini with your key, or a local vision model) | image is not scrubbed — attach what you would show |
-| daily update check | nothing about you; a GET of a 60-byte `VERSION` file | GitHub (this repo) | opt out: `AI_UPDATE_CHECK=0` |
+| daily update check | nothing about you; a GET of a ~43-byte `VERSION` file | GitHub (this repo) | opt out: `AI_UPDATE_CHECK=0` |
 
 Everything else — memory, KB index, chat state, cache, metrics, expert packs, keys — is a file in your home folder. Nothing syncs.
 
@@ -25,7 +25,10 @@ Everything else — memory, KB index, chat state, cache, metrics, expert packs, 
 - **No silent installs.** Python and Ollama are installed by you from official installers; every stage waits for Enter.
 - **No key exports.** Keys are read from `~/.ai-env` by `ai` itself (`_load_env`); they are not put in your shell or handed to child processes.
 - **No unattended action.** The daemon runs with `AI_ATTENDED=0`; forging tools and shell execution are hard-blocked there.
+- **No text inside a script.** Device hands (docs/HANDS.md) are code-owned templates; free text is only ever its own argument or stdin, never embedded in an `osascript`/`-Command`/`rish -c` script. A hand that violates this fails to load (`hands_check`), and the daemon may only use read-only hands.
 - **No fake results.** If a test did not run, it says so. If no brain can see your image, it says so instead of guessing.
+
+What the outbound requests identify themselves as: keyless fetches (search, scrape, links) send `User-Agent: aasmaan` (or `Mozilla/5.0 (Android) aasmaan` where a site refuses bare agents); `/v1` responses carry `"id": "aasmaan-1"`. That is the whole fingerprint — no install id, no device id.
 
 ## Verify it yourself
 

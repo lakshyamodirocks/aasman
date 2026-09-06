@@ -28,9 +28,16 @@ Aasmaan is configured by environment variables (put them in `~/.ai-env` as `expo
 | `AI_TRACE_DEBUG` | unset | `1` prints the exemplar block (:2312) | — | silent |
 | `AI_PERSONA_CHARS` | `4500` | expert-persona budget (:1296) | — | silent (`or 4500`) |
 | `AI_REPO` | auto (install dir) | where experts/agents/panel are found (:1147) | install.ps1 | **silent** — packs vanish, `/agents` empty |
-| `AI_lakshyamodirocks/aasman` | from `VERSION` | slug for update-check + `/install` text (:2542) | — | **silent** — update check quietly dies |
+| `AI_REPO_SLUG` | from `VERSION` | slug for update-check + `/install` text (:2542) | — | **silent** — update check quietly dies |
 | `AI_SETUP_CMD` | `""`→update cmd | the command `/setup` runs (:2574) | pc-setup, install.ps1 | **loud, and dangerous — runs what you put** |
 | `AI_UPDATE_CHECK` | `1` | `0` disables the daily `VERSION` GET (:2581) | README, SECURITY, TRUST, ARCH | silent (only `"0"`) |
+| `AI_OAI_URL` | unset | an OpenAI-compatible chat endpoint (base or `/v1/chat/completions`) → provider `custom`; loopback/private = local, else cloud | README | loud (ping fails, ladder moves on) |
+| `AI_OAI_MODEL` | unset | model id on that server (`ai connect` lists them) | README | loud |
+| `AI_OAI_KEY` | unset | bearer key for that server, if it wants one | README | loud (401) |
+| `AI_VOICE` | `1` | `0` = voice off at start: no TTS, no mic, `/api/listen` refuses | README | silent (only `"0"`) |
+| `AI_TTS_ARGV` | unset | JSON argv that replaces the TTS engine (reads one sentence from stdin) — tests / odd setups | FLAGS | loud (bad JSON ignored, engine ladder used) |
+| `AI_PIPER_MODEL` | unset (searched in `~/.local/share/piper`, `~/piper-voices`) | path to a piper `.onnx` voice | FLAGS | silent (falls to the next engine) |
+| `AI_LANG` | unset (→ `en`, then auto-mirror) | `en` / `hinglish` / `hi` pins the answer language + the translated UI strings; written by the installers, `/lang` shows/changes it | README, FAQ | silent (unknown value = not pinned, auto-mirror) |
 | `AI_ATTENDED` | `1` | **`0` hard-blocks forge + shell** (:1640; forced 0 by daemon :2608, telegram :2849) | README, SECURITY, TRUST, ARCH | silent (only `"0"`) |
 | `AI_AUTOFORGE` | `1` | `0` disables rung-5 tool forging (:1639) | — | silent |
 | `AI_WISH_BATCH` | `3` | wishes granted per `/wish run` (:1611) | — | loud (`ValueError`) |

@@ -30,14 +30,17 @@ flowchart LR
     A[local Ollama\nyour RAM/GPU] --> B[free cloud tiers\nonly with YOUR key] --> C[keyless builtins\nDDG search · scrape · Pollinations images] --> D[recipe\nexact manual steps for this device] --> E[brain in text form] --> F[forge a tool\nwrite · scan · ask · run]
 ```
 
+- **Discovery:** **`ollama_models`** reads Ollama's tags and **`models_autoattach`** fills unset chat/vision/embed roles at start; **`custom_provider`** turns `AI_OAI_URL` into a brain (loopback = local); MCP servers from `~/.ai-tools.json` are `/do` providers (**`mcp_run`**, attended only, text as JSON).
 - **`PROVIDERS`** is the brain order; **`brain_order`** re-sorts it by what is alive and what the question needs.
+- **Rung 0 — hands.** If the capability is a device hand on this platform (**`HANDS`**, **`hand_run`**), it runs there: no key, no net, no brain, typed parameters, a brake. Plain words reach the same door through **`hands_intent`** before any brain is asked; **`STOP_RX`** ("ruk", "stop", "band karo") is checked before everything else. See docs/HANDS.md.
 - **`/do <capability>`** walks **`do_capability`** down the rungs. Rung 5 (**`_forge_capability`**) writes a small stdlib script, scans it (**`_risky`**), and asks before running anything that touches destructive surfaces. It is hard-blocked when unattended.
 - A capability that could not be granted offline is queued as a **wish** and granted when a brain returns.
 
-## 3. Experts — 18 specialists that know their limits
+## 3. Experts — 18 specialists that know their limits, plus the product itself
 
 Each expert is a folder: `experts/<name>/PERSONA.md` (voice, refusals, honest weak spots on a small model, 5 Hinglish exemplars) and `KB.md` (tool ladder, cheat-sheet, dated sources).
 
+- **`aasmaan`** is the 19th pack: `PERSONA.md` hand-written, `KB.md` **generated at build** (`gen-selfkb.py`) from README, TRUST, FAQ, ROADMAP, FLAGS, CHANGELOG and the command dispatcher, with size caps and a two-way command gate that fail the build. Plain product questions ("kya ye offline chalta hai", "mera phone kaise judega") reach it through **`self_kb_route`** — the third gate after self-intents and chat rules, which return measured state and always win. With a brain it answers as the expert with `capabilities()` prefixed as trusted, measured fact; with no brain at all **`self_answer`** returns the best KB section and its commands (BM25, no model, no net).
 - **`pick_expert`**: IDF-weighted keyword routing for `/agent auto <task>`; crisis phrasing always reaches the coaching expert's helpline protocol.
 - **`agent_persona`** / **`expert_kb`**: the persona head plus only the KB sections the question needs, inside a fixed character budget; exemplar #1 always survives; sources never ship to the model.
 
@@ -49,7 +52,7 @@ Each expert is a folder: `experts/<name>/PERSONA.md` (voice, refusals, honest we
 
 ```mermaid
 flowchart LR
-    V[VERSION beside ai.py\ndate · sha · repo] --> U[daily 60-byte check\nAI_UPDATE_CHECK=0 to opt out]
+    V[VERSION beside ai.py\ndate · sha · repo] --> U[daily ~43-byte check\nAI_UPDATE_CHECK=0 to opt out]
     U --> N[one-line notice under the banner]
     N --> Y{you press}
     Y -- "/update · ai update" --> R[re-download + reinstall\nkeys + memory kept]
