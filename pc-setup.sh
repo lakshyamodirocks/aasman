@@ -28,6 +28,29 @@ else
 fi
 . "$SRC_LIB/ux.sh"; . "${PROBE:-$SRC_LIB/probe.sh}"
 STAGE_TOTAL=7; export AI_BRAND="${AI_BRAND:-Aasmaan}"
+# ── stage 0: language. English by default; Enter keeps it; the choice lives in ~/.ai-setup-profile as AI_LANG
+# (read by 'ai' at every start). Re-runs keep the earlier answer; AI_YES/scripted runs never ask.
+PROF0="$HOME/.ai-setup-profile"; _pl="$(grep -m1 '^AI_LANG=' "$PROF0" 2>/dev/null | cut -d= -f2)"
+export AI_LANG="${AI_LANG:-${_pl:-}}"
+if [ -z "$AI_LANG" ] && [ "${AI_YES:-0}" != "1" ] && [ -r "${UX_TTY:-/dev/tty}" ]; then
+  printf '\n  Language / भाषा:   [1] English   [2] Hinglish   [3] हिन्दी      Enter = English\n  > '
+  IFS= read -r _l <"${UX_TTY:-/dev/tty}" || _l=1
+  case "$_l" in 2) AI_LANG=hinglish;; 3) AI_LANG=hi;; *) AI_LANG=en;; esac; export AI_LANG
+fi
+AI_LANG="${AI_LANG:-en}"; export UX_LANG="$AI_LANG"
+t(){ case "$1" in   # t <key> — stage titles in the chosen language (Hinglish is today's text; hi reads the same)
+  machine) [ "$AI_LANG" = en ] && printf 'Your machine' || printf 'Teri machine';;
+  machine.what) [ "$AI_LANG" = en ] && printf 'OS · RAM · GPU · Python · Ollama — only LOOKS, changes nothing' || printf 'OS · RAM · GPU · Python · Ollama — sirf DEKHTA hai, kuch badalta nahi';;
+  brain) printf 'Local brain (Ollama)';;
+  install) [ "$AI_LANG" = en ] && printf "'ai' install" || printf "'ai' install";;
+  keys) printf 'Cloud brains (free keys)';;
+  keys.what) [ "$AI_LANG" = en ] && printf 'Groq · Cerebras · Gemini · OpenRouter — all optional, all free tier' || printf 'Groq · Cerebras · Gemini · OpenRouter — sab optional, sab free tier';;
+  path) [ "$AI_LANG" = en ] && printf 'PATH (your call)' || printf 'PATH (tera faisla)';;
+  path.what) [ "$AI_LANG" = en ] && printf 'I do NOT touch ~/.bashrc / ~/.zshrc' || printf 'Main ~/.bashrc / ~/.zshrc NAHI chhedta';;
+  daemon) printf 'Daemon (optional)';;
+  proof) printf 'Proof';;
+  proof.what) [ "$AI_LANG" = en ] && printf 'ai version · agents list · one daemon tick' || printf 'ai version · agents list · daemon ek tick';;
+  *) printf '%s' "$1";; esac; }
 BIN="${AI_BIN_DIR:-$HOME/.local/bin}"
 # macOS has no `timeout` (coreutils' is `gtimeout`); never let a proof step hang, never fail for lack of the tool
 _to(){ if command -v timeout >/dev/null 2>&1; then timeout "$@"; elif command -v gtimeout >/dev/null 2>&1; then gtimeout "$@"; else shift; "$@"; fi; }
@@ -40,7 +63,7 @@ put(){ # put <src> <dst> [mode]  — copy + manifest
 
 # ── uninstall: manifest me jo hai, sirf wahi ─────────────────────────────────
 if [ "${1:-}" = "--uninstall" ]; then
-  printf '%sPC edition · uninstall%s\n' "$_UXB" "$_UXX"
+  printf '%suninstall (Linux / macOS / WSL2)%s\n' "$_UXB" "$_UXX"
   [ -f "$MANIFEST" ] || { echo "  manifest nahi mila ($MANIFEST) — is machine pe install hua hi nahi tha, ya pehle hi hat gaya."; exit 0; }
   echo "  ye hatega (sirf ye — tere models, keys-file, vault NAHI):"
   sed 's/^/    /' "$MANIFEST"
@@ -63,7 +86,7 @@ if [ "${1:-}" = "--uninstall" ]; then
 fi
 
 # ── stage 1: ye machine kya hai ──────────────────────────────────────────────
-stage "Teri machine" "OS · RAM · GPU · Python · Ollama — sirf DEKHTA hai, kuch badalta nahi" \
+stage "$(t machine)" "$(t machine.what)" \
   "Aage ke har faisle (kaunsa local model, GPU use hoga ya nahi) isi report pe tikte hain. Kuch install nahi hota is stage me."
 OS="$(uname -s 2>/dev/null || echo ?)"; ARCH="$(uname -m 2>/dev/null || echo ?)"
 WSL=0; grep -qi microsoft /proc/version 2>/dev/null && WSL=1
@@ -139,11 +162,11 @@ if stage_opt "Local brain (Ollama)" "Offline code-model tere hardware ke hisaab 
 fi
 
 # ── stage 3: 'ai' + experts + packs — sirf $HOME ke andar, manifest ke saath ─
-stage "'ai' install" "ek Python file → $BIN/ai · 18 experts + packs → ~/.ai-experts* · tool router → ~/.ai-tools.json" \
+stage "'ai' install" "ek Python file → $BIN/ai · 19 experts + packs (18 specialists + Aasmaan itself) → ~/.ai-experts* · tool router → ~/.ai-tools.json" \
   "Zero dependencies: stdlib Python. Koi pip nahi, koi venv nahi, koi sudo nahi. Har file manifest me — --uninstall se wahi hategi."
 mkdir -p "$BIN"
 { echo '#!/usr/bin/env python3'; if head -1 "$SRC_AI" | grep -q '^#!'; then tail -n +2 "$SRC_AI"; else cat "$SRC_AI"; fi; } > "$BIN/ai.tmp" && chmod 755 "$BIN/ai.tmp" && mv "$BIN/ai.tmp" "$BIN/ai" && mf "$BIN/ai" && ok "$BIN/ai ($(wc -l < "$BIN/ai") lines, one file — padh lo, sab dikhta hai)"
-put "$SRC_EXPERTS" "$HOME/.ai-experts.json" && ok "18 experts (~/.ai-experts.json)"
+put "$SRC_EXPERTS" "$HOME/.ai-experts.json" && ok "19 experts (~/.ai-experts.json — 18 specialists + aasmaan)"
 np=0; for d in "$SRC_PACKS"/*/; do e=$(basename "$d"); [ -f "$d/PERSONA.md" ] || continue
   for f in "$d"/*.md; do put "$f" "$HOME/.ai-experts/$e/$(basename "$f")"; done; np=$((np+1)); done
 mf "$HOME/.ai-experts"; ok "$np expert packs (persona + KB) → ~/.ai-experts/"
@@ -153,10 +176,10 @@ mf "$HOME/.ai-experts"; ok "$np expert packs (persona + KB) → ~/.ai-experts/"
 [ -f "$SRC_BOARD" ] && put "$SRC_BOARD" "$HOME/.ai-whiteboard.html"
 [ -n "$MODEL" ] && { grep -q '^AI_LOCAL_MODEL=' "$HOME/.ai-setup-profile" 2>/dev/null || { printf 'AI_TIER=PC\nAI_LOCAL_MODEL=%s\nAI_LOCAL_CTX=16384\n' "$MODEL" > "$HOME/.ai-setup-profile"; mf "$HOME/.ai-setup-profile"; }; }
 # /setup inside 'ai' re-runs THIS script; /update re-fetches from the repo. Recorded, not guessed.
-PROF="$HOME/.ai-setup-profile"; touch "$PROF"; grep -v '^AI_SETUP_CMD=' "$PROF" > "$PROF.tmp" 2>/dev/null; printf 'AI_SETUP_CMD=bash %q\n' "$SELFDIR/pc-setup.sh" >> "$PROF.tmp"; mv "$PROF.tmp" "$PROF"; mf "$PROF"
+PROF="$HOME/.ai-setup-profile"; touch "$PROF"; grep -v '^AI_SETUP_CMD=\|^AI_LANG=' "$PROF" > "$PROF.tmp" 2>/dev/null; printf 'AI_SETUP_CMD=bash %q\nAI_LANG=%s\n' "$SELFDIR/pc-setup.sh" "$AI_LANG" >> "$PROF.tmp"; mv "$PROF.tmp" "$PROF"; mf "$PROF"
 
 # ── stage 4: keys — jo env me pehle se hain unhe REUSE, naye 0600 file me ────
-stage "Cloud brains (free keys)" "Groq · Cerebras · Gemini · OpenRouter — sab optional, sab free tier" \
+stage "$(t keys)" "$(t keys.what)" \
   "Keys ~/.ai-env (0600) me jaati hain — 'ai' khud padhta hai, koi shell rc nahi chhedta, child process ko nahi milti. Jo key tere env me PEHLE se hai use dobara nahi poochhta."
 ENVF="$HOME/.ai-env"; touch "$ENVF"; chmod 600 "$ENVF"
 setkey(){ local var=$1 what=$2 url=$3 val
@@ -172,7 +195,7 @@ setkey OPENROUTER_API_KEY "OpenRouter (free models)" "openrouter.ai/keys"
 # ~/.ai-env jaan-boojh ke manifest me NAHI — uninstall teri keys kabhi nahi hataata.
 
 # ── stage 5: PATH — kuch nahi badalta; line dikhata hai ──────────────────────
-stage "PATH (tera faisla)" "Main ~/.bashrc / ~/.zshrc NAHI chhedta" \
+stage "$(t path)" "$(t path.what)" \
   "Bahut installers chupke rc file me line daal dete hain — hum nahi. Ek line dikha raha hoon; daalni ho to tu daal, warna poore path se chala."
 case ":$PATH:" in *":$BIN:"*) ok "$BIN pehle se PATH me hai — 'ai' seedha chalega";;
   *) warn "$BIN PATH me nahi. Do raaste:"
@@ -197,12 +220,12 @@ if stage_opt "Daemon (optional)" "har 30 min: update-check · brains ping · pen
 fi
 
 # ── stage 7: proof — chala ke dikhao, maan ke nahi ───────────────────────────
-stage "Proof" "ai version · agents list · daemon ek tick" "Install 'ho gaya' tab hai jab chal ke dikhe."
+stage "$(t proof)" "$(t proof.what)" "Install 'ho gaya' tab hai jab chal ke dikhe."
 runv "ai compiles on this Python ($PYV)" "$PY" -m py_compile "$BIN/ai"; rm -rf "$BIN/__pycache__"
 case "$SELFDIR" in "$HOME"/.local/share/aasmaan*) mf "$HOME/.local/share/aasmaan";; esac    # the downloaded bundle is ours to remove too
 AI_FORCE_OFFLINE=1 "$BIN/ai" version 2>/dev/null | sed 's/^/    /' | head -4
 n=$(printf '/agents\n/quit\n' | AI_FORCE_OFFLINE=1 _to 60 "$BIN/ai" 2>/dev/null | grep 'agents:' | grep -o '[a-z]*\*' | wc -l)
-[ "$n" -ge 18 ] && ok "$n/18 expert packs load hote hain (offline, bina brain ke)" || warn "packs load nahi hue ($n/18) — 'ai' ke andar /agents chala ke dekho"
+[ "$n" -ge 19 ] && ok "$n/19 expert packs load hote hain (offline, bina brain ke)" || warn "packs load nahi hue ($n/19) — 'ai' ke andar /agents chala ke dekho"
 AI_FORCE_OFFLINE=1 _to 60 "$BIN/ai" daemon --once >/dev/null 2>&1 && [ -f "$HOME/.ai-daemon.json" ] && ok "daemon: one tick ran, state written (~/.ai-daemon.json)" || warn "daemon tick failed — 'ai daemon --once' chala ke dekho"
 ux_summary \
   "chalao:  $BIN/ai        (offline bhi: /memory /kb /agent rachaka <code sawaal>)" \

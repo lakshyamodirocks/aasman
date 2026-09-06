@@ -308,6 +308,213 @@ def t_token_live():
     ai._upsert_env("AI_SERVE_TOKEN","tok1"); a=ai._serve_token(); ai._upsert_env("AI_SERVE_TOKEN",""); b=ai._serve_token()
     return a=="tok1" and b=="", f"{a} {b}"
 case("serve: token is read live from ~/.ai-env (revocation works on a running server)", t_token_live)
+def t_cap_alias():
+    # the startup tip and every recipe say "/do image"; the map's name is image_generation. Typing the tip
+    # must resolve, never forge a tool named 'image' (G-raw-user: the first thing a keyless user tried was a dead end).
+    caps=ai.tools_cfg().get("capabilities",{})
+    miss=[a for a,c in ai.CAP_ALIAS.items() if c not in caps]
+    return not miss and ai.CAP_ALIAS.get("image")=="image_generation", f"aliases pointing nowhere: {miss}"
+case("do: every CAP_ALIAS target exists in the capability map ('/do image' resolves)", t_cap_alias)
+def t_known_cmds_parity():
+    import re as _re
+    src=open(SRC,encoding="utf-8").read()
+    lit=set(_re.findall(r'c==\s*"(/[a-z]+)"',src))
+    for grp in _re.findall(r'c in\s*\(([^)]*)\)',src): lit|=set(_re.findall(r'"(/[a-z]+)"',grp))
+    lit.discard("/x")   # the comment's placeholder
+    missing=sorted(lit-set(ai.KNOWN_CMDS)); phantom=sorted(set(ai.KNOWN_CMDS)-lit)
+    return not missing and not phantom, f"not in KNOWN_CMDS: {missing}; in KNOWN_CMDS but not dispatched: {phantom}"
+case("KNOWN_CMDS == every command literal the dispatcher handles (typo-suggester + self-KB derive from it)", t_known_cmds_parity)
+
+# ── HANDS: device control is code-owned, typed, gated, and always has a brake ──────────────
+case("hands: shipped tables pass hands_check (risk letter, brake, conf, says, template safety)", lambda:(ai.hands_check()==[], str(ai.hands_check()[:3])))
+def t_hands_text_in_script_refused():
+    bad={"x":{"h":{"argv":["osascript","-e","say {text}"],"params":[("text","text",{"max":10})],"risk":"S","undo":None,"conf":"doc","says":[r"^x (?P<text>.+)$"]}}}
+    r=ai.hands_check(bad)
+    return any("embedded inside a script" in b for b in r), f"got {r}"
+case("hands: a text param embedded inside a script element is a load-time violation", t_hands_text_in_script_refused)
+def t_hands_intent():
+    a=ai.hands_intent("volume 40","linux"); b=ai.hands_intent("how do I set the volume in JS","linux"); c=ai.hands_intent("pause","linux")
+    d=ai.hands_intent("unmute","linux"); e=ai.hands_intent("torch band kar do","termux"); f=ai.hands_intent("spotify pe chalao arijit","termux")
+    return (a==("volume_set",{"level":"40"}) and b is None and c==("media",{"verb":"pause"}) and d==("mute",{"state":"off"})
+            and e==("torch",{"state":"off"}) and f==("spotify",{"q":"arijit"})), f"{a} {b} {c} {d} {e} {f}"
+case("hands: plain words map to (hand, params) on every platform; a coding question never matches", t_hands_intent)
+ai.HANDS["test"]={
+  "slow":{"what":"t","argv":["sleep","30"],"params":[],"long":True,"risk":"S","stop":"kill","conf":"run","says":[r"^slow$"]},
+  "lvl":{"what":"t","argv":["echo","{level}"],"params":[("level","int",{"min":0,"max":100})],"risk":"S","undo":"lvl","conf":"run","says":[r"^lvl (?P<level>\d+)$"]},
+  "txt":{"what":"t","argv":["cat"],"stdin":"text","params":[("text","text",{"max":50})],"risk":"S","undo":None,"conf":"run","says":[r"^txt (?P<text>.+)$"]},
+  "ro":{"what":"t","argv":["echo","ro"],"params":[],"risk":"R","conf":"run","says":[r"^ro$"]},
+  "danger":{"what":"t","argv":["echo","boom"],"params":[],"risk":"X","undo":None,"conf":"run","says":[r"^danger$"]},
+  "_stop":[]}
+def t_hands_validate():
+    h=ai.HANDS["test"]["lvl"]
+    v1,e1=ai._h_validate(h,{"level":"400"}); v2,e2=ai._h_validate(h,{"level":"40"}); argv,e3=ai._h_build(h,v2)
+    ht=ai.HANDS["test"]["txt"]; v3,e4=ai._h_validate(ht,{"text":"hello; rm -rf /"}); a2,e5=ai._h_build(ht,v3)
+    return (v1 is None and "0–100" in e1 and argv==["echo","40"] and a2==["cat"]), f"{e1} {argv} {a2} {e4} {e5}"
+case("hands: int range enforced; whole-element {x} = one argv item; stdin text never reaches argv", t_hands_validate)
+def t_hands_stop_kills():
+    os.environ["AI_ATTENDED"]="1"   # an earlier daemon pin leaves it at 0
+    ai.hand_run(None,"slow",osk="test",source="cli")
+    pid=next(iter(ai._H_PROCS)); alive=ai._H_PROCS[pid].poll() is None
+    did=ai.hands_stop(osk="test"); dead=ai._H_PROCS.get(pid) is None
+    try: os.kill(pid,0); still=True
+    except OSError: still=False
+    return alive and did and dead and not still, f"alive={alive} did={did} still={still}"
+case("hands: a long hand is a live process; /stop terminates it and says so", t_hands_stop_kills)
+def t_hands_gates():
+    os.environ["AI_ATTENDED"]="0"
+    r1=ai.hand_run(None,"lvl",{"level":"5"},osk="test",source="cli"); r2=ai.hand_run(None,"ro",osk="test",source="cli")
+    os.environ["AI_ATTENDED"]="1"
+    r3=ai.hand_run(None,"danger",osk="test",source="cli")   # stdin is not a tty here -> must refuse, not run
+    return r1 is None and r2 is not None and r3 is None, f"{r1!r} {r2!r} {r3!r}"
+case("hands: unattended runs read-only hands only; X-risk without a tty is refused, never run", t_hands_gates)
+# ── RUNG 0 TOOLS: the keyless user's first questions are answered, safely, before any brain ──
+def t_calc_safe():
+    bad=[ai.calc(x) for x in ('__import__("os").system("id")','().__class__','2**99999','open("/etc/passwd")','a.b','x')]
+    good=(ai.calc("2+2"),ai.calc("15% of 4200"),ai.calc("4200 ka 15%"),ai.calc("2^10"),ai.calc("sqrt(144)"),ai.calc("10 % 3"))
+    return all(b is None for b in bad) and good==("4","630","630","1024","12","1"), f"bad={bad} good={good}"
+case("calc: allowlisted ast only — names, attributes, calls, huge powers refused; arithmetic exact", t_calc_safe)
+def t_tool0_triggers():
+    hit=[ai.local_tool(x) is not None for x in ("2+2","2 + 2 kitna hai","date","time in Boston","5 km in miles","100 f to c","age 16 Nov 1994","b64 hello","sha256 abc","uuid","emi 2500000 8.5 20","wa 9198765432: hi","qr hello")]
+    miss=[ai.local_tool(x) is None for x in ("how do I compute EMI in Python?","what is the date of the next election","call me at 5","2 se 3 achha hai?","/calc 2+2")]
+    pw=ai.local_tool("pw 16"); emi=ai.local_tool("sip 5000 12 10")[0]
+    return all(hit) and all(miss) and pw is not None and pw[1] is False and len(pw[0].split()[0])==16 and "koi investment advice" in emi and "FV =" in emi, f"hit={hit} miss={miss}"
+case("tool0: whole-message triggers answer offline; real questions pass to the brain; passwords are never recorded; EMI/SIP show the formula + calculator-only wording", t_tool0_triggers)
+def t_tool0_in_ask():
+    import io as _io, contextlib as _cl
+    buf=_io.StringIO(); st=ai.load(); h=[]
+    with _cl.redirect_stdout(buf): r=ai.ask(st,h,"7*6")
+    return r=="= 42   (offline, bina brain)" and "tool0" in buf.getvalue() and h and h[0][1]=="7*6", f"r={r!r} hist={h}"
+case("ask: rung 0 answers '7*6' with no brain, no network, and records the turn", t_tool0_in_ask)
+# ── LANGUAGE: English default, explicit pin wins, auto-mirror flips on 2-of-3 and says so ──
+def t_detect_lang():
+    T=[("show me the last five errors from the log","en"),("kal ka plan batao bhai","hinglish"),("kar do","hinglish"),("ok","en"),("update","en"),
+       ("ये कमांड कैसे चलती है","hi"),("இது எப்படி வேலை செய்கிறது","ta"),("mera server down hai kya karu","hinglish"),("deploy the branch and run the tests","en"),
+       ("thoda slow hai, phir bhi chal raha hai","hinglish"),("what is the capital of France","en"),("yaar ye error samajh nahi aa raha","hinglish"),
+       ("git push origin main","en"),("mujhe ek website banani hai","hinglish"),("The meeting is at 5","en"),("2+2 kitna hai","hinglish"),
+       ("aaj mausam accha hai","hinglish"),("Restart the daemon please","en"),("bahut zyada RAM le raha hai","hinglish"),("₹500 credited","en")]
+    bad=[(t,e,ai.detect_lang(t)) for t,e in T if ai.detect_lang(t)!=e]
+    return len(bad)<=1, f"{len(T)-len(bad)}/{len(T)} {bad}"   # CI floor: 19/20 (F-language §6 worry 1)
+case("lang: detect_lang ≥19/20 on the smoke set (script beats words; no English colliders)", t_detect_lang)
+def t_lang_mirror():
+    os.environ.pop("AI_LANG",None); st={"lang":None}
+    a=ai.lang_now(st); n1=ai.lang_observe(st,"ok"); n2=ai.lang_observe(st,"bhai ye kaise chalega"); b=ai.lang_now(st); n3=ai.lang_observe(st,"mera code tut gaya"); c=ai.lang_now(st)
+    st["lang"]="en"; n4=ai.lang_observe(st,"yaar kya hai ye"); d=ai.lang_now(st)
+    os.environ["AI_LANG"]="hi"; e=ai.lang_now(st); os.environ.pop("AI_LANG",None)
+    return a=="en" and not n1 and not n2 and b=="en" and "switch" in n3 and c=="hinglish" and n4=="" and d=="en" and e=="hi", f"{a} {b} {c!r} {n3!r} {d} {e}"
+case("lang: starts en; one Hinglish line does not flip; 2-of-3 flips with a notice; /lang pin and AI_LANG win", t_lang_mirror)
+def t_lang_prompt_and_catalogue():
+    st={"lang":"hinglish"}; ai._ST_REF[0]=st
+    line=ai.lang_line(st); msg=ai._t("tip.nokey",st,hint="H"); st["lang"]="en"; msg2=ai._t("tip.nokey",st,hint="H"); miss=ai._t("no.such.key",st)
+    ai._ST_REF[0]=None
+    return "Roman" in line and "Devanagari" in line and msg.startswith("tip: koi brain key") and msg2.startswith("tip: no brain key") and miss=="no.such.key", f"{msg} | {msg2} | {miss}"
+case("lang: the system prompt carries the language rule; catalogue strings follow /lang and never crash on a missing key", t_lang_prompt_and_catalogue)
+# ── VOICE: push-to-talk, spoken yes/no never widens what chat can do, speech stops between sentences ──
+def t_voice_rules():
+    os.environ["AI_TTS_ARGV"]='["cat"]'; ai.VOICE["on"]=True; st=ai.load()
+    import io as _io, contextlib as _cl
+    out=[]
+    def run(seq):
+        it=iter(seq); ai.LISTEN[0]=lambda: next(it)
+        with _cl.redirect_stdout(_io.StringIO()): r=ai.voice_once(st,[])
+        return r
+    a=run(["agents dikhao"]); b=run(["clear chat"]); c=run(["index the vault","haan"]); d=run(["index the vault","nahi"]); e=run(["index the vault"," "]); f=run(["update yourself"])
+    ai.LISTEN[0]=None; os.environ.pop("AI_TTS_ARGV",None)
+    return a=="/agents" and b is None and c=="/kb build" and d is None and e is None and f is None, f"{a} {b} {c} {d} {e} {f}"
+case("voice: safe rows run · destructive rows need a typed yes · non-destructive rows need a spoken haan (silence = no) · self-intents keep their typed gate", t_voice_rules)
+def t_voice_stop_between_sentences():
+    import threading, time as _t
+    os.environ["AI_TTS_ARGV"]='["sleep","1"]'; ai.VOICE["on"]=True; r=[None]
+    th=threading.Thread(target=lambda: r.__setitem__(0,ai.speak("One. Two. Three. Four."))); th.start(); _t.sleep(0.4)
+    was=ai.stop_speaking(); th.join(5); os.environ.pop("AI_TTS_ARGV",None)
+    return was and r[0] is not None and "stopped after 1" in r[0], f"was={was} r={r[0]!r}"
+case("voice: speech is one process per sentence, so /stop lands after the current sentence", t_voice_stop_between_sentences)
+def t_voice_off():
+    ai.VOICE["on"]=False; r=ai.speak("x"); l=ai.listen_once(); ai.VOICE["on"]=True
+    return "off" in r and l=="", f"{r!r} {l!r}"
+case("voice: /voice off = no TTS, no mic, no /api/listen", t_voice_off)
+def t_job_cancel():
+    import subprocess as _sp, time as _t
+    def _sh():
+        p=_sp.Popen(["sleep","30"]); ai._JOBPROC[ai._CURJOB.jid]=p; p.wait(); return "x"
+    jid=ai.job_start("shell","sleep 30",_sh); _t.sleep(0.4); pid=ai._JOBPROC[jid].pid
+    ids=ai.job_cancel(jid); _t.sleep(0.3)
+    try: os.kill(pid,0); alive=True
+    except OSError: alive=False
+    return ids==[jid] and ai.JOBS[jid]["state"]=="cancelled" and not alive, f"{ids} {ai.JOBS[jid]['state']} alive={alive}"
+case("bg: /bg stop kills the job's registered process and marks it cancelled", t_job_cancel)
+# ── SELF-KB: the product explains itself; routing is deterministic; no brain still answers ──
+def t_selfkb_route():
+    T=[("ye kya kar sakta hai",False),("keys kahan hain",True),("mera phone kaise judega",True),("kya ye offline chalta hai",True),("kaunsa model chal raha hai",True),
+       ("mera data kahan jata hai",True),("uninstall kaise karu",True),("ye app free hai kya",True),("kya kya planned hai",True),("isme kitne experts hain",True),
+       ("ye tool telemetry bhejta hai kya",True),("Windows pe chalega?",True),("kisne banaya ye",True),("bug kahan report karu",True),
+       ("ye code kya kar sakta hai",False),("mera script offline chalega?",False),("is file me kya bug hai",False),("python me api key kaise hide karu",False),
+       ("traceback samajh nahi aaya",False),("how do I install numpy in python",False),("what is the capital of france",False)]
+    bad=[(t,e) for t,e in T if ai.self_kb_route(t)!=e]
+    return not bad, f"{bad}"
+case("selfkb: product questions route to aasmaan; the user's own code/data never does (21 phrases)", t_selfkb_route)
+def t_selfkb_pack():
+    ok=ai.has_pack("aasmaan") and "aasmaan" in ai.experts() and len(ai.EXEMPLAR_RE.findall(ai.agent_persona("aasmaan") or ""))>=1
+    md=ai.expert_pack("aasmaan","KB.md") or ""; secs=[t for t,_ in ai._md_sections(md)]
+    return ok and md.startswith("# Aasmaan") and "VERSION:" in md[:300] and any("Cheat" in t for t in secs) and any("PLANNED" in t for t in secs) and any("Install" in t for t in secs), f"ok={ok} secs={secs[:4]}"
+case("selfkb: aasmaan pack loads (persona with exemplar; generated KB with VERSION, cheat-sheet, install, PLANNED sections)", t_selfkb_pack)
+def t_selfanswer_offline():
+    h,b,c=ai.self_answer("mera phone kaise judega"); h2,b2,c2=ai.self_answer("kya ye offline chalta hai"); h3,b3,c3=ai.self_answer("zxq qqq")
+    return ("pair" in (h+b).lower() and any("ai pair" in x for x in c)) and ("bina" in (h2+b2).lower() or "offline" in (h2+b2).lower()) and h3.startswith("Iska seedha jawab"), f"{h!r} {c} | {h2!r} | {h3!r}"
+case("selfkb: self_answer (no brain, no net) returns the pair section with 'ai pair', the offline section, and never bluffs on nonsense", t_selfanswer_offline)
+def t_selfkb_gate3():
+    import io as _io, contextlib as _cl
+    st=ai.load(); buf=_io.StringIO()
+    with _cl.redirect_stdout(buf): a=ai.ask(st,[],"kya ye offline chalta hai")
+    return a is not None and "aasmaan KB" in buf.getvalue(), f"{(a or '')[:60]!r} out={buf.getvalue()[-80:]!r}"
+case("selfkb: ask() answers a product question from the KB when no brain exists (gate 3 after rung-0 tools)", t_selfkb_gate3)
+def t_pair_magicdns():
+    import io as _io, contextlib as _cl
+    o1,o2,o3,o4=ai._tailscale_ip,ai._tailscale_dns,ai._all_ips,ai.serve
+    ai._tailscale_ip=lambda:"100.64.0.9"; ai._tailscale_dns=lambda:"laptop.tail1234.ts.net"; ai._all_ips=lambda:["192.168.1.5","100.64.0.9"]; ai.serve=lambda *a,**k: None   # pair() ends by serving
+    try:
+        with _cl.redirect_stdout(_io.StringIO()): ai.pair(["8765"])
+        hosts=os.environ.get("AI_SERVE_HOSTS",""); ok=ai._host_ok("laptop.tail1234.ts.net:443") and ai._host_ok("192.168.1.5:8765") and not ai._host_ok("evil.example:8765")
+    finally: ai._tailscale_ip,ai._tailscale_dns,ai._all_ips,ai.serve=o1,o2,o3,o4
+    return "laptop.tail1234.ts.net" in hosts and ok, f"hosts={hosts} ok={ok}"
+case("pair: the MagicDNS name joins AI_SERVE_HOSTS so a `tailscale serve` HTTPS front-end passes the rebinding guard; strangers still 403", t_pair_magicdns)
+# ── MODELS & CONNECTORS: discovered, not hard-coded; local stays local; MCP text is JSON, attended only ──
+case("models: tags classify chat/vision/embed", lambda:([ai._model_role(n) for n in ("qwen3:4b","llava:7b","gemma3:4b","nomic-embed-text","mxbai-embed-large","qwen2.5vl:3b")]==["chat","vision","vision","embed","embed","vision"],"role mismatch"))
+def t_models_autoattach():
+    o=ai.ollama_models; ov,oe,oc=os.environ.pop("AI_VISION_MODEL",None),os.environ.pop("AI_EMBED_MODEL",None),[p for p in ai.PROVIDERS if p["n"]=="local"][0]["m"]; em=ai.EMBED_MODEL
+    ai.ollama_models=lambda:[{"name":"llama3.2:3b","mb":2000,"role":"chat"},{"name":"gemma3:4b","mb":3300,"role":"vision"},{"name":"mxbai-embed-large","mb":670,"role":"embed"}]
+    try:
+        did=ai.models_autoattach(quiet=True); v=os.environ.get("AI_VISION_MODEL"); e=ai.EMBED_MODEL; m=[p for p in ai.PROVIDERS if p["n"]=="local"][0]["m"]
+        os.environ["AI_VISION_MODEL"]="mine"; did2=ai.models_autoattach(quiet=True); v2=os.environ.get("AI_VISION_MODEL")
+    finally:
+        ai.ollama_models=o; [p for p in ai.PROVIDERS if p["n"]=="local"][0]["m"]=oc; ai.EMBED_MODEL=em
+        os.environ.pop("AI_VISION_MODEL",None)
+        if ov: os.environ["AI_VISION_MODEL"]=ov
+        if oe: os.environ["AI_EMBED_MODEL"]=oe
+    return len(did)==3 and v=="gemma3:4b" and e=="mxbai-embed-large" and m=="llama3.2:3b" and v2=="mine" and not any(d.startswith("vision") for d in did2), f"{did} v={v} e={e} m={m} v2={v2} {did2}"
+case("models: unset roles attach to what Ollama has (chat fallback, vision, embed); an explicit choice is never overridden", t_models_autoattach)
+def t_custom_endpoint():
+    import io as _io, contextlib as _cl
+    try:
+        os.environ["AI_OAI_URL"]="http://localhost:1234"; ai._providers_refresh(); c=ai.custom_provider(); first=ai.PROVIDERS[0]["n"]
+        os.environ["AI_OAI_URL"]="https://api.example.com/v1"; ai._providers_refresh(); r=ai.custom_provider(); pos=[p["n"] for p in ai.PROVIDERS]
+        os.environ["AI_OAI_URL"]="http://127.0.0.1:9"; ai._providers_refresh(); buf=_io.StringIO()
+        with _cl.redirect_stderr(buf): ai.route("hi",["custom","groq"],None,"")
+        wall=buf.getvalue()
+    finally: os.environ.pop("AI_OAI_URL",None); ai._providers_refresh()
+    return (c["u"].endswith("/v1/chat/completions") and c["local"] and first=="custom" and not r["local"] and pos.index("custom")==len(pos)-2 and "groq ko nahi bheja" in wall and "custom ko nahi" not in wall and "custom" not in [p["n"] for p in ai.PROVIDERS]), f"{c} first={first} r={r['local']} pos={pos} wall={wall[:80]!r}"
+case("connect: AI_OAI_URL → provider 'custom'; loopback = local (first in order, survives /net off), remote = cloud (before local); removed when unset", t_custom_endpoint)
+def t_mcp_stdio():
+    srv=('import sys,json\nfor line in sys.stdin:\n  o=json.loads(line); m=o.get("method"); i=o.get("id")\n'
+         '  if m=="initialize": print(json.dumps({"jsonrpc":"2.0","id":i,"result":{"protocolVersion":"2025-06-18"}}),flush=True)\n'
+         '  elif m=="tools/list": print(json.dumps({"jsonrpc":"2.0","id":i,"result":{"tools":[{"name":"echo"}]}}),flush=True)\n'
+         '  elif m=="tools/call": print(json.dumps({"jsonrpc":"2.0","id":i,"result":{"content":[{"type":"text","text":"ECHO:"+json.dumps(o["params"]["arguments"])}]}}),flush=True)\n')
+    pr={"connect":"mcp","argv":[sys.executable,"-c",srv],"tool":"echo","arg":"query","cap":["echo_cap"]}
+    import io as _io, contextlib as _cl
+    os.environ["AI_ATTENDED"]="0"; un=ai.mcp_ready(pr); os.environ["AI_ATTENDED"]="1"; ok=ai.mcp_ready(pr)
+    with _cl.redirect_stdout(_io.StringIO()): out=ai.mcp_run(pr,"hello; rm -rf /","echo")
+    return un[0] is False and ok[0] and out=='ECHO:{"query": "hello; rm -rf /"}', f"un={un} ok={ok} out={out!r}"
+case("mcp: stdio server roundtrip — the user's text is one JSON argument (metacharacters inert); unattended = refused", t_mcp_stdio)
+case("stop-words: 'band karo'/'ruk'/'stop' are a brake, not /quit", lambda:(bool(ai.STOP_RX.match("band karo")) and bool(ai.STOP_RX.match("ruk")) and ai.chat_command("band karo") is None and ai.chat_command("quit")[0]=="/quit", "mapping wrong"))
 
 bad=[n for n,ok,_ in R if not ok]; xp=[n for n,ok in XF if ok]
 print(f"\nGOLDEN: {len(R)-len(bad)}/{len(R)} pass, {len(XF)} known-gap" + (f", {len(xp)} XPASS" if xp else "") + (f"  — FAILING: {', '.join(bad)}" if bad else ""))

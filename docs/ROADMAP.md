@@ -7,6 +7,7 @@ Plain list, newest thinking first. "Done" means run and verified, not written. I
 - [x] One bundle, three devices: Android/Termux · Linux/macOS/WSL2 · Windows
 - [x] Staged, consent-first installers; manifest uninstall on PC; wizard with fit-check on Android
 - [x] 18 experts with persona + knowledge base; question-matched loading
+- [x] The product explains itself: a 19th pack generated from these docs at build; answers with no brain (shipped 2026-09-06)
 - [x] Privacy scrub before any cloud call; local brain gets raw text
 - [x] `/attach` files, PDFs, screenshots with preview; vision only via seeing brains
 - [x] Chat-to-command rules; `/capabilities`; self-update with a notice, never automatic
@@ -15,6 +16,7 @@ Plain list, newest thinking first. "Done" means run and verified, not written. I
 - [x] Egress log, key-scrubbed child processes, `ai pair` (QR), `/capabilities`, Telegram helper bot
 
 ## Next
+- [ ] Peer mode between two full installs (`ai pair --peer`, `ai peer ask|send`) once per-peer capabilities exist — a peer token is a seat, not a channel (docs/PAIRING.md)
 
 - [ ] **First physical Windows run** by a real user; fix whatever CI could not see
 - [ ] **Keys in the OS keychain** (macOS `security`, Linux secret-service, Windows Credential Manager) instead of a `0600` file; on Android, `termux-keystore` wrapping with an auto-relock timer and a manual lock/unlock

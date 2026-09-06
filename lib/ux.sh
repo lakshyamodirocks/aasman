@@ -15,6 +15,7 @@ _UXY=$'\033[33m'; _UXC=$'\033[36m'; _UXM=$'\033[35m'; _UXX=$'\033[0m'
 _UXHR="────────────────────────────────────────────"
 : "${STAGE_TOTAL:=7}"; STAGE_N=0
 UX_TTY=/dev/tty; ( exec 9</dev/tty ) 2>/dev/null || UX_TTY=/dev/stdin
+_ux_en(){ [ "${UX_LANG:-${AI_LANG:-en}}" = en ]; }   # UI chrome language: en (default) | hinglish | hi (→ hinglish text)
 _ux_interactive(){ [ "${AI_YES:-0}" != "1" ] && [ "${AI_STAGED:-1}" = "1" ] && [ -r "$UX_TTY" ]; }
 
 _ux_bar(){ local n=$1 t=$2 i; printf '%s' "$_UXD"
@@ -34,7 +35,8 @@ _ux_stop(){ printf '\n  %sruk gaye. Jitna hua wo saved hai — dobara chalane pe
 stage(){ _ux_banner "$1" "${2:-}"
   _ux_interactive || { printf '\n'; return 0; }
   while :; do
-    printf '\n  %s[Enter] karo%s   %s[?] kyun%s   %s[q] ruk ja%s  ' "$_UXG" "$_UXX" "$_UXD" "$_UXX" "$_UXD" "$_UXX"
+    if _ux_en; then printf '\n  %s[Enter] go%s   %s[?] why%s   %s[q] stop%s  ' "$_UXG" "$_UXX" "$_UXD" "$_UXX" "$_UXD" "$_UXX"
+    else printf '\n  %s[Enter] karo%s   %s[?] kyun%s   %s[q] ruk ja%s  ' "$_UXG" "$_UXX" "$_UXD" "$_UXX" "$_UXD" "$_UXX"; fi
     IFS= read -r r <"$UX_TTY" || r=q
     case "$r" in
       ''|y|Y) printf '\n'; return 0;;
@@ -48,12 +50,12 @@ stage_opt(){ _ux_banner "$1" "${2:-}"
   [ -n "${3:-}" ] && printf '  %s%s%s\n' "$_UXY" "$3" "$_UXX"
   _ux_interactive || { printf '\n'; return 0; }
   while :; do
-    printf '\n  %s[Enter] install%s   %s[s] skip%s   %s[?] kyun%s   %s[q] ruk ja%s  ' \
-      "$_UXG" "$_UXX" "$_UXY" "$_UXX" "$_UXD" "$_UXX" "$_UXD" "$_UXX"
+    if _ux_en; then printf '\n  %s[Enter] install%s   %s[s] skip%s   %s[?] why%s   %s[q] stop%s  ' "$_UXG" "$_UXX" "$_UXD" "$_UXX" "$_UXD" "$_UXX" "$_UXD" "$_UXX"; else printf '\n  %s[Enter] install%s   %s[s] skip%s   %s[?] kyun%s   %s[q] ruk ja%s  ' \
+      "$_UXG" "$_UXX" "$_UXY" "$_UXX" "$_UXD" "$_UXX" "$_UXD" "$_UXX"; fi
     IFS= read -r r <"$UX_TTY" || r=s
     case "$r" in
       ''|y|Y) printf '\n'; return 0;;
-      s|S|n|N) printf '  %s— skip (baad me setup-menu se bhi ho jayega)%s\n\n' "$_UXD" "$_UXX"; return 1;;
+      s|S|n|N) if _ux_en; then printf '  %s— skipped (setup-menu can do it later)%s\n\n' "$_UXD" "$_UXX"; else printf '  %s— skip (baad me setup-menu se bhi ho jayega)%s\n\n' "$_UXD" "$_UXX"; fi; return 1;;
       q|Q) _ux_stop;;
       '?') printf '\n  %s%s%s\n' "$_UXD" "${3:-${2}}" "$_UXX";;
       *) :;;
@@ -74,7 +76,7 @@ runv(){ local label="$1"; shift
 
 ux_summary(){
   printf '\n%s╭%s╮%s\n' "$_UXG" "$_UXHR" "$_UXX"
-  if [ "${UX_WARN:-0}" -gt 0 ]; then printf '%s│%s  %s⚠ ${AI_BRAND:-Aasmaan}: %s cheez(ein) adhoori — upar ⚠ wali lines dekho%s\n' "$_UXY" "$_UXX" "$_UXB" "$UX_WARN" "$_UXX"
-  else printf '%s│%s  %s✅ ${AI_BRAND:-Aasmaan} ready%s\n' "$_UXG" "$_UXX" "$_UXB" "$_UXX"; fi
+  if [ "${UX_WARN:-0}" -gt 0 ]; then printf '%s│%s  %s⚠ %s: %s cheez(ein) adhoori — upar ⚠ wali lines dekho%s\n' "$_UXY" "$_UXX" "$_UXB" "${AI_BRAND:-Aasmaan}" "$UX_WARN" "$_UXX"
+  else printf '%s│%s  %s✅ %s ready%s\n' "$_UXG" "$_UXX" "$_UXB" "${AI_BRAND:-Aasmaan}" "$_UXX"; fi
   printf '%s╰%s╯%s\n' "$_UXG" "$_UXHR" "$_UXX"
   local l; for l in "$@"; do printf '  %s\n' "$l"; done; printf '\n'; }

@@ -30,7 +30,7 @@ a{color:var(--acc)}#banner{display:none;background:var(--warn);color:#111;paddin
 <h2>Install — one command, three devices</h2>
 <div class="grid">
   <div class="card"><h3>Android · Termux</h3><p class="small mut">Install <strong>Termux from <a href="https://f-droid.org/packages/com.termux/">F-Droid</a></strong> (not Play Store), open it, paste:</p>
-<pre>pkg install -y curl python &amp;&amp; curl -fsSL https://raw.githubusercontent.com/lakshyamodirocks/aasman/main/install.sh | bash</pre></div>
+<pre>pkg upgrade -y &amp;&amp; pkg install -y curl python &amp;&amp; curl -fsSL https://raw.githubusercontent.com/lakshyamodirocks/aasman/main/install.sh | bash</pre><p class="small mut">Mirror / “unable to resolve” error? Run <code>termux-change-repo</code> (Enter, Enter), then paste again.</p></div>
   <div class="card"><h3>Linux · macOS · WSL2</h3><p class="small mut">Needs python3 and curl.</p>
 <pre>curl -fsSL https://raw.githubusercontent.com/lakshyamodirocks/aasman/main/install.sh | bash</pre></div>
   <div class="card"><h3>Windows 10/11</h3><p class="small mut">PowerShell, normal user, no admin.</p>
@@ -41,11 +41,13 @@ a{color:var(--acc)}#banner{display:none;background:var(--warn);color:#111;paddin
 <h2>What it does</h2>
 <div class="grid">
   <div class="card"><h3>Talks, offline first</h3><p class="small">A local model through Ollama, sized to your RAM/GPU. Free cloud tiers only if you add a key. If nothing is available it says so; it never fakes an answer.</p></div>
-  <div class="card"><h3>18 experts with a base</h3><p class="small">Coding, writing, research-verify, video, voice, marketing, SEO, analytics, planning, finance (explain-only), coaching… each with a persona, refusals, a cheat-sheet and dated sources. <code>/agent auto &lt;task&gt;</code> picks.</p></div>
+  <div class="card"><h3>19 experts with a base</h3><p class="small">One is the product itself — it explains install, update, pairing and what is only planned, from a knowledge base generated out of these very docs, even with no brain. The other 18: coding, writing, research-verify, video, voice, marketing, SEO, analytics, planning, finance (explain-only), coaching… each with a persona, refusals, a cheat-sheet and dated sources. <code>/agent auto &lt;task&gt;</code> picks.</p></div>
   <div class="card"><h3>Files and screenshots</h3><p class="small"><code>/attach error.log</code>, <code>/attach shot.png</code> — with a preview of what the model will see, and which brains can see images.</p></div>
   <div class="card"><h3>Knows itself</h3><p class="small"><code>/capabilities</code> reports what <em>this</em> install can do right now. "update yourself", "agents dikhao", "go offline" work as plain words — by rules, not by the model.</p></div>
   <div class="card"><h3>Updates you press</h3><p class="small">A one-line notice when a new version exists. <code>ai update</code> reinstalls; keys and memory are always kept. Never automatic.</p></div>
   <div class="card"><h3>Phone ↔ computer, by QR</h3><p class="small"><code>ai pair</code> on your Mac/PC prints a QR; your phone — iPhone too — scans it and uses that computer's <code>ai</code> over your own Wi-Fi or Tailscale. Token-locked; whoever scans shares that one seat. No server of ours.</p></div>
+  <div class="card"><h3>Useful before any brain</h3><p class="small"><code>2+2</code>, <code>15% of 4200</code>, <code>date</code>, <code>time in Boston</code>, <code>5 km in miles</code>, <code>age 16 Nov 1994</code>, <code>emi</code>/<code>sip</code> with the formula, WhatsApp/UPI/QR links, <code>pw 20</code> — answered offline, instantly, by an allow-listed calculator, never <code>eval</code>. <code>ai tour</code> runs six of them in a minute.</p></div>
+  <div class="card"><h3>Hands on your device</h3><p class="small">"awaaz 30", "pause", "battery", "say hello", "torch on", "screenshot le" — volume, music, clipboard, notifications, links, by chat or voice. <code>/hands</code> shows what <em>this</em> device allows; "ruk" is the brake. Code-owned templates, typed inputs, every hand undoable or stoppable. <a href="https://github.com/lakshyamodirocks/aasman/blob/main/docs/HANDS.md">What ships per platform</a>.</p></div>
   <div class="card"><h3>Memory that is yours</h3><p class="small">Plain files in <code>~/ai-vault</code>. Search them offline. Nothing is uploaded to anyone.</p></div>
 </div>
 
