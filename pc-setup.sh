@@ -113,7 +113,12 @@ elif [ "$OS" = Darwin ] && [ "$ARCH" = arm64 ]; then GPU="Apple Silicon (unified
 elif ls /sys/class/drm/card*/device/vendor >/dev/null 2>&1; then
   for v in /sys/class/drm/card*/device/vendor; do case "$(cat "$v" 2>/dev/null)" in 0x1002) GPU="AMD (drm)";; 0x8086) GPU="Intel (drm)";; 0x10de) GPU="NVIDIA (driver missing?)";; esac; done
 fi
-PY="$(command -v python3 || true)"; PYV="$("$PY" -c 'import sys;print("%d.%d"%sys.version_info[:2])' 2>/dev/null || echo none)"
+PY="$(command -v python3 || true)"
+# fresh macOS: /usr/bin/python3 is Apple's stub that opens the "install Command Line Tools?" dialog and blocks — never run it blind
+if [ "$OS" = Darwin ] && [ "$PY" = /usr/bin/python3 ] && ! xcode-select -p >/dev/null 2>&1; then
+  warn "Python abhi nahi hai — /usr/bin/python3 sirf Apple ka stub hai. Chalao:  xcode-select --install   (Apple ka apna, ~2 min, dialog aayega)  ya python.org/downloads se installer. Phir ye script dobara."; exit 1
+fi
+PYV="$(_to 8 "$PY" -c 'import sys;print("%d.%d"%sys.version_info[:2])' 2>/dev/null || echo none)"
 OLL="$(command -v ollama || true)"; OLL_UP=0; OLL_MODELS=""
 if [ -n "$OLL" ]; then
   if "$PY" - <<'PY' 2>/dev/null; then OLL_UP=1; OLL_MODELS="$(ollama list 2>/dev/null | awk 'NR>1{print $1}' | tr '\n' ' ')"; fi

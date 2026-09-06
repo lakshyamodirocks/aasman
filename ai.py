@@ -93,7 +93,7 @@ def egress_report(n=20):
     except OSError: return "[ai] egress log khali — is install ne abhi tak koi network call nahi ki."
     cloud=sum(1 for l in lines if " CLOUD " in l)
     return (f"[ai] egress: {len(lines)} calls total · {cloud} to the cloud · file: {EGRESS_LOG}\n"+
-            "\n".join("  "+l for l in lines[-n:])+"\n  (query strings and bodies are never logged — sirf kahan, kab, kitna)")
+            "\n".join("  "+l for l in lines[-n:])+"\n  (query strings and bodies are never logged — sirf kahan, kab, kitna)\n  boundary: ye ai ke apne calls hain; ai jo tool tere liye chalata hai (yt-dlp, MCP server, ffmpeg) apna network khud karta hai — /trust)")
 
 VAULT=os.path.expanduser(os.environ.get("AI_VAULT","~/ai-vault"))
 STATE=os.path.expanduser("~/.ai-chat.json")
@@ -266,7 +266,10 @@ def route(prompt,names,cap,localmodel,fmt=None,images=None):
             if q["n"]!="local" and not q.get("local") and isinstance(e,(urllib.error.URLError,OSError)) and not isinstance(e,urllib.error.HTTPError):
                 net_mark(False,type(e).__name__)    # a cloud brain unreachable == the link is down
             errs.append(f"{q['n']}: {e}")
-    sys.stderr.write("[ai] all failed:\n  "+"\n  ".join(errs)+"\n")
+    LAST_ROUTE["reason"]="all failed: "+" · ".join(errs)   # always available via /why
+    _noise=all(("not set" in e) or ("Connection refused" in e) or ("urlopen error" in e) or ("[Errno 111]" in e) for e in errs)
+    if errs and (not _noise or os.environ.get("AI_DEBUG")):   # a real keyed failure is worth showing; "nothing configured" is not (the caller says it kindly)
+        sys.stderr.write("[ai] all failed:\n  "+"\n  ".join(errs)+"\n")
     if not net_up():
         sys.stderr.write("[ai] offline aur local brain bhi nahi. Ye phir bhi chalta hai:\n"
                          "  /memory · /kb <q> · /ctx <files>   (sab tera apna data, net ke bina)\n"
@@ -927,6 +930,11 @@ def voice_once(st,hist):
         except Exception: pass
     if STOP_RX.match(t): stop_speaking(); hands_stop(); return None
     if handle_self_intent(t): return None                       # update/setup/keys/pair keep their typed y/N
+    ri=remind_intent(t)
+    if ri:
+        e=remind_add(st,ri[0],ri[1])
+        if e: speak(("yaad dila dunga: " if lang_now()!="en" else "reminder set: ")+e["text"])
+        return None
     hi=hands_intent(t)
     if hi: hand_run(st,hi[0],hi[1],source="voice"); return None  # X/D hands still need a typed yes (tty) — voice never widens
     cc=chat_command(t)
@@ -1695,10 +1703,13 @@ def save(st):
     try: json.dump(st,open(STATE,"w"))
     except OSError: pass
 
+SMALLTALK_RE=re.compile(r"^\s*(?:hi|hey|hello|hola|yo|namaste|namaskar|salaam|ram ram|good (?:morning|afternoon|evening|night)|"
+                        r"kya haal|kya hal|kaise ho|kaise hain|kaisa hai|kaise ho bhai|how are you|how'?s it going|how do you do|"
+                        r"sup|wassup|what'?s up|kya chal raha hai\??$|kya kar rahe|thik ho|theek ho|sab badhiya|kaise chal raha)\b",re.I)
 FRESH_RE=re.compile(r"\b(today|todays|tonight|current|currently|latest|newest|just now|right now|"
                     r"this (?:week|month|morning|evening)|breaking|news|headline|live score|"
                     r"who won|price of|stock price|nav|weather|"
-                    r"aaj|aajkal|abhi|abhi ka|taaza|taza|haal|khabar|samachar|kitna chal raha|"
+                    r"aaj ka|aaj ke|aajkal|abhi ka|taaza|taza|khabar|samachar|kitna chal raha|"
                     r"kal|is hafte|is mahine|bhaav|kya chal raha)\b",re.I)
 def needs_web(text):
     """Zero-token freshness test. A cloud brain reached OVER the internet still has no live
@@ -1707,6 +1718,7 @@ def needs_web(text):
     if os.environ.get("AI_AUTOWEB")=="0": return False
     t=(text or "").strip()
     if len(t)<6: return False
+    if SMALLTALK_RE.match(t): return False   # "kya haal hai", "kaise ho", "how are you" are not time-sensitive lookups
     if not FRESH_RE.search(t): return False
     return net_up()
 def build(st,hist,text,run):
@@ -2941,6 +2953,8 @@ def update_cmd(slug=None):
     if not slug: return ""
     base=f"https://raw.githubusercontent.com/{slug}/main"
     if os.name=="nt": return f'powershell -NoProfile -ExecutionPolicy Bypass -Command "irm {base}/install.ps1 | iex"'
+    if IS_TERMUX:   # curl can re-break after a Termux/openssl bump; if it cannot even print its version, upgrade first (apt — pkg itself needs curl)
+        return f"(curl --version >/dev/null 2>&1 || (apt update && apt -y -o Dpkg::Options::=--force-confnew full-upgrade && apt -y install curl python)) && curl -fsSL {base}/install.sh | bash"
     return f"curl -fsSL {base}/install.sh | bash"
 def setup_cmd():
     return os.environ.get("AI_SETUP_CMD","") or update_cmd()
@@ -2994,6 +3008,11 @@ def daemon_tick(st):
             out["steps"]["wishes"]=f"tried {len(op)}"
         else: out["steps"]["wishes"]=f"{len(op)} open"
     except Exception as e: out["steps"]["wishes"]=f"err {e}"
+    try: out["steps"]["reminders"]=f"fired {len(reminders_due())}"
+    except Exception as e: out["steps"]["reminders"]=f"err {e}"
+    try:
+        _g=_greet(); out["steps"]["greet"]=("sent" if (greet_due(_g) and greet_fire(st,how="notify")) else ("not due" if _g.get("on") else "off"))
+    except Exception as e: out["steps"]["greet"]=f"err {e}"
     try:
         newest=max((os.path.getmtime(os.path.join(r,f)) for r,_,fs in os.walk(VAULT) for f in fs),default=0)
         if newest and (not os.path.exists(KB_INDEX) or newest>os.path.getmtime(KB_INDEX)):
@@ -3091,7 +3110,7 @@ def _pair_help(kind):
     if kind=="iphone": L.append("     iPhone: QR scan → Safari me khulega → Share → 'Add to Home Screen' = app jaisa icon. (iOS pe alag install nahi hota; brain is computer ka.)")
     elif kind=="android": L+=["     Android ke do raaste:",
                               "       1) pair — is computer ka ai phone ke browser me (Chrome → ⋮ → 'Add to Home screen'). Tez, phone pe kuch install nahi.",
-                              f"       2) FULL install phone pe (Termux, F-Droid se): voice, floater, offline brain phone ke andar:  pkg upgrade -y && pkg install -y curl python && curl -fsSL {raw}/install.sh | bash   (mirror error aaye to: termux-change-repo, phir dobara)"]
+                              f"       2) FULL install phone pe (Termux, F-Droid se): voice, floater, offline brain phone ke andar:  apt update && apt -y -o Dpkg::Options::=--force-confnew full-upgrade && apt -y install curl python && curl -fsSL {raw}/install.sh | bash   (mirror error aaye to: termux-change-repo, phir dobara)"]
     return "\n".join(L)
 def handle_pair_intent(text):
     kind=_phone_kind(text)
@@ -3204,7 +3223,7 @@ def _tg_api(cfg,method,payload=None):
 def _tg_install_text():
     slug=self_version()[1] or "REPO_SLUG"; raw=f"https://raw.githubusercontent.com/{slug}/main"
     return ("Install (ek command, apne device pe):\n"
-            f"• Android (Termux, F-Droid wala):\n  pkg upgrade -y && pkg install -y curl python && curl -fsSL {raw}/install.sh | bash\n  (mirror error → termux-change-repo, phir dobara)\n"
+            f"• Android (Termux, F-Droid wala):\n  apt update && apt -y -o Dpkg::Options::=--force-confnew full-upgrade && apt -y install curl python && curl -fsSL {raw}/install.sh | bash\n  (mirror error → termux-change-repo, phir dobara)\n"
             f"• Linux / macOS:\n  curl -fsSL {raw}/install.sh | bash\n"
             f"• Windows (PowerShell, admin nahi):\n  irm {raw}/install.ps1 | iex\n"
             f"Har step poochhta hai; kuch chupke install nahi hota. Docs: https://github.com/{slug}")
@@ -3524,6 +3543,17 @@ HANDS={
                  "says":[r"^(?:stay awake|sone mat (?:do|dena)|keep (?:the )?(?:mac|screen|laptop) awake|caffeinate)(?: (?:for )?(?P<minutes>\d{1,3})(?: ?min(?:ute)?s?)?)?$"]},
   "sleep_now":  {"what":"put the Mac to sleep","argv":["pmset","sleepnow"],"params":[],"risk":"X","undo":None,"conf":"doc",
                  "says":[r"^(?:sleep(?: now)?|so ja(?:o)?|mac (?:ko )?sula do|go to sleep)$"]},
+  # OS endpoints: Reminders.app and Calendar.app through AppleScript with the text as an argv item (never inside the script).
+  "remind_in":  {"what":"Reminders.app: remind me in N minutes","argv":["osascript","-e","on run argv","-e","tell application \"Reminders\" to make new reminder with properties {name:(item 1 of argv), due date:((current date) + {minutes} * minutes)}","-e","end run","--","{text}"],
+                 "params":[("minutes","int",{"min":1,"max":525600}),("text","text",{"max":200})],"perm":"Automation → Reminders","risk":"S","undo":None,"conf":"doc",
+                 "says":[r"^remind me in (?P<minutes>\d{1,4}) ?min(?:ute)?s?(?:[: ]+(?P<text>.+))?$",r"^(?P<minutes>\d{1,4}) ?min(?:ute)?s? (?:me|mein|baad) (?:yaad dila(?:o| do|na)?|remind(?: me)?)(?:[: ]+(?P<text>.+))?$"]},
+  "remind_at":  {"what":"Reminders.app: remind me at HH:MM (also 'alarm' — macOS has no alarm clock)","argv":["osascript","-e","on run argv","-e","tell application \"Reminders\" to make new reminder with properties {name:(item 1 of argv), due date:((current date) + {mins_until} * minutes)}","-e","end run","--","{text}"],
+                 "params":[("h","int",{"min":0,"max":23}),("m","int",{"min":0,"max":59,"default":0}),("text","text",{"max":200,"default":"reminder"})],"perm":"Automation → Reminders","risk":"S","undo":None,"conf":"doc",
+                 "says":[r"^(?:remind me at|(?:mujhe )?yaad dila(?:na|o| do| dena)?(?: at| ko| pe| par)?)\s*(?:(?P<_pm3>shaam|sham|raat)\s+|(?P<_am3>subah|subeh)\s+)?(?P<h>\d{1,2})(?:[:.](?P<m>\d{2}))?\s*(?:(?P<_pm>pm|p\.m\.|shaam|sham|raat|evening|night)|(?P<_am>am|a\.m\.|subah|subeh|morning))?\s*(?:baje|o\'?clock)?\s*(?:(?P<_pm2>pm|shaam|sham|raat|evening|night)|(?P<_am2>am|subah|subeh|morning))?(?:\s*(?:ko|pe|par))?(?:[: ]+(?P<text>.+))?$",r"^(?:(?P<_pm3>shaam|sham|raat)\s+|(?P<_am3>subah|subeh)\s+)?(?P<h>\d{1,2})(?:[:.](?P<m>\d{2}))?\s*(?:(?P<_pm>pm|p\.m\.|shaam|sham|raat|evening|night)|(?P<_am>am|a\.m\.|subah|subeh|morning))?\s*(?:baje|o\'?clock)?\s*(?:(?P<_pm2>pm|shaam|sham|raat|evening|night)|(?P<_am2>am|subah|subeh|morning))?\s*(?:ko|pe|par)?\s*(?:yaad dila(?:na|o| do| dena)?|remind me)(?:[: ]+(?P<text>.+))?$",r"^(?:alarm|alaram|alarm laga(?:o| do)?|alarm set(?: kar(?: do)?)?|set (?:an |the )?alarm|wake me(?: up)?|mujhe (?:utha|jaga)(?:na| dena| do)?)(?: (?:at|for|ko|pe|par|ka|ki))?\s*(?:(?P<_pm3>shaam|sham|raat)\s+|(?P<_am3>subah|subeh)\s+)?(?P<h>\d{1,2})(?:[:.](?P<m>\d{2}))?\s*(?:(?P<_pm>pm|p\.m\.|shaam|sham|raat|evening|night)|(?P<_am>am|a\.m\.|subah|subeh|morning))?\s*(?:baje|o\'?clock)?\s*(?:(?P<_pm2>pm|shaam|sham|raat|evening|night)|(?P<_am2>am|subah|subeh|morning))?(?:\s*(?:ka|ki|ko))?(?:\s*(?:alarm|utha(?:na| dena| do)?|jaga(?:na| dena| do)?))?(?:[: ]+(?P<text>.+))?$",r"^(?:(?P<_pm3>shaam|sham|raat)\s+|(?P<_am3>subah|subeh)\s+)?(?P<h>\d{1,2})(?:[:.](?P<m>\d{2}))?\s*(?:(?P<_pm>pm|p\.m\.|shaam|sham|raat|evening|night)|(?P<_am>am|a\.m\.|subah|subeh|morning))?\s*(?:baje|o\'?clock)?\s*(?:(?P<_pm2>pm|shaam|sham|raat|evening|night)|(?P<_am2>am|subah|subeh|morning))?\s*(?:ka|ki|ko)?\s*(?:alarm(?: laga(?:o| do)?| set(?: kar(?: do)?)?)?|utha(?: dena| do|na)|jaga(?: dena| do|na))(?:[: ]+(?P<text>.+))?$"]},
+  "calendar_add":{"what":"Calendar.app: one-hour event at HH:MM with your title","argv":["osascript","-e","on run argv","-e","tell application \"Calendar\" to tell (first calendar whose writable is true) to make new event with properties {summary:(item 1 of argv), start date:((current date) + {mins_until} * minutes), end date:((current date) + ({mins_until} + 60) * minutes)}","-e","end run","--","{text}"],
+                 "params":[("h","int",{"min":0,"max":23}),("m","int",{"min":0,"max":59,"default":0}),("text","text",{"max":200})],"perm":"Automation → Calendar","risk":"S","undo":None,"conf":"doc","says":[r"^(?:calendar|calender|kalendar)(?: me| mein)? (?:add|daal(?:o| do)?|likh(?:o| do)?|save)(?: (?:at|ko|pe|par))?\s*(?:(?P<_pm3>shaam|sham|raat)\s+|(?P<_am3>subah|subeh)\s+)?(?P<h>\d{1,2})(?:[:.](?P<m>\d{2}))?\s*(?:(?P<_pm>pm|p\.m\.|shaam|sham|raat|evening|night)|(?P<_am>am|a\.m\.|subah|subeh|morning))?\s*(?:baje|o\'?clock)?\s*(?:(?P<_pm2>pm|shaam|sham|raat|evening|night)|(?P<_am2>am|subah|subeh|morning))?[: ]+(?P<text>.+)$",r"^(?:meeting|event|appointment|mulaqat) (?:daal(?:o| do)?|add|banao?|likh(?:o| do)?|rakho?)(?: (?:at|ko|pe|par))?\s*(?:(?P<_pm3>shaam|sham|raat)\s+|(?P<_am3>subah|subeh)\s+)?(?P<h>\d{1,2})(?:[:.](?P<m>\d{2}))?\s*(?:(?P<_pm>pm|p\.m\.|shaam|sham|raat|evening|night)|(?P<_am>am|a\.m\.|subah|subeh|morning))?\s*(?:baje|o\'?clock)?\s*(?:(?P<_pm2>pm|shaam|sham|raat|evening|night)|(?P<_am2>am|subah|subeh|morning))?[: ]+(?P<text>.+)$"]},
+  "reminders_app":{"what":"open Reminders","argv":["open","-a","Reminders"],"params":[],"risk":"S","undo":None,"conf":"doc","says":[r"^(?:(?:open|kholo?) )?reminders(?: app)?(?: kholo| open)?$"]},
+  "calendar_app":{"what":"open Calendar","argv":["open","-a","Calendar"],"params":[],"risk":"S","undo":None,"conf":"doc","says":[r"^(?:(?:open|kholo?) )?(?:calendar|calender)(?: app)?(?: kholo| open| dikhao)?$"]},
   "_stop":["music"],
  },
  "nt":{
@@ -3562,6 +3592,15 @@ HANDS={
   "restore_all":{"what":"undo minimize-all","argv":_PSA+["(New-Object -ComObject Shell.Application).UndoMinimizeALL()"],"params":[],"needs":["ps51"],"risk":"S","undo":"minimize_all","conf":"doc","says":[r"^(?:restore (?:all|windows)|windows wapas(?: lao)?)$"]},
   "lock":       {"what":"lock the PC","argv":["rundll32.exe","user32.dll,LockWorkStation"],"params":[],"risk":"X","undo":None,"conf":"doc",
                  "says":[r"^(?:lock(?: (?:the )?(?:screen|pc|laptop|computer))?|screen lock(?: kar(?: do)?)?|lock kar(?: do)?|pc lock)$"]},
+  # OS endpoints: Task Scheduler is the reminder engine (a popup at HH:MM, today); the text is read from a 0600 file, never
+  # placed in the command line. Alarms/Calendar have no CLI on Windows — the apps open (ms-clock:, outlookcal:); /remind covers the rest.
+  "remind_at":  {"what":"popup reminder at HH:MM today (Task Scheduler)","argv":["schtasks","/create","/f","/sc","once","/st","{clock}","/tn","Aasmaan-{ts}","/tr","{ps51} -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -Command \"Add-Type -AssemblyName PresentationFramework; [System.Windows.MessageBox]::Show((Get-Content -Raw '{text_file}'),'Aasmaan')\""],
+                 "params":[("h","int",{"min":0,"max":23}),("m","int",{"min":0,"max":59,"default":0}),("text","text",{"max":200,"default":"time!"})],"needs":["schtasks","ps51"],"risk":"S","undo":"remind_clear","conf":"doc",
+                 "says":[r"^(?:remind me at|(?:mujhe )?yaad dila(?:na|o| do| dena)?(?: at| ko| pe| par)?)\s*(?:(?P<_pm3>shaam|sham|raat)\s+|(?P<_am3>subah|subeh)\s+)?(?P<h>\d{1,2})(?:[:.](?P<m>\d{2}))?\s*(?:(?P<_pm>pm|p\.m\.|shaam|sham|raat|evening|night)|(?P<_am>am|a\.m\.|subah|subeh|morning))?\s*(?:baje|o\'?clock)?\s*(?:(?P<_pm2>pm|shaam|sham|raat|evening|night)|(?P<_am2>am|subah|subeh|morning))?(?:\s*(?:ko|pe|par))?(?:[: ]+(?P<text>.+))?$",r"^(?:(?P<_pm3>shaam|sham|raat)\s+|(?P<_am3>subah|subeh)\s+)?(?P<h>\d{1,2})(?:[:.](?P<m>\d{2}))?\s*(?:(?P<_pm>pm|p\.m\.|shaam|sham|raat|evening|night)|(?P<_am>am|a\.m\.|subah|subeh|morning))?\s*(?:baje|o\'?clock)?\s*(?:(?P<_pm2>pm|shaam|sham|raat|evening|night)|(?P<_am2>am|subah|subeh|morning))?\s*(?:ko|pe|par)?\s*(?:yaad dila(?:na|o| do| dena)?|remind me)(?:[: ]+(?P<text>.+))?$"]},
+  "remind_clear":{"what":"remove every Aasmaan reminder task","argv":_PSA+["Get-ScheduledTask -TaskName 'Aasmaan-*' -ErrorAction SilentlyContinue | Unregister-ScheduledTask -Confirm:$false"],"params":[],"needs":["ps51"],"risk":"S","undo":None,"conf":"doc",
+                 "says":[r"^(?:reminders? (?:hatao|clear|cancel)|clear reminders|cancel reminders)$"]},
+  "clock_app":  {"what":"open the Clock app (alarms, timers)","py":"startfile","target":"ms-clock:","params":[],"risk":"S","undo":None,"conf":"doc","says":[r"^(?:alarms?(?: dikhao| list| show)|show alarms|clock(?: app)?(?: kholo| open)?|open clock|mere alarms?)$"]},
+  "calendar_app":{"what":"open the Calendar app","py":"startfile","target":"outlookcal:","params":[],"risk":"S","undo":None,"conf":"doc","says":[r"^(?:(?:open|kholo?) )?(?:calendar|calender)(?: app)?(?: kholo| open| dikhao)?$"]},
   "_stop":["media"],
  },
  "linux":{
@@ -3595,6 +3634,11 @@ HANDS={
   "timer":      {"what":"remind me in N minutes (systemd-run --user + notify)","argv":["systemd-run","--user","--quiet","--on-active={mins}m","--unit=aasmaan-timer-{ts}","notify-send","Aasmaan","{text}"],
                  "params":[("mins","int",{"min":1,"max":1440}),("text","text",{"max":200,"default":"time!"})],"needs":["env:DBUS_SESSION_BUS_ADDRESS|XDG_RUNTIME_DIR"],"risk":"S","undo":None,"conf":"doc",
                  "says":[r"^(?:remind me in|(?P<mins>\d{1,4}) min(?:ute)?s? (?:me|mein|baad) (?:yaad dila(?:o| do)?|remind)(?:[: ]+(?P<text>.+))?)$",r"^(?:remind me in|timer) (?P<mins>\d{1,4}) ?min(?:ute)?s?(?:[: ]+(?P<text>.+))?$"]},
+  "remind_at":  {"what":"notification at HH:MM (systemd-run --user --on-calendar)","argv":["systemd-run","--user","--quiet","--on-calendar={clock}","--unit=aasmaan-at-{ts}","notify-send","Aasmaan","{text}"],
+                 "params":[("h","int",{"min":0,"max":23}),("m","int",{"min":0,"max":59,"default":0}),("text","text",{"max":200,"default":"time!"})],"needs":["env:DBUS_SESSION_BUS_ADDRESS|XDG_RUNTIME_DIR"],"risk":"S","undo":"remind_clear","conf":"doc",
+                 "says":[r"^(?:remind me at|(?:mujhe )?yaad dila(?:na|o| do| dena)?(?: at| ko| pe| par)?)\s*(?:(?P<_pm3>shaam|sham|raat)\s+|(?P<_am3>subah|subeh)\s+)?(?P<h>\d{1,2})(?:[:.](?P<m>\d{2}))?\s*(?:(?P<_pm>pm|p\.m\.|shaam|sham|raat|evening|night)|(?P<_am>am|a\.m\.|subah|subeh|morning))?\s*(?:baje|o\'?clock)?\s*(?:(?P<_pm2>pm|shaam|sham|raat|evening|night)|(?P<_am2>am|subah|subeh|morning))?(?:\s*(?:ko|pe|par))?(?:[: ]+(?P<text>.+))?$",r"^(?:(?P<_pm3>shaam|sham|raat)\s+|(?P<_am3>subah|subeh)\s+)?(?P<h>\d{1,2})(?:[:.](?P<m>\d{2}))?\s*(?:(?P<_pm>pm|p\.m\.|shaam|sham|raat|evening|night)|(?P<_am>am|a\.m\.|subah|subeh|morning))?\s*(?:baje|o\'?clock)?\s*(?:(?P<_pm2>pm|shaam|sham|raat|evening|night)|(?P<_am2>am|subah|subeh|morning))?\s*(?:ko|pe|par)?\s*(?:yaad dila(?:na|o| do| dena)?|remind me)(?:[: ]+(?P<text>.+))?$",r"^(?:alarm|alaram|alarm laga(?:o| do)?|alarm set(?: kar(?: do)?)?|set (?:an |the )?alarm|wake me(?: up)?|mujhe (?:utha|jaga)(?:na| dena| do)?)(?: (?:at|for|ko|pe|par|ka|ki))?\s*(?:(?P<_pm3>shaam|sham|raat)\s+|(?P<_am3>subah|subeh)\s+)?(?P<h>\d{1,2})(?:[:.](?P<m>\d{2}))?\s*(?:(?P<_pm>pm|p\.m\.|shaam|sham|raat|evening|night)|(?P<_am>am|a\.m\.|subah|subeh|morning))?\s*(?:baje|o\'?clock)?\s*(?:(?P<_pm2>pm|shaam|sham|raat|evening|night)|(?P<_am2>am|subah|subeh|morning))?(?:\s*(?:ka|ki|ko))?(?:\s*(?:alarm|utha(?:na| dena| do)?|jaga(?:na| dena| do)?))?(?:[: ]+(?P<text>.+))?$",r"^(?:(?P<_pm3>shaam|sham|raat)\s+|(?P<_am3>subah|subeh)\s+)?(?P<h>\d{1,2})(?:[:.](?P<m>\d{2}))?\s*(?:(?P<_pm>pm|p\.m\.|shaam|sham|raat|evening|night)|(?P<_am>am|a\.m\.|subah|subeh|morning))?\s*(?:baje|o\'?clock)?\s*(?:(?P<_pm2>pm|shaam|sham|raat|evening|night)|(?P<_am2>am|subah|subeh|morning))?\s*(?:ka|ki|ko)?\s*(?:alarm(?: laga(?:o| do)?| set(?: kar(?: do)?)?)?|utha(?: dena| do|na)|jaga(?: dena| do|na))(?:[: ]+(?P<text>.+))?$"]},
+  "remind_clear":{"what":"stop every pending Aasmaan timer/reminder unit","argv":["systemctl","--user","stop","aasmaan-at-*.timer","aasmaan-timer-*.timer"],"params":[],"needs":["env:DBUS_SESSION_BUS_ADDRESS|XDG_RUNTIME_DIR"],"risk":"S","undo":None,"conf":"doc",
+                 "says":[r"^(?:reminders? (?:hatao|clear|cancel)|clear reminders|cancel reminders)$"]},
   "_stop":["media"],
  },
  "wsl":{   # no compositor, no session bus, no PipeWire: the OS hands live on the Windows side (documented interop)
@@ -3662,6 +3706,22 @@ HANDS={
   "dnd":        {"what":"do-not-disturb on/off","argv":["{rish}","-c","cmd notification set_dnd {mode}"],"params":[("mode","enum",{"in":["on","off","priority","alarms"],"map":{"on":"on","off":"off","priority":"priority","alarms":"alarms"}})],
                  "needs":["rish"],"risk":"X","undo":{"hand":"dnd","vals":{"mode":"off"}},"conf":"doc",
                  "says":[r"^(?:dnd|do not disturb|disturb mat karo|silent mode) ?(?P<mode>on|off)?$"]},
+  # OS endpoints (Android intents via `am`, in every Termux — no add-on, no Shizuku): the Clock and Calendar apps do the work.
+  "alarm_set":  {"what":"alarm at HH:MM in the Clock app (one-time; a label if you give one)","argv":["am","start","-a","android.intent.action.SET_ALARM","--ei","android.intent.extra.HOUR","{h}","--ei","android.intent.extra.MINUTES","{m}","--es","android.intent.extra.MESSAGE","{text}","--ez","android.intent.extra.SKIP_UI","true"],
+                 "params":[("h","int",{"min":0,"max":23}),("m","int",{"min":0,"max":59,"default":0}),("text","text",{"max":120,"default":"Aasmaan"})],"needs":["am"],"risk":"S","undo":None,"conf":"doc",
+                 "says":[r"^(?:alarm|alaram|alarm laga(?:o| do)?|alarm set(?: kar(?: do)?)?|set (?:an |the )?alarm|wake me(?: up)?|mujhe (?:utha|jaga)(?:na| dena| do)?)(?: (?:at|for|ko|pe|par|ka|ki))?\s*(?:(?P<_pm3>shaam|sham|raat)\s+|(?P<_am3>subah|subeh)\s+)?(?P<h>\d{1,2})(?:[:.](?P<m>\d{2}))?\s*(?:(?P<_pm>pm|p\.m\.|shaam|sham|raat|evening|night)|(?P<_am>am|a\.m\.|subah|subeh|morning))?\s*(?:baje|o\'?clock)?\s*(?:(?P<_pm2>pm|shaam|sham|raat|evening|night)|(?P<_am2>am|subah|subeh|morning))?(?:\s*(?:ka|ki|ko))?(?:\s*(?:alarm|utha(?:na| dena| do)?|jaga(?:na| dena| do)?))?(?:[: ]+(?P<text>.+))?$",r"^(?:(?P<_pm3>shaam|sham|raat)\s+|(?P<_am3>subah|subeh)\s+)?(?P<h>\d{1,2})(?:[:.](?P<m>\d{2}))?\s*(?:(?P<_pm>pm|p\.m\.|shaam|sham|raat|evening|night)|(?P<_am>am|a\.m\.|subah|subeh|morning))?\s*(?:baje|o\'?clock)?\s*(?:(?P<_pm2>pm|shaam|sham|raat|evening|night)|(?P<_am2>am|subah|subeh|morning))?\s*(?:ka|ki|ko)?\s*(?:alarm(?: laga(?:o| do)?| set(?: kar(?: do)?)?)?|utha(?: dena| do|na)|jaga(?: dena| do|na))(?:[: ]+(?P<text>.+))?$"]},
+  "alarm_dismiss":{"what":"dismiss the alarm at HH:MM (asks first)","argv":["am","start","-a","android.intent.action.DISMISS_ALARM","--es","android.intent.extra.ALARM_SEARCH_MODE","android.time","--ei","android.intent.extra.HOUR","{h}","--ei","android.intent.extra.MINUTES","{m}"],
+                 "params":[("h","int",{"min":0,"max":23}),("m","int",{"min":0,"max":59,"default":0})],"needs":["am"],"risk":"X","undo":None,"conf":"doc",
+                 "says":[r"^(?:alarm (?:hatao|band(?: kar(?: do)?)?|cancel|dismiss|delete)|cancel alarm|dismiss alarm|delete alarm)\s*(?:at|ka|ki)?\s*(?P<h>\d{1,2})(?:[:.](?P<m>\d{2}))?\s*(?:(?P<_pm>pm|p\.m\.|shaam|sham|raat|evening|night)|(?P<_am>am|a\.m\.|subah|subeh|morning))?\s*(?:baje|o\'?clock)?\s*(?:(?P<_pm2>pm|shaam|sham|raat|evening|night)|(?P<_am2>am|subah|subeh|morning))?$"]},
+  "timer":      {"what":"timer for N minutes in the Clock app (rings even if ai is closed)","argv":["am","start","-a","android.intent.action.SET_TIMER","--ei","android.intent.extra.LENGTH","{secs}","--es","android.intent.extra.MESSAGE","{text}","--ez","android.intent.extra.SKIP_UI","true"],
+                 "params":[("minutes","int",{"min":1,"max":1440}),("text","text",{"max":120,"default":"Aasmaan"})],"needs":["am"],"risk":"S","undo":"timer_dismiss","conf":"doc",
+                 "says":[r"^(?:timer|(?:set|laga(?:o| do)?) (?:a )?timer)(?: (?:for|of|ka|ki))?\s*(?P<minutes>\d{1,4})\s*min(?:ute)?s?(?:[: ]+(?P<text>.+))?$",r"^(?P<minutes>\d{1,4})\s*min(?:ute)?s?\s*(?:ka|ki)\s*timer(?: laga(?:o| do)?)?(?:[: ]+(?P<text>.+))?$"]},
+  "timer_dismiss":{"what":"open the running timers to dismiss one","argv":["am","start","-a","android.intent.action.DISMISS_TIMER"],"params":[],"needs":["am"],"risk":"S","undo":None,"conf":"doc",
+                 "says":[r"^(?:timer (?:hatao|band(?: kar(?: do)?)?|cancel|dismiss)|cancel timer|dismiss timer)$"]},
+  "calendar_add":{"what":"new calendar event, prefilled with your text — you pick the time and save in the Calendar app (nothing silent)","argv":["am","start","-a","android.intent.action.INSERT","-t","vnd.android.cursor.item/event","--es","title","{text}"],
+                 "params":[("text","text",{"max":200})],"needs":["am"],"risk":"S","undo":None,"conf":"doc","says":[r"^(?:calendar|calender|kalendar)(?: me| mein)? (?:add|daal(?:o| do)?|likh(?:o| do)?|save)[: ]+(?P<text>.+)$",r"^(?:meeting|event|appointment|mulaqat) (?:daal(?:o| do)?|add|banao?|likh(?:o| do)?|rakho?)[: ]+(?P<text>.+)$"]},
+  "alarms_show":{"what":"open the alarms list","argv":["am","start","-a","android.intent.action.SHOW_ALARMS"],"params":[],"needs":["am"],"risk":"S","undo":None,"conf":"doc","says":[r"^(?:alarms?(?: dikhao| list| show)|show alarms|clock(?: app)?(?: kholo| open)?|open clock|mere alarms?)$"]},
+  "calendar_app":{"what":"open the calendar","argv":["am","start","-a","android.intent.action.VIEW","-d","content://com.android.calendar/time/"],"params":[],"needs":["am"],"risk":"S","undo":None,"conf":"doc","says":[r"^(?:(?:open|kholo?) )?(?:calendar|calender)(?: app)?(?: kholo| open| dikhao)?$"]},
   "_stop":["media","api_stop"],
  },
 }
@@ -3682,7 +3742,7 @@ _H_EX={"volume_set":"awaaz 30","volume_get":"volume kitna hai","mute":"mute / un
        "open_app":"open Safari","find":"find file report.pdf","screenshot":"screenshot le","stay_awake":"stay awake for 30 min","sleep_now":"so jao","vol_up":"volume up","vol_down":"volume down",
        "settings":"night light / cast / focus assist","windows":"kya kya khula hai","minimize_all":"show desktop","restore_all":"windows wapas","lock":"lock","timer":"remind me in 10 min: chai",
        "spotify":"spotify pe chalao arijit","youtube":"youtube: lofi","whatsapp":"whatsapp 9198… : hi","wake_lock":"stay awake","wake_unlock":"wake unlock","brightness":"brightness 120",
-       "brightness_auto":"brightness auto","torch":"torch on / torch band kar do","vibrate":"buzz","toast":"toast: hello","notify_clear":"notification hatao","media_now":"kya baj raha hai","dnd":"dnd on"}
+       "brightness_auto":"brightness auto","alarm_set":"alarm 6:30 baje · wake me up at 7 am","alarm_dismiss":"alarm hatao 6:30","timer_dismiss":"timer cancel","calendar_add":"meeting daal do 3 pm: dentist","alarms_show":"alarms dikhao","calendar_app":"calendar kholo","remind_at":"remind me at 10:30 chai","remind_in":"remind me in 20 min: call","remind_clear":"clear reminders","clock_app":"clock kholo","reminders_app":"open reminders","torch":"torch on / torch band kar do","vibrate":"buzz","toast":"toast: hello","notify_clear":"notification hatao","media_now":"kya baj raha hai","dnd":"dnd on"}
 def _h_probe(tok):
     """needs tokens: a binary name · path:/abs · env:A|B (any set) · termux-api (a real call with a timeout —
     package without the app HANGS, so the timeout IS the test) · rish (Shizuku alive now, uid 2000) · ps51."""
@@ -3738,7 +3798,7 @@ def hands_check(table=None):
                         whole=(el==f"{{{nm}}}")
                         src=h.get("_embed",{}).get(nm,nm)
                         ty=ptypes.get(src)
-                        if nm in ("ts","shot","ps51","rish","mpris","secs","verb_lc"): continue     # derived by code
+                        if nm in ("ts","shot","ps51","rish","mpris","secs","verb_lc","clock","mins_until","text_file"): continue     # derived by code
                         if ty is None: bad.append(f"{osk}/{hid}: template names unknown param {nm}")
                         elif not whole and ty in ("text","url") and fn!="urlq": bad.append(f"{osk}/{hid}: {ty} param {nm} embedded inside a script element — must be a whole argv element or stdin")
                         elif fn and fn!="urlq": bad.append(f"{osk}/{hid}: unknown transform {fn}")
@@ -3784,11 +3844,13 @@ def _h_build(h,vals):
     types hands_check() allows; {x|urlq} URL-encodes. Derived values ({ts} {shot} {ps51} {rish} {mpris}) come from code."""
     import urllib.parse as _up
     d=_h_derived(); d.update({k:v for k,v in vals.items()})
-    if "minutes" in vals: d["secs"]=str(int(vals["minutes"])*60)
+    if "minutes" in vals: d["secs"]=str(int(vals["minutes"])*60); d.setdefault("mins_until",str(int(vals["minutes"])))
+    if "h" in vals: d["clock"]=f"{int(vals['h']):02d}:{int(vals.get('m') or 0):02d}"; d["mins_until"]=str(_mins_until(int(vals["h"]),int(vals.get("m") or 0)))
     for k,src in h.get("_embed",{}).items(): d[k]=vals.get(src,"")
     if "verb" in vals: d["verb_lc"]=vals["verb"].lower()
     t=_h_chain_pick(h)
     if t is None: return None,"no runnable template"
+    if "text" in vals and any("{text_file}" in el for el in t): d["text_file"]=_remind_text_file(vals["text"],d["ts"])   # Windows: text via a 0600 file, never the command line
     if "{mpris}" in " ".join(t):
         d["mpris"]=_h_mpris()
         if not d["mpris"]: return None,"koi media player chal nahi raha (MPRIS par kuch nahi)"
@@ -3859,6 +3921,10 @@ def hands_intent(text,osk=None):
             vals={k:v for k,v in m.groupdict().items() if v is not None and not k.startswith("_")}
             for k,v in m.groupdict().items():
                 if v is not None and k in _H_SAY_MAP: vals[_H_SAY_MAP[k][0]]=_H_SAY_MAP[k][1]
+            if "h" in vals:      # '7 pm' / 'raat 10 baje' → 24h; '12 am' → 0
+                gd=m.groupdict()
+                if any(gd.get(k) for k in gd if k.startswith("_pm")) and int(vals["h"])<12: vals["h"]=str(int(vals["h"])+12)
+                elif any(gd.get(k) for k in gd if k.startswith("_am")): vals["h"]=str(int(vals["h"])%12)
             # a rule with no capture for an enum param: the matched words name the value (Hinglish verbs)
             for nm,ty,spec in h.get("params",[]):
                 if ty=="enum" and nm not in vals:
@@ -4310,6 +4376,7 @@ _LANG_LINE={
 def lang_line(st=None):
     return _LANG_LINE.get(lang_now(st),_LANG_LINE["en"])
 MSG={   # key: {en, hinglish}. hi falls back to hinglish text (readable to every Hindi speaker; Devanagari chrome breaks on Windows consoles).
+ "greet.hint":{"en":"Want a daily greeting at 10:00 (your name, the day, weather if you name a city, today's reminders, one tip — made on this device)?  /greet on","hinglish":"Roz subah 10:00 pe ek greeting chahiye (naam, din, mausam agar sheher do, aaj ke reminders, ek tip — is device pe bana)?  /greet on"},
  "tip.nokey":      {"en":"tip: no brain key yet -> {hint}","hinglish":"tip: koi brain key nahi -> {hint}"},
  "tip.keyless":    {"en":"keyless work still runs: = 2+2 · date · 5 km in miles · battery · /hands · /do research <q> · /do image <prompt> · ai tour (60 sec)",
                     "hinglish":"keyless kaam phir bhi chalta hai: = 2+2 · date · 5 km in miles · battery · /hands · /do research <q> · /do image <prompt> · ai tour (60 sec)"},
@@ -4847,7 +4914,8 @@ def _connector_line(c):
     key=f" · key: {c['key_env']} ({c.get('key_kind','')})" if c.get("needs_key") else " · no key"
     return (f"  {c['name']:<13} [{tag}] {c.get('what','')}\n"
             f"     leaves the device: {c.get('leaves','?')}{key} · licence {c.get('license','?')}\n"
-            f"     install here ({_plat_key()}): {_plat_install(c) or 'nothing'}"+(f"\n     ⚠ {c['warn']}" if c.get("warn") else "")+
+            f"     install here ({_plat_key()}): {_plat_install(c) or 'nothing'}"+(f"\n     kya hai: {c['ask_first']}" if c.get("ask_first") else "")+(f"\n     ⚠ {c['warn']}" if c.get("warn") else "")+
+            "\n     hum kabhi nahi: token screen/chat pe nahi · kisi aur server ko nahi, sirf is connector ke process ko (aur use sirf yahi credential) · tere haan ke bina koi step nahi · hatana: /mcp rm "+c['name']+
             (f"\n     login: {_login_of(c).get('account','')} · {len(_login_of(c).get('steps',[]))} guided steps, free → /mcp setup {c['name']}" if _login_of(c) else
              f"\n     add:  /mcp add {c['name']}"+("".join(f" {k}=<{v}>" for k,v in (c.get('params') or {}).items()))))
 def mcp_find(q):
@@ -4859,11 +4927,14 @@ def mcp_find(q):
         print(f"[mcp] {q}: {cfg['locked'][q]}"); return
     cs=cfg["connectors"]
     if q and q!="all":
-        hit=[c for c in cs if c["name"]==q] or [c for c in cs if q in c.get("use_cases",[])]
+        hit=[c for c in cs if c["name"]==q] or [c for c in cs if q in c.get("use_cases",[]) and c.get("suggest",True)]
         if not hit:
-            b=connector_bucket(q); hit=[c for c in cs if b in c.get("use_cases",[])] if b else []
+            b=connector_bucket(q); hit=[c for c in cs if b in c.get("use_cases",[]) and c.get("suggest",True)] if b else []
         if not hit:
-            print(f"[mcp] '{q}' ke liye catalogue me kuch vetted nahi. Do raaste:\n  · /mcp forge <ye kya kare>  — ek chhota stdio MCP server likh deta hoon (attended, scan ke baad)\n  · /mcp add <name> <url|command> cap=<cap> tool=<tool>  — apna server jodo\n  Locked (OAuth-only, koi keyless raasta nahi): "+", ".join(cfg.get("locked",{}))); return
+            print(f"[mcp] '{q}' ke liye catalogue me kuch vetted nahi. Custom ban sakta hai — process ye hai, aur har step pe tera haan:\n"
+                  "  1. tu batata hai wo kya kare (ek line)  →  2. ek brain us ek function ko likhta hai, fixed stdio-MCP skeleton ke andar (stdlib only, koi shell nahi, key sirf env se)\n"
+                  "  3. main file scan karta hoon (network/files/shell chhua to NOT registered) aur preview dikhata hoon  →  4. tera haan → register, phir ek test call\n"
+                  "  shuru:  /mcp forge <ye kya kare>      ya apna server:  /mcp add <name> <url|command> cap=<cap> tool=<tool>")
         cs=hit
     u=use_case()
     if q in ("","all") and u: cs=sorted(cs,key=lambda c:(u not in c.get("use_cases",[]),c.get("tier",1)))
@@ -4942,6 +5013,9 @@ def mcp_forge(st,spec):
     if os.environ.get("AI_ATTENDED","1")=="0": print("[mcp] forge attended only"); return
     if not (has_local() or any(os.environ.get(p["k"]) for p in PROVIDERS if p["k"])): print("[mcp] forge needs a brain (local or a key)"); return
     name=re.sub(r"[^a-z0-9]+","_",spec.lower())[:24].strip("_") or "custom"
+    print(f"[mcp] forge plan: '{spec}'\n  1. brain ek function likhega, fixed stdio-MCP skeleton me (stdlib only, koi shell nahi, key sirf env se) — spec brain ko jaata hai, aur kuch nahi\n"
+          f"  2. file ~/.local/bin/mcp-{name}.py — scan (network/files/shell chhua to NOT registered) + preview\n  3. register sirf clean hone pe, phir ek test call tere haan se")
+    if os.environ.get("AI_YES","0")!="1" and not _confirm("[mcp] banaun?"): print("[mcp] nahi banaya"); return
     desc=(f"Fill in ONLY the body of run(query) in this Python stdio MCP server so that it: {spec}. Standard library only "
           "(urllib/json/re/os/datetime), no pip, no API keys unless read from os.environ, never a shell. Return a string. "
           "Replace TOOLNAME with a short snake_case tool name and DESC with one line. Output the COMPLETE file, raw code, no fences.\n\n"+_MCP_SKEL)
@@ -4963,7 +5037,7 @@ def connector_suggest_line():
     u=use_case(); cfg=connectors_cfg()
     if not u or not cfg.get("connectors"): return ""
     if any(pr.get("connect")=="mcp" for pr in tools_cfg().get("providers",{}).values()): return ""
-    fit=[c["name"] for c in cfg["connectors"] if u in c.get("use_cases",[]) and c.get("tier",1)<2][:4]
+    fit=[c["name"] for c in cfg["connectors"] if u in c.get("use_cases",[]) and c.get("tier",1)<2 and c.get("suggest",True)][:4]
     return f"[ai] {u} ke liye connectors (optional, keyless/vetted): {', '.join(fit)} — /mcp find {u} · plain: \"pdf ka connector chahiye\"" if fit else ""
 # ── LISTS — the 'nothing trustworthy' family bucket, built instead of searched: shopping/todo/notes lists in one JSON file, offline.
 LISTS_FILE=os.path.expanduser("~/.ai-lists.json")
@@ -5037,8 +5111,10 @@ def _setup_card(c):
        f"  data that leaves this device: {c.get('leaves','?')}",
        f"  who runs the login page: {'the connector itself, in YOUR browser (this program never sees it)' if lg.get('kind')=='oauth-app' else 'nobody — a token/password you paste, stored in ~/.ai-env (0600)'}",
        f"  steps: {len(lg.get('steps',[]))} · install here ({_plat_key()}): {_plat_install(c) or 'nothing'} · licence {c.get('license','?')}"]
+    if c.get("ask_first"): L.append(f"  kya hai: {c['ask_first']}")
     if c.get("warn"): L.append(f"  ⚠ {c['warn']}")
     if c.get("vetted"): L.append(f"  vet: {c['vetted']}")
+    L.append("  hum kabhi nahi: token/password chat ya screen pe nahi dikhate (typing hidden, ~/.ai-env 0600) · kisi aur server ko nahi bhejte — sirf is connector ke apne process ko, aur use sirf yahi ek credential milta hai · tere 'haan' ke bina koi step nahi · hatana: /mcp rm "+c['name']+" aur /keys rm <VAR>")
     if c.get("unverified"): L.append("  ⚠ exact package/flag names below are from documentation, not yet run by us — tell us if a step is wrong")
     return "\n".join(L)
 def mcp_setup(st,name,kv=None):
@@ -5084,7 +5160,333 @@ def mcp_setup(st,name,kv=None):
     print(("[setup] ✓ works: " if ok else "[setup] ✗ not yet: ")+detail)
     if ok: print(f"  use:  /do {c['cap']} <text>   · plain words bhi chalenge · remove: /mcp rm {name}")
     return ok
-KNOWN_CMDS=['/agent', '/agents', '/ask', '/attach', '/bg', '/budget', '/cache', '/canary', '/capabilities', '/clear', '/corpus', '/ctx', '/device', '/do', '/egress', '/embed', '/explain', '/group', '/help', '/impact', '/json', '/kb', '/keys', '/memory', '/metrics', '/mode', '/model', '/net', '/panel', '/privacy', '/remember', '/route', '/run', '/save', '/serve', '/setup', '/short', '/tags', '/tool', '/trace', '/update', '/version', '/why', '/wish', '/auto', '/online', '/local', '/quit', '/q', '/exit', '/hands', '/hand', '/stop', '/undo', '/calc', '/tour', '/lang', '/voice', '/models', '/connect', '/mcp', '/tuning', '/usage', '/plan', '/list']   # every command literal in the dispatcher (c=="/x" and c in(...)); golden pins parity; the typo-suggester matches against this
+# ══ REMINDERS — one store for every platform (~/.ai-reminders.json), the OS's own alarm/timer on top where it exists.
+# Owner (2026-09-06): "alarms reminders calendars … jo jo endpoints open hote hain, same har platform ke liye". Per-platform
+# hands (alarm_set / timer / remind_at / calendar_add) are the OS endpoints; /remind is the floor that never depends on them:
+# it stores, arms an in-process timer while `ai` is open, and `ai daemon` fires whatever came due while it was closed. When
+# the OS hand succeeded the entry is marked os=1 so it is not announced twice. Text never enters a shell: OS hands get it
+# as a whole argv element, Windows gets it through a 0600 file the task reads, notifications through argv or an env var.
+REMIND_FILE=os.path.expanduser("~/.ai-reminders.json"); _REMIND_T=[None]
+def _reminders():
+    try: return [e for e in json.load(open(REMIND_FILE)) if isinstance(e,dict)]
+    except Exception: return []
+def _reminders_save(L):
+    try: json.dump(L[-200:],open(REMIND_FILE,"w"),ensure_ascii=False); os.chmod(REMIND_FILE,0o600)
+    except OSError: pass
+def _mins_until(h,m):
+    """Minutes from now to the next HH:MM (today if still ahead, else tomorrow); never below 1."""
+    from datetime import datetime,timedelta
+    now=datetime.now(); tgt=now.replace(hour=int(h)%24,minute=int(m)%60,second=0,microsecond=0)
+    if tgt<=now: tgt+=timedelta(days=1)
+    return max(1,int((tgt-now).total_seconds()+59)//60)
+def _remind_text_file(text,ts):
+    """Windows Task Scheduler runs a command line, so the reminder text lives in a 0600 file the task reads — never in the command."""
+    d=os.path.expanduser("~/.ai-reminders"); os.makedirs(d,exist_ok=True)
+    try: os.chmod(d,0o700)
+    except OSError: pass
+    p=os.path.join(d,f"{ts}.txt"); open(p,"w",encoding="utf-8").write(text)
+    try: os.chmod(p,0o600)
+    except OSError: pass
+    return p
+_W_PM=r"pm|p\.m\.|shaam|sham|raat|evening|night|dopahar"; _W_AM=r"am|a\.m\.|subah|subeh|morning"
+_W_REL=re.compile(r"(?:\b(?:in|after)\s+)?(?P<n>\d{1,4})\s*(?P<u>min(?:ute)?s?|hours?|hrs?|ghant[ae]|sec(?:ond)?s?)\s*(?:baad|me|mein|later|se)?\b",re.I)
+_W_ABS=re.compile(r"(?:\b(?P<day>kal|tomorrow|aaj|today|parso)\b\s*)?(?:\b(?:at|ko|pe|par)\s+)?(?:(?P<pm1>"+_W_PM+r")\s+|(?P<am1>"+_W_AM+r")\s+)?(?<![\d:.])(?P<h>\d{1,2})(?:[:.](?P<m>\d{2}))?\s*(?:(?P<pm2>"+_W_PM+r")|(?P<am2>"+_W_AM+r"))?\s*(?:baje|o'?clock)?\s*(?:(?P<pm3>"+_W_PM+r")|(?P<am3>"+_W_AM+r"))?(?:\s+(?P<day2>kal|tomorrow|aaj|today|parso)\b)?",re.I)
+def when_parse(s):
+    """'in 10 min' / '10 min baad' / '10:30' / 'kal 9 baje' / '7 pm' / 'raat 10 baje' → (epoch, span). Past clock time = tomorrow."""
+    from datetime import datetime,timedelta
+    s=s or ""; m=_W_REL.search(s)
+    if m:
+        n=int(m.group("n")); u=m.group("u").lower(); mult=3600 if u.startswith(("h","gh")) else 1 if u.startswith("s") else 60
+        return int(time.time()+n*mult),m.span()
+    m=_W_ABS.search(s)
+    if not m: return None
+    h=int(m.group("h")); mm=int(m.group("m") or 0)
+    if h>23 or mm>59: return None
+    if any(m.group(k) for k in ("pm1","pm2","pm3")):
+        if h<12: h+=12
+    elif any(m.group(k) for k in ("am1","am2","am3")): h=h%12
+    now=datetime.now(); tgt=now.replace(hour=h,minute=mm,second=0,microsecond=0); day=(m.group("day") or m.group("day2") or "").lower()
+    if day in ("kal","tomorrow"): tgt+=timedelta(days=1)
+    elif day=="parso": tgt+=timedelta(days=2)
+    elif tgt<=now: tgt+=timedelta(days=1)
+    return int(tgt.timestamp()),m.span()
+_REMIND_TRIG=re.compile(r"\b(?:remind(?: me)?|reminder|yaad\s*dila(?:na|o|\s*do|\s*dena|ye|ye?ga)?|yaad\s*rakh(?:na|o)?|bata\s*dena|alarm)\b",re.I)
+_REMIND_WORDS=re.compile(r"\b(?:remind(?:er)?(?: me)?(?: laga(?:o| do)?| set(?: kar(?: do)?)?)?|mujhe|yaad\s*(?:dila(?:na|o|ye|yega|\s*do|\s*dena)?|rakh(?:na|o)?)|bata\s*dena|please|alarm(?: laga(?:o| do)?| set)?)\b",re.I)
+_REMIND_NOT=re.compile(r"\b(?:hatao|band|cancel|dismiss|delete|remove|clear|rm|list|dikhao|show)\b",re.I)
+def remind_intent(text):
+    """Plain words → (epoch, text) or None. Needs a reminder word AND a time expression; anchored words only, so 'how do I
+    remind myself in JS' (no time) and '10 min baad chai' (no reminder word) never match."""
+    t=(text or "").strip()
+    if not t or t.startswith("/") or len(t)>200 or not _REMIND_TRIG.search(t): return None
+    if re.search(r"\b(?:how (?:do|to|can)|kaise|code|js|python|javascript|function)\b",t,re.I): return None
+    w=when_parse(t)
+    if not w: return None
+    if _REMIND_NOT.search(t): return None          # 'alarm hatao 6:30' / 'cancel reminder' → the hands / /remind rm, never a new entry
+    at,(a,b)=w; rest=(t[:a]+" "+t[b:]).strip()
+    rest=_REMIND_WORDS.sub(" ",rest)
+    rest=re.sub(r"^(?:\s*(?:ki|ka|ko|to|that|about|for|pe|par|at|:|-|,|—|ke liye))+","",rest,flags=re.I)
+    rest=re.sub(r"(?:\s*(?:ko|pe|par|ki|ka|:|-|,|—|ke liye))+\s*$","",rest,flags=re.I)
+    rest=re.sub(r"\s+"," ",rest).strip(" :-,—")
+    return at,(rest or ("alarm" if re.search(r"\balarm\b",t,re.I) else "reminder"))
+def _remind_os(at,text):
+    """Try the platform's own endpoint (so it fires even when ai is closed). Only inside 24h for alarm-shaped hands."""
+    from datetime import datetime
+    osk=hand_os(); tab=_h_table(osk); secs=at-time.time()
+    if secs<30 or os.environ.get("AI_ATTENDED","1")=="0": return False
+    dt=datetime.fromtimestamp(at); mins=max(1,int(secs+59)//60); vals=None; hid=None
+    if osk=="termux" and secs<=86400 and "alarm_set" in tab: hid,vals="alarm_set",{"h":str(dt.hour),"m":str(dt.minute),"text":text}
+    elif osk=="nt" and dt.date()==datetime.now().date() and "remind_at" in tab: hid,vals="remind_at",{"h":str(dt.hour),"m":str(dt.minute),"text":text}
+    elif osk=="darwin" and "remind_in" in tab: hid,vals="remind_in",{"minutes":str(mins),"text":text}
+    elif osk in ("linux",) and "timer" in tab: hid,vals="timer",{"mins":str(mins),"text":text}
+    if not hid: return False
+    h=tab.get(hid)
+    if not h or not hand_available(h,osk)[0]: return False
+    return hand_run(None,hid,vals,osk=osk,source="remind") is not None and LAST_RC[0]==0
+def _notify_now(text):
+    """A notification without the hand gate (the daemon is unattended). argv or env carries the text — never a script string."""
+    t=(text or "").strip()[:400]
+    if not t: return False
+    try:
+        if IS_TERMUX and shutil.which("termux-notification"):
+            return subprocess.run(["termux-notification","-i","aasmaan-remind","-t",BRAND,"-c",t],capture_output=True,timeout=8).returncode==0
+        if sys.platform=="darwin" and shutil.which("osascript"):
+            return subprocess.run(["osascript","-e","on run argv","-e",f'display notification (item 1 of argv) with title "{BRAND}"',"-e","end run","--",t],capture_output=True,timeout=10).returncode==0
+        if os.name=="nt" and _ps51():
+            env=_child_env(); env["AASMAAN_TEXT"]=t
+            subprocess.Popen(_PSA[:1]+["-NoProfile","-WindowStyle","Hidden","-Command","Add-Type -AssemblyName PresentationFramework; [System.Windows.MessageBox]::Show($env:AASMAAN_TEXT,'"+BRAND+"')"],env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL); return True
+        if shutil.which("notify-send") and (os.environ.get("DBUS_SESSION_BUS_ADDRESS") or os.environ.get("XDG_RUNTIME_DIR")):
+            return subprocess.run(["notify-send",BRAND,t],capture_output=True,timeout=8).returncode==0
+    except Exception: pass
+    return False
+def _remind_fire(e):
+    line=f"⏰ {e.get('text','')}"
+    print(f"\n[remind] {line}   ({time.strftime('%H:%M')})")
+    if not e.get("os"): _notify_now(line)
+    if VOICE["on"] and os.environ.get("AI_ATTENDED","1")!="0":
+        try: speak(e.get("text",""))
+        except Exception: pass
+def reminders_due(fire=True):
+    """Fire (or just list) every unfired reminder whose time has come. Called at start, by the in-process timer, by the daemon."""
+    now=time.time(); L=_reminders(); done=[]
+    for e in L:
+        if not e.get("fired") and e.get("at",0)<=now:
+            if fire:
+                try: _remind_fire(e)
+                except Exception: pass
+                e["fired"]=int(now)
+            done.append(e)
+    if fire and done: _reminders_save(L)
+    return done
+def _remind_arm():
+    """One threading.Timer for the nearest future reminder; re-armed after it fires. Daemon-less floor while ai is open."""
+    import threading
+    try:
+        if _REMIND_T[0]: _REMIND_T[0].cancel()
+    except Exception: pass
+    fut=[e for e in _reminders() if not e.get("fired") and e.get("at",0)>time.time()]
+    if not fut: _REMIND_T[0]=None; return
+    nxt=min(e["at"] for e in fut)
+    def go():
+        try: reminders_due()
+        finally: _remind_arm()
+    t=threading.Timer(max(1,nxt-time.time()),go); t.daemon=True; t.start(); _REMIND_T[0]=t
+def remind_add(st,at,text,quiet=False):
+    from datetime import datetime
+    text=re.sub(r"\s+"," ",(text or "").strip())[:200] or "reminder"
+    if _RX_CTRL_HARD.search(text): print("[remind] text me control characters"); return None
+    L=_reminders(); rid=(max([e.get("id",0) for e in L] or [0])+1)
+    e={"id":rid,"at":int(at),"text":text,"ts":int(time.time()),"os":False,"fired":0}
+    try: e["os"]=bool(_remind_os(at,text))
+    except Exception: e["os"]=False
+    L.append(e); _reminders_save(L); _remind_arm()
+    dt=datetime.fromtimestamp(at); secs=at-time.time(); rel=f"{int(secs//3600)}h {int(secs%3600//60)}m" if secs>=3600 else f"{max(1,int(secs//60))} min"
+    if not quiet: print(f"[remind] #{rid} · {dt.strftime('%a %d %b %H:%M')} (in {rel}) — {text}"+("   · OS alarm/timer set (chalega ai band ho tab bhi)" if e["os"] else "   · ai khula ho ya `ai daemon` chale tab batayega"))
+    return e
+def remind_cmd(st,a):
+    """/remind · /remind <in 10 min | 10:30 | kal 9 baje | 7 pm> <text> · /remind rm <id> · /remind clear"""
+    from datetime import datetime
+    a=(a or "").strip()
+    if not a:
+        L=[e for e in _reminders() if not e.get("fired")]
+        if not L: print("[remind] kuch pending nahi.  /remind in 10 min chai · /remind 10:30 meeting · plain: \"kal 9 baje yaad dilana meeting\""); return
+        print("[remind] pending:")
+        for e in sorted(L,key=lambda x:x.get("at",0)): print(f"  #{e['id']:<3} {datetime.fromtimestamp(e['at']).strftime('%a %d %b %H:%M')}  {e['text']}"+("  (OS)" if e.get("os") else ""))
+        return
+    if a=="clear":
+        n=len([e for e in _reminders() if not e.get("fired")]); _reminders_save([e for e in _reminders() if e.get("fired")]); _remind_arm(); print(f"[remind] {n} hataye (OS ke alarm khud hatao: /hand alarm_dismiss / remind_clear)"); return
+    m=re.fullmatch(r"(?:rm|remove|delete)\s+#?(\d+)",a)
+    if m:
+        L=_reminders(); n=len(L); L=[e for e in L if str(e.get("id"))!=m.group(1)]; _reminders_save(L); _remind_arm(); print("[remind] hataya" if len(L)<n else "[remind] aisa id nahi"); return
+    r=remind_intent("remind me "+a)
+    if not r: print("[remind] samay samajh nahi aaya — 'in 10 min chai', '10:30 meeting', 'kal 9 baje call', '7 pm dawai'"); return
+    remind_add(st,r[0],r[1])
+# ══ GREETING — a daily, tailored good-morning at the time you set (default 10:00), toggle on/off. Owner (2026-09-06): "ek
+# greetings bhi toggle on/off wali rakho, every morning at 10 am, user ke hisaab se tailored … taki user ko special aur
+# personal feel ho". Composed ON the device from what the device already knows: your name (~/.ai-profile owner), your
+# language, the date, the weather (only if you gave a city and the net is up — keyless Open-Meteo, attributed), today's
+# reminders, your lists, one tip about this install. A brain adds ONE sentence only if one is reachable (local first),
+# capped by the tier. GREET_LINES is the plug: a panchang/tithi line (Dharma OS) registers there tomorrow without touching
+# the rest. Fires once a day: at start of `ai` when due, or from `ai daemon` as a notification (+ spoken when voice is on).
+GREET_FILE=os.path.expanduser("~/.ai-greet.json"); GREET_LINES=[]
+def _greet():
+    g={"on":False,"at":"10:00","city":"","last":"","brain":True}
+    try: g.update({k:v for k,v in json.load(open(GREET_FILE)).items() if k in g})
+    except Exception: pass
+    return g
+def _greet_save(g):
+    try: json.dump(g,open(GREET_FILE,"w"),ensure_ascii=False); os.chmod(GREET_FILE,0o600)
+    except OSError: pass
+def greet_register(fn):
+    """Plug a line into the greeting: fn(st, g) -> str or ''. Errors are swallowed; the greeting never fails because of a plug."""
+    if callable(fn) and fn not in GREET_LINES: GREET_LINES.append(fn)
+_GREET_TIPS=[("battery","'battery' — device se seedha, bina brain"),("volume_set","'awaaz 30' — volume bol ke"),("alarm_set","'alarm 6:30 baje' — Clock app me alarm"),
+             ("remind_at","'remind me at 10:30 chai' — reminder, OS ke saath"),("timer","'timer 10 min chai'"),("calendar_add","'meeting daal do 3 pm: dentist'"),("say","'say hello' — bol ke sunata hai"),
+             ("torch","'torch on' / 'torch band kar do'"),("screenshot","'screenshot le'"),("notify","'notify: chai ready'")]
+_GREET_TOOLS=["'= 2500000 * 8.5 / 100 / 12' — hisaab offline","'5 km in miles' — units offline","'time in Boston'","'age 16 Nov 1994'","'pw 20' — password, kabhi journal me nahi","'emi 500000 8.5 5' — formula, calculator-only","'/list add shopping doodh' — lists offline","'/remind in 20 min chai'","'/tour' — 60 second me sab dikhata hai","'/hands' — ye device kya kar sakta hai"]
+def _greet_tip(day):
+    av=[h for h,_ in _GREET_TIPS if h in _h_table() and hand_available(_h_table()[h])[0]]
+    pool=[t for h,t in _GREET_TIPS if h in av]+_GREET_TOOLS
+    return pool[day%len(pool)] if pool else ""
+def _salute(lang,hour,name):
+    n=(" "+name) if name and name!="You" else ""
+    if lang=="hi": return ("सुप्रभात" if hour<12 else "नमस्ते" if hour<17 else "शुभ संध्या")+n+"।"
+    if lang=="hinglish": return ("Suprabhat" if hour<12 else "Namaste" if hour<17 else "Shubh sandhya")+n+"!"
+    return ("Good morning" if hour<12 else "Good afternoon" if hour<17 else "Good evening")+n+"."
+def greet_text(st=None,brain=True):
+    """The greeting, composed locally; one optional brain sentence at the end. Never raises."""
+    from datetime import datetime
+    st=st if st is not None else (_ST_REF[0] or {}); g=_greet(); now=datetime.now(); lang=lang_now(st) if st else lang_now(); L=[]
+    L.append(_salute(lang,now.hour,OWNER))
+    L.append((f"Aaj {now.strftime('%A')}, {now.strftime('%d %B %Y')}." if lang!="en" else f"Today is {now.strftime('%A, %d %B %Y')}."))
+    if g.get("city") and net_up():
+        try:
+            w=weather(g["city"]); w1=(w or "").splitlines()[0]
+            if w1 and not w1.startswith("[weather] '") and "net nahi" not in w1: L.append(w1.replace("[weather] ","Mausam: " if lang!="en" else "Weather: ",1))
+        except Exception: pass
+    try:
+        today=[e for e in _reminders() if not e.get("fired") and datetime.fromtimestamp(e.get("at",0)).date()==now.date()]
+        if today: L.append(("Aaj ke reminders: " if lang!="en" else "Today's reminders: ")+" · ".join(f"{datetime.fromtimestamp(e['at']).strftime('%H:%M')} {e['text']}" for e in sorted(today,key=lambda x:x['at'])[:5]))
+    except Exception: pass
+    try:
+        d=_lists(); nz=[(k,len(v)) for k,v in d.items() if isinstance(v,list) and v]
+        if nz: L.append(("Lists: " if lang=="en" else "Lists me: ")+" · ".join(f"{k} {n}" for k,n in nz[:4]))
+    except Exception: pass
+    for fn in list(GREET_LINES):
+        try:
+            x=fn(st,g)
+            if x: L.append(str(x).strip()[:300])
+        except Exception: pass
+    tip=_greet_tip(now.timetuple().tm_yday)
+    if tip: L.append(("Aaj ka tip: " if lang!="en" else "Tip: ")+tip)
+    if brain and g.get("brain",True) and (has_local() or any(os.environ.get(p["k"]) for p in PROVIDERS if p["k"])):
+        try:
+            lname={"en":"English","hinglish":"Hinglish (Roman script)","hi":"Hindi (Devanagari)"}.get(lang,"English")
+            pr=(f"Write ONE warm, specific sentence (max 25 words, no question, no emoji) to start {OWNER if OWNER!='You' else 'the user'}'s day in {lname}, "
+                f"grounded ONLY in these facts:\n"+"\n".join(L)+"\nSentence:")
+            a,who=route(pr,None,80,st.get("model") if st else None)
+            a=(a or "").strip().splitlines()[0].strip().strip('"') if a else ""
+            if a and len(a)<240: L.append(a+f"  [{who}]")
+        except Exception: pass
+    return "\n".join(L)
+def greet_due(g=None):
+    g=g or _greet()
+    if not g.get("on"): return False
+    today=time.strftime("%Y-%m-%d")
+    if g.get("last")==today: return False
+    try: hh,mm=[int(x) for x in g.get("at","10:00").split(":")]
+    except Exception: hh,mm=10,0
+    return time.localtime().tm_hour*60+time.localtime().tm_min>=hh*60+mm
+def greet_fire(st=None,how="print"):
+    """Print (REPL) or notify (daemon) today's greeting once; the first line is spoken when voice is on and someone is there."""
+    txt=greet_text(st); g=_greet(); g["last"]=time.strftime("%Y-%m-%d"); _greet_save(g)
+    print("\n"+"\n".join("  "+l for l in txt.splitlines())+"\n")
+    if how=="notify": _notify_now(" · ".join(txt.splitlines()[:2]))
+    if VOICE["on"] and os.environ.get("AI_ATTENDED","1")!="0":
+        try: speak(txt.splitlines()[0])
+        except Exception: pass
+    try: journal("greet",txt.splitlines()[0])
+    except Exception: pass
+    return txt
+def greet_cmd(st,a):
+    """/greet · /greet on|off · /greet at HH:MM · /greet city <name> · /greet brain on|off · /greet now"""
+    a=(a or "").strip(); g=_greet(); low=a.lower()
+    if not a:
+        print(f"[greet] {'ON' if g['on'] else 'off'} · at {g['at']} daily · city {g['city'] or '(none — /greet city Jaipur for weather)'} · brain line {'on' if g.get('brain',True) else 'off'} · last {g['last'] or 'never'}\n"
+              "  /greet on|off · /greet at 07:30 · /greet city <sheher> · /greet brain off · /greet now (dekho abhi)"); return
+    if low in ("on","chalu"): g["on"]=True; _greet_save(g); print(f"[greet] on — roz {g['at']} pe (ai khula ho ya `ai daemon` chale). Mausam ke liye: /greet city <sheher>. Abhi dekho: /greet now"); return
+    if low in ("off","band"): g["on"]=False; _greet_save(g); print("[greet] off"); return
+    if low in ("now","abhi","test"): greet_fire(st); return
+    m=re.fullmatch(r"(?:at|time)\s+([01]?\d|2[0-3])[:.]([0-5]\d)",low)
+    if m: g["at"]=f"{int(m.group(1)):02d}:{m.group(2)}"; g["on"]=True; _greet_save(g); print(f"[greet] roz {g['at']} pe (on)"); return
+    m=re.fullmatch(r"city\s+(.{2,40})",a,re.I)
+    if m:
+        c=m.group(1).strip()
+        if _RX_CTRL_HARD.search(c) or re.search(r"[<>\"'`$;|&]",c): print("[greet] city me sirf naam"); return
+        g["city"]=c; _greet_save(g); print(f"[greet] city = {c} (mausam sirf tab jab net ho; Open-Meteo, keyless)"); return
+    m=re.fullmatch(r"brain\s+(on|off)",low)
+    if m: g["brain"]=m.group(1)=="on"; _greet_save(g); print(f"[greet] brain line {m.group(1)} — {'ek sentence, jab koi brain ho' if g['brain'] else 'sirf device ke facts'}"); return
+    print("[greet] usage: /greet on|off · /greet at 07:30 · /greet city Jaipur · /greet brain on|off · /greet now")
+_GREET_RX=re.compile(r"^(?:(?:daily|roz|subah|morning|good morning)(?: ki| ka| wali| wala)?\s+)?greet(?:ing)?s?\s*(?:ko\s*)?(?P<v>on|off|chalu(?: karo| kar do)?|band(?: karo| kar do)?|now|abhi|dikhao)$",re.I)
+def greet_intent(text):
+    m=_GREET_RX.match((text or "").strip())
+    if not m: return None
+    v=m.group("v").lower()
+    return "on" if v.startswith(("on","chalu")) else "off" if v.startswith(("off","band")) else "now"
+# ══ /trust — ONE readable card of who has what authority right now, derived from the SAME state every other
+# gate reads (no separate source of truth). It answers the questions a person actually has: which brain, does
+# anything leave the device, what can it read/write, can it see the screen or hear the mic, which cloud brains
+# and connectors are wired, can anything run unattended, and what was the last thing that left. Every line is a
+# fact read live — never a promise. The network line uses an explicit intent class (0 none · 1 local · 2 you
+# asked · 3 infra) so "private" is never vague. Honest boundary: this reflects calls THROUGH this program; a
+# subprocess (yt-dlp, an MCP server, ffmpeg) does its own network, named separately.
+_NET_INTENT={0:"NONE",1:"LOCAL only",2:"only when YOU ask",3:"+ one daily version check (infra)"}
+def _mic_ready():
+    if IS_TERMUX: return bool(shutil.which("termux-microphone-record") or shutil.which("termux-speech-to-text"))
+    return bool(shutil.which("whisper") or shutil.which("arecord") or (sys.platform=="darwin"))
+def _egress_last():
+    try:
+        lines=[l for l in open(EGRESS_LOG,encoding="utf-8").read().splitlines() if l.strip()]
+        cloud=[l for l in lines if " CLOUD " in l]
+        return (len(lines),len(cloud),(cloud[-1] if cloud else ""))   # the "last cloud" field is cloud-only; a local call is never shown as cloud
+    except OSError: return (0,0,"")
+def trust_card(st=None):
+    st=st if st is not None else (_ST_REF[0] or {})
+    d=device_info(); localm=[p["m"] for p in PROVIDERS if p["n"]=="local"][0]
+    keyed=[p["n"] for p in PROVIDERS if p["k"] and os.environ.get(p["k"])]
+    offline=os.environ.get("AI_FORCE_OFFLINE")=="1" or (st.get("mode")=="local")
+    up=net_up()
+    # which brain answers FIRST right now
+    if offline or not up: brain=f"{localm} · LOCAL" if has_local() else "none reachable (offline)"
+    elif keyed: brain=f"{keyed[0]} · CLOUD (scrubbed: PRIVACY {'on' if os.environ.get('AI_PRIVACY','1')!='0' else 'OFF'})"
+    elif has_local(): brain=f"{localm} · LOCAL"
+    else: brain="none yet — add a free key or pull a local model"
+    # network intent
+    if offline or not up: ni=1 if has_local() else 0
+    elif keyed: ni=2
+    else: ni=1 if has_local() else 0
+    if os.environ.get("AI_UPDATE_CHECK","1")!="0" and ni>=1: ni=max(ni,3) if keyed else ni
+    conns=[n for n,pr in tools_cfg().get("providers",{}).items() if pr.get("connect")=="mcp"]
+    scr=[h for h in ("screenshot",) if h in _h_table() and hand_available(_h_table()[h])[0]]
+    total,cloudn,last=_egress_last()
+    unatt="daemon runs READ-only (no forge, no shell, no write, X/D hands refused) — /why any block"
+    L=["┌─ AASMAAN · TRUST ─────────────────────────────",
+       f"│ brain        {brain}",
+       f"│ network      intent {ni} — {_NET_INTENT.get(ni,'?')}   (now: link {'up' if up else 'down'})",
+       f"│ cloud brains {', '.join(keyed) or 'NONE keyed'}   ·  privacy router {'on (cloud gets scrubbed text)' if os.environ.get('AI_PRIVACY','1')!='0' else 'OFF'}",
+       f"│ files        read+write: {VAULT}  ·  keys: ~/.ai-env (0600, never to a child)  ·  nothing else without asking",
+       f"│ screen       {'CAN capture (a hand exists — asks first)' if scr else 'no access'}   ·  mic  {'available (push-to-talk /voice only, no wake word)' if _mic_ready() else 'no access'}",
+       f"│ connectors   {', '.join(conns) or 'none wired'}   ·  each gets ONLY its own credential",
+       f"│ external msg  nothing is sent for you — WhatsApp/UPI/etc. only open a prefilled screen you send yourself",
+       f"│ background   {unatt}",
+       f"│ egress       {total} calls logged · {cloudn} to the cloud · last cloud: {last.split(' out=')[0] if last else 'NONE'}",
+       "├────────────────────────────────────────────────",
+       "│ boundary: this is every call THROUGH ai. A tool ai runs for you (yt-dlp, an MCP server, ffmpeg) does",
+       "│ its own network — /egress marks ai's own calls; a connector/forged tool is named when you add it.",
+       "│ the rule: data (a webpage, a memory, an MCP reply, a voice line) can NEVER grant authority —",
+       "│ it can only suggest; you (a typed yes) approve; code executes. /why shows any single decision.",
+       "└────────────────────────────────────────────────"]
+    return "\n".join(L)
+KNOWN_CMDS=['/agent', '/agents', '/ask', '/attach', '/bg', '/budget', '/cache', '/canary', '/capabilities', '/clear', '/corpus', '/ctx', '/device', '/do', '/egress', '/embed', '/explain', '/group', '/help', '/impact', '/json', '/kb', '/keys', '/memory', '/metrics', '/mode', '/model', '/net', '/panel', '/privacy', '/remember', '/route', '/run', '/save', '/serve', '/setup', '/short', '/tags', '/tool', '/trace', '/update', '/version', '/why', '/wish', '/auto', '/online', '/local', '/quit', '/q', '/exit', '/hands', '/hand', '/stop', '/undo', '/calc', '/tour', '/lang', '/voice', '/models', '/connect', '/mcp', '/tuning', '/usage', '/plan', '/list', '/remind', '/greet', '/trust']   # every command literal in the dispatcher (c=="/x" and c in(...)); golden pins parity; the typo-suggester matches against this
 HELP="""commands — everything is optional, plain text just talks to the best brain.
  BRAIN   /auto /online /local · /ask <brain> <q> · /panel %s · /model <name> · /route <q> · /why · /metrics [reset]
  ANSWER  /short · /json <q> · /clear · /save · /mode
@@ -5098,11 +5500,14 @@ HELP="""commands — everything is optional, plain text just talks to the best b
  LANG    /lang [en|hinglish|hi|auto]  — English by default; installer asks; auto = mirrors what you type (2 of last 3)
  TOOLS0  = 2+2 · 15% of 4200 · date · time in Boston · 5 km in miles · age 16 Nov 1994 · b64/sha256/uuid/json · pw 20 · wa/upi/qr links · emi/sip · mausam Jaipur  — offline, bina brain; /calc <expr> · /tour
  HANDS   /hands · /hand <id> [args] · /stop [id] · /undo  — device control (volume, music, clipboard, notify, torch…); plain words + voice: "awaaz 30", "pause", "battery"
+ GREET   /greet on|off · /greet at 07:30 · /greet city <sheher> · /greet now  — roz ek tailored greeting (naam, din, mausam, aaj ke reminders, lists, ek tip; brain ho to ek line), device pe bana; plain: "greeting on"
+ REMIND  /remind [in 10 min | 10:30 | kal 9 baje | 7 pm] <text> · /remind · /remind rm <id>  — OS alarm/timer jahan hai (Android Clock, Reminders.app, Task Scheduler, systemd), warna ai/daemon batata hai; plain: "remind me at 10:30 chai", "kal 9 baje meeting yaad dilana", "alarm 6:30 baje"
  DO      /do list · /do <cap> <input> · /do <cap> use=<provider|forge> <input> · /tool <name> <what it should do> · /wish [run|clear]
  IMPACT  /impact <action> [target]  — kya chhuega, kaun depend karta hai, pehle/beech/baad kya
  BG      /bg <question> · /bg do <cap> <input> · /bg !<shell cmd> · /bg  (list) · /bg <id>  — kaam peeche, baat chalu
  EXPERTS /agents · /agent auto <task>  (naam yaad na ho to khud chunta hai) · /agent <name> <task> · /group
  SYSTEM  /attach <file> · /run <cmd> · /explain · /serve [port] · /device · /net [off|on] · /canary · /embed <text> · /privacy [on|off|<text>]
+ TRUST   /trust  — ek card: kaunsa brain, kya device se bahar jaata hai, kya read/write, screen/mic, connectors, background, aakhri egress · /why (ek faisla) · /egress (har call) · /impact <action>
  SELF    /version · /capabilities (ye install abhi kya kar sakta hai) · /egress (har network call ka log: kahan, kab, kitna) · /update · /setup · /keys [NAME|rm NAME] · /attach <file|png|pdf> · ai daemon [--once]
  PAIR    ai pair [port] [--lan]  — QR se phone (iPhone bhi) is computer ke 'ai' se jud jaata hai; tera hardware, tera network
  COMMUNITY  ai telegram [--once]  (helper bot for your group: /install /faq /feedback — fail-closed allowlist)  ·  ai announce <text>
@@ -5137,6 +5542,16 @@ def repl(st):
         if _dm and _dm.get("fresh"): print(f"[daemon] {_dm['when']}: {_dm.get('summary','')}")
     except Exception: pass
     try:
+        _rd=reminders_due()          # what came due while ai was closed (and no daemon fired it)
+        _rp=[e for e in _reminders() if not e.get("fired")]
+        if _rp: print(f"[remind] {len(_rp)} pending — /remind")
+        _remind_arm()
+    except Exception: pass
+    try:
+        if greet_due(): greet_fire(st)
+        elif not os.path.exists(GREET_FILE) and not st.get("greet_hint"): print("[ai] "+_t("greet.hint",st)); st["greet_hint"]=True; save(st)
+    except Exception: pass
+    try:
         _un=update_notice()      # last line before the prompt — "niche likha aaye"
         if _un: print(_un)
     except Exception: pass
@@ -5160,6 +5575,10 @@ def repl(st):
             if _li:
                 g=_li.groupdict(); n=(g.get("n") or g.get("n2") or g.get("n3") or "todo").lower().replace("grocery","shopping").replace("kharidari","shopping"); it=g.get("item") or g.get("item2")
                 lists_cmd(f"add {n} {it}" if it else n); continue
+            _gi=greet_intent(text)
+            if _gi: greet_cmd(st,_gi); continue
+            _ri=remind_intent(text)
+            if _ri: remind_add(st,_ri[0],_ri[1]); continue          # reminder words + a time → the store (+ the OS endpoint if one exists)
             _hi=hands_intent(text)
             if _hi:                                                  # a device hand, by plain words (or voice → same path)
                 print(f"[ai] → hand {_hi[0]}"+(" "+" ".join(f"{k}={v}" for k,v in _hi[1].items()) if _hi[1] else ""))
@@ -5178,10 +5597,11 @@ def repl(st):
                     print("[ai] "+_t("quit.jobs",st,n=len(_run)))
                     continue
                 break
-            elif c=="/help": print(HELP % ",".join(st["panel"]))
+            elif c=="/help": print(HELP.replace("%s",",".join(st["panel"])))
             elif c=="/version": print(self_info())
             elif c=="/egress": print(egress_report(int(a) if a.isdigit() else 20))
             elif c=="/capabilities": print(capabilities())
+            elif c=="/trust": print(trust_card(st))
             elif c=="/update": run_self_cmd("update")
             elif c=="/setup": run_self_cmd("setup")
             elif c=="/keys": keys_cmd(a)
@@ -5250,6 +5670,8 @@ def repl(st):
             elif c=="/connect": connect_cmd(st,a)
             elif c=="/mcp": mcp_cmd(st,a)
             elif c=="/list": lists_cmd(a)
+            elif c=="/remind": remind_cmd(st,a)
+            elif c=="/greet": greet_cmd(st,a)
             elif c=="/voice":
                 _vc=voice_cmd(st,hist,a)
                 if _vc: _next.append(_vc)
@@ -5770,6 +6192,8 @@ def main():
         if sys.argv[1]=="telegram": return telegram(st,sys.argv[2:])
         if sys.argv[1]=="pair": return pair(sys.argv[2:])
         if sys.argv[1]=="announce": return announce(" ".join(sys.argv[2:]))
+        if sys.argv[1] in ("help","-h","--help"): print(HELP.replace("%s",",".join(st["panel"]))); return
+        if sys.argv[1]=="trust": _ST_REF[0]=st; print(trust_card(st)); return
         if sys.argv[1]=="capabilities": print(capabilities()); return
         if sys.argv[1]=="tour": return tour(st)
         if sys.argv[1]=="models": print(models_text(st)); return

@@ -160,6 +160,12 @@ def t_update_cmd():
     finally: del os.environ["AI_REPO_SLUG"]
     return ("raw.githubusercontent.com/o/r/main/install" in c and ("| bash" in c or "| iex" in c)), c
 case("update_cmd: built from the repo slug, per OS", t_update_cmd)
+def t_update_cmd_termux():
+    os.environ["AI_REPO_SLUG"]="o/r"; o=ai.IS_TERMUX; ai.IS_TERMUX=True
+    try: c=ai.update_cmd()
+    finally: ai.IS_TERMUX=o; del os.environ["AI_REPO_SLUG"]
+    return ("curl --version" in c and "apt " in c and "full-upgrade" in c and "pkg " not in c and c.rstrip().endswith("install.sh | bash") and "-k" not in c), c
+case("update_cmd on Termux: checks curl runs, upgrades with apt (never pkg — pkg needs curl) only if it does not, then the same curl|bash — the fix command never depends on the broken binary", t_update_cmd_termux)
 def t_update_check():
     os.environ["AI_REPO_SLUG"]="o/r"; orig_f,orig_v,orig_n=ai._fetch_text,ai.self_version,ai.net_up
     ai.self_version=lambda:("2026-09-06 abc1234 o/r","o/r","deadbeef"); ai.net_up=lambda *a,**k:True
@@ -318,6 +324,33 @@ def t_cap_alias():
     miss=[a for a,c in ai.CAP_ALIAS.items() if c not in caps]
     return not miss and ai.CAP_ALIAS.get("image")=="image_generation", f"aliases pointing nowhere: {miss}"
 case("do: every CAP_ALIAS target exists in the capability map ('/do image' resolves)", t_cap_alias)
+def t_help_renders():
+    import io as _io, contextlib as _cl
+    b=_io.StringIO()
+    with _cl.redirect_stdout(b): print(ai.HELP.replace("%s",",".join(["local","gemini"])))
+    o=b.getvalue()
+    return ("TypeError" not in o and "%s" not in o and "15% of 4200" in o and "local,gemini" in o and " HANDS " in o and " REMIND " in o), o[:80]
+case("help: HELP renders with literal percents intact (15% of 4200) and the panel filled — no printf TypeError (the crash a first-timer hit on /help)", t_help_renders)
+def t_smalltalk_no_web():
+    o=ai.net_up; ai.net_up=lambda:True
+    try:
+        greet=[t for t in ("kya haal hai","kaise ho bhai","how are you","hello bhai","kya kar rahe ho") if ai.needs_web(t)]
+        fresh=[t for t in ("aaj ka sona bhav","latest news","price of gold") if not ai.needs_web(t)]
+    finally: ai.net_up=o
+    return not greet and not fresh, f"greeted-to-web={greet} fresh-missed={fresh}"
+case("web: small talk (kya haal hai / kaise ho / how are you) never triggers a web search; a real time-sensitive query still does", t_smalltalk_no_web)
+def t_trust_card():
+    import io as _io, contextlib as _cl
+    o=ai.net_up; ai.net_up=lambda *a,**k:False
+    try:
+        b=_io.StringIO()
+        with _cl.redirect_stdout(b): print(ai.trust_card({"mode":"local","panel":["local"]}))
+        c=b.getvalue()
+    finally: ai.net_up=o
+    # every fact-line present; the boundary honesty line present; a local call is never labelled "last cloud"
+    return ("AASMAAN · TRUST" in c and "brain" in c and "network      intent" in c and "connectors" in c and "each gets ONLY its own credential" in c
+            and "does" in c and "its own network" in c and "can NEVER grant authority" in c and "last cloud: NONE" in c), c[:120]
+case("trust: /trust prints one card from live state (brain, network intent, files, screen/mic, connectors, background, egress) + the honest boundary line; a local egress call is never shown as a cloud call", t_trust_card)
 def t_known_cmds_parity():
     import re as _re
     src=open(SRC,encoding="utf-8").read()
@@ -369,6 +402,95 @@ def t_hands_gates():
     r3=ai.hand_run(None,"danger",osk="test",source="cli")   # stdin is not a tty here -> must refuse, not run
     return r1 is None and r2 is not None and r3 is None, f"{r1!r} {r2!r} {r3!r}"
 case("hands: unattended runs read-only hands only; X-risk without a tty is refused, never run", t_hands_gates)
+# ── CONNECTORS polish: ask-for-only entries, the safety line on every card, forge explains and asks ──
+def t_connectors_ask_first():
+    import io as _io, contextlib as _cl
+    b1=_io.StringIO(); b2=_io.StringIO(); b3=_io.StringIO(); b4=_io.StringIO()
+    with _cl.redirect_stdout(b1): ai.mcp_find("family")
+    with _cl.redirect_stdout(b2): ai.mcp_find("homeassistant")
+    with _cl.redirect_stdout(b3): ai.mcp_find("zzz-not-a-service")
+    ha=next(c for c in ai.connectors_cfg()["connectors"] if c["name"]=="homeassistant"); card=ai._setup_card(ha)
+    return ("homeassistant" not in b1.getvalue() and "homeassistant" in b2.getvalue() and "kya hai:" in b2.getvalue() and "hum kabhi nahi" in b2.getvalue()
+            and "1. tu batata hai" in b3.getvalue() and "/mcp forge" in b3.getvalue() and "account:" in card), f"{b1.getvalue()[:80]!r} {b2.getvalue()[:80]!r} {b3.getvalue()[:80]!r}"
+case("connectors: a suggest:false entry (Home Assistant) never appears in bucket/use-case suggestions, only by name with its 'kya hai' line; every connector line carries the 'hum kabhi nahi' safety line; an unknown service gets the 4-step custom process", t_connectors_ask_first)
+def t_forge_asks_first():
+    import io as _io, contextlib as _cl
+    o=ai.has_local; ai.has_local=lambda:True; b=_io.StringIO(); os.environ["AI_ATTENDED"]="1"; os.environ.pop("AI_YES",None)
+    try:
+        with _cl.redirect_stdout(b): ai.mcp_forge({}, "current INR to USD rate")
+    finally: ai.has_local=o
+    return "forge plan" in b.getvalue() and "nahi banaya" in b.getvalue() and not os.path.exists(os.path.expanduser("~/.local/bin/mcp-current_inr_to_usd_rate.py")), b.getvalue()[-200:]
+case("forge: explains the 3-step process and asks; without a yes (no tty) nothing is generated or written", t_forge_asks_first)
+# ── GREETING: daily, tailored, made on the device; once a day; toggle; a plug for tomorrow's panchang line ──
+def t_greet_offline():
+    import io as _io, contextlib as _cl, time as _t
+    st={"mode":"auto","budget":"x","ctx":[],"short":False,"model":"m","lang":"hinglish"}; ai._ST_REF[0]=st
+    o=ai._remind_os; ai._remind_os=lambda *a:False
+    try:
+        with _cl.redirect_stdout(_io.StringIO()): ai.remind_add(st,_t.time()+1800,"client call"); ai.lists_cmd("add greetlist doodh")
+        ai.greet_register(lambda st,g:"Tithi: plug")
+        txt=ai.greet_text(st,brain=False); st["lang"]="en"; en=ai.greet_text(st,brain=False).splitlines()[0]
+    finally:
+        ai._remind_os=o; ai.GREET_LINES.clear()
+        with _cl.redirect_stdout(_io.StringIO()): ai.lists_cmd("clear greetlist")
+    L=txt.splitlines()
+    return (L[0].split()[0] in ("Suprabhat","Namaste","Shubh") and "2026" in L[1] and any("client call" in x for x in L) and any("greetlist 1" in x for x in L)
+            and "Tithi: plug" in txt and any(x.startswith("Aaj ka tip") for x in L) and en.split()[0]=="Good" and "[" not in txt), txt
+case("greet: composed offline from device facts — salutation by time+language+name, date, today's reminders, lists, a plug line, a tip; no brain line without a brain", t_greet_offline)
+def t_greet_once_a_day():
+    import io as _io, contextlib as _cl
+    got=[]; o=ai._notify_now; ai._notify_now=lambda t:(got.append(t) or True); st={"mode":"auto","budget":"x","ctx":[],"short":False,"model":"m"}
+    try:
+        with _cl.redirect_stdout(_io.StringIO()):
+            d0=ai.greet_due(); ai.greet_cmd(st,"on"); ai.greet_cmd(st,"at 00:00"); d1=ai.greet_due()
+            os.environ["AI_ATTENDED"]="0"; s1=ai.daemon_tick(st)["steps"].get("greet"); d2=ai.greet_due(); s2=ai.daemon_tick(st)["steps"].get("greet")
+            ai.greet_cmd(st,"off"); s3=ai.daemon_tick(st)["steps"].get("greet")
+        gi=(ai.greet_intent("greeting on"),ai.greet_intent("subah wali greeting band karo"),ai.greet_intent("how do I greet in JS"))
+    finally: ai._notify_now=o; os.environ["AI_ATTENDED"]="1"
+    return (d0 is False and d1 is True and s1=="sent" and len(got)==1 and d2 is False and s2=="not due" and s3=="off" and gi==("on","off",None)), f"{d0} {d1} {s1} {got} {d2} {s2} {s3} {gi}"
+case("greet: off by default; /greet on + at HH:MM → due once → the daemon sends ONE notification and it is not due again today; /greet off; plain words on/off", t_greet_once_a_day)
+# ── OS ENDPOINTS + /remind: alarms, timers, reminders, calendar — the OS's own where it exists, one store everywhere ──
+def t_time_hands_intent():
+    a=ai.hands_intent("alarm 6:30 baje","termux"); b=ai.hands_intent("7 pm ka alarm","termux"); c=ai.hands_intent("wake me up at 12 am","termux")
+    d=ai.hands_intent("remind me at 10:30 chai","nt"); e=ai.hands_intent("meeting daal do 3 pm: dentist","darwin"); f=ai.hands_intent("alarm hatao 6:30","termux")
+    g=ai.hands_intent("how do I set an alarm in JS","linux"); h=ai.hands_intent("10","termux")
+    return (a==("alarm_set",{"h":"6","m":"30"}) and b==("alarm_set",{"h":"19"}) and c==("alarm_set",{"h":"0"}) and d==("remind_at",{"h":"10","m":"30","text":"chai"})
+            and e==("calendar_add",{"h":"15","text":"dentist"}) and f==("alarm_dismiss",{"h":"6","m":"30"}) and g is None and h is None), f"{a} {b} {c} {d} {e} {f} {g} {h}"
+case("time hands: 'alarm 6:30 baje' / '7 pm' / '12 am' / 'remind me at 10:30 chai' / 'meeting daal do 3 pm' map to typed h/m/text on each platform; a coding question and a bare number never match", t_time_hands_intent)
+def t_nt_remind_text_file():
+    h=ai.HANDS["nt"]["remind_at"]; v,e=ai._h_validate(h,{"h":"10","m":"30","text":"chai time; rm -rf /"}); argv,e2=ai._h_build(h,v)
+    import re as _re; m=_re.search(r"Raw '([^']+)'",argv[-1]); body=open(m.group(1),encoding="utf-8").read() if m else ""
+    return (not e and not e2 and argv[6]=="10:30" and "chai time" not in " ".join(argv) and body=="chai time; rm -rf /" and (os.stat(m.group(1)).st_mode&0o777)==0o600 if os.name!="nt" else True), f"{e} {e2} {argv[:8]} {body!r}"
+case("windows remind_at: the text never enters the schtasks command line — it is read from a 0600 file; /st is HH:MM", t_nt_remind_text_file)
+def t_when_parse():
+    import time as _t
+    r1=ai.when_parse("in 10 min chai"); r2=ai.when_parse("kal 9 baje meeting"); r3=ai.when_parse("7 pm dawai"); r4=ai.when_parse("nothing here")
+    from datetime import datetime,timedelta
+    ok1=r1 and abs(r1[0]-(_t.time()+600))<5
+    d2=datetime.fromtimestamp(r2[0]) if r2 else None; ok2=d2 and d2.hour==9 and d2.minute==0 and d2.date()==(datetime.now()+timedelta(days=1)).date()
+    d3=datetime.fromtimestamp(r3[0]) if r3 else None; ok3=d3 and d3.hour==19 and d3>datetime.now()
+    return bool(ok1 and ok2 and ok3 and r4 is None), f"{r1} {d2} {d3} {r4}"
+case("when_parse: 'in 10 min' = +600 s · 'kal 9 baje' = tomorrow 09:00 · '7 pm' = 19:00 and always in the future · no time = None", t_when_parse)
+def t_remind_intent():
+    T=[("remind me at 10:30 chai","chai"),("kal 9 baje meeting yaad dilana","meeting"),("raat 10 baje yaad dila do doodh","doodh"),("please remind me at 5 pm to submit the report","submit the report"),("mujhe kal subah 7 baje yaad dilana ki dawai leni hai","dawai leni hai")]
+    bad=[(t,x,ai.remind_intent(t)) for t,x in T if not ai.remind_intent(t) or ai.remind_intent(t)[1]!=x]
+    none=[t for t in ("how do I remind myself in JS","10 min baad chai","alarm hatao 6:30","volume 40") if ai.remind_intent(t) is not None]
+    return not bad and not none, f"bad={bad} none={none}"
+case("remind_intent: reminder words + a time → (when, clean text) in English and Hinglish; no reminder word, a coding question, or a cancel word never match", t_remind_intent)
+def t_remind_store_fires():
+    import io as _io, contextlib as _cl, time as _t
+    got=[]; o1=ai._remind_os; o2=ai._notify_now; ai._remind_os=lambda *a:False; ai._notify_now=lambda t:(got.append(t) or True); os.environ["AI_ATTENDED"]="1"
+    try:
+        b=_io.StringIO()
+        with _cl.redirect_stdout(b):
+            e=ai.remind_add({},_t.time()-1,"chai"); fired=ai.reminders_due(); pend=[x for x in ai._reminders() if not x.get("fired")]
+            ai.remind_cmd({},"in 10 min doodh"); ai.remind_cmd({},"")
+            ai.remind_cmd({},"rm "+str(max(x["id"] for x in ai._reminders())))
+        L=ai._reminders(); saved=[x for x in L if x["id"]==e["id"]][0]
+        os.environ["AI_ATTENDED"]="0"; step=ai.daemon_tick({"mode":"auto","budget":"x","ctx":[],"short":False,"model":"m"})["steps"].get("reminders")
+    finally: ai._remind_os=o1; ai._notify_now=o2; os.environ["AI_ATTENDED"]="1"
+    return (e and not e["os"] and len(fired)==1 and got and "chai" in got[0] and saved["fired"]>0 and "doodh" in b.getvalue() and "pending" in b.getvalue() and step=="fired 0"), f"{e} {fired} {got} {step} {b.getvalue()[-200:]!r}"
+case("/remind: an entry the OS could not take is stored, fires once via the notifier with its text, is marked fired; list/rm work; the daemon step reports what it fired", t_remind_store_fires)
 # ── RUNG 0 TOOLS: the keyless user's first questions are answered, safely, before any brain ──
 def t_calc_safe():
     bad=[ai.calc(x) for x in ('__import__("os").system("id")','().__class__','2**99999','open("/etc/passwd")','a.b','x')]

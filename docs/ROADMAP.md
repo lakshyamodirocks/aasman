@@ -16,6 +16,9 @@ Plain list, newest thinking first. "Done" means run and verified, not written. I
 - [x] Egress log, key-scrubbed child processes, `ai pair` (QR), `/capabilities`, Telegram helper bot
 
 ## Next
+- [x] Threat model (docs/THREAT-MODEL.md) + adversarial suite (tests/adversarial.py) — the invariants proven by attack, run in the gate
+- [ ] Restricted execution profile for forged tools where the platform allows it (temp dir, scrubbed env, no network, timeout) — `_risky` is detection, not a sandbox
+- [ ] **Dharma OS line in the greeting**: panchang (tithi, nakshatra, sunrise) computed on-device, registered through the `GREET_LINES` plug — the astrology science coded into the harness so the greeting feels personal, never a lookup on someone's server
 - [ ] Peer mode between two full installs (`ai pair --peer`, `ai peer ask|send`) once per-peer capabilities exist — a peer token is a seat, not a channel (docs/PAIRING.md)
 
 - [ ] **First physical Windows run** by a real user; fix whatever CI could not see

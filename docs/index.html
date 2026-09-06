@@ -30,13 +30,13 @@ a{color:var(--acc)}#banner{display:none;background:var(--warn);color:#111;paddin
 <h2>Install — one command, three devices</h2>
 <div class="grid">
   <div class="card"><h3>Android · Termux</h3><p class="small mut">Install <strong>Termux from <a href="https://f-droid.org/packages/com.termux/">F-Droid</a></strong> (not Play Store), open it, paste:</p>
-<pre>pkg upgrade -y &amp;&amp; pkg install -y curl python &amp;&amp; curl -fsSL https://raw.githubusercontent.com/lakshyamodirocks/aasman/main/install.sh | bash</pre><p class="small mut">Mirror / “unable to resolve” error? Run <code>termux-change-repo</code> (Enter, Enter), then paste again.</p></div>
-  <div class="card"><h3>Linux · macOS · WSL2</h3><p class="small mut">Needs python3 and curl.</p>
-<pre>curl -fsSL https://raw.githubusercontent.com/lakshyamodirocks/aasman/main/install.sh | bash</pre></div>
+<pre>apt update &amp;&amp; apt -y -o Dpkg::Options::=--force-confnew full-upgrade &amp;&amp; apt -y install curl python &amp;&amp; curl -fsSL https://raw.githubusercontent.com/lakshyamodirocks/aasman/main/install.sh | bash</pre><p class="small mut">Starts with <code>apt</code>, not <code>pkg</code>: a fresh Termux ships a broken <code>curl</code> and <code>pkg</code> itself needs curl to pick a mirror. Mirror / “unable to resolve” error? Run <code>termux-change-repo</code> (Enter, Enter), then paste again.</p></div>
+  <div class="card"><h3>Linux · macOS · WSL2</h3><p class="small mut">Needs python3 and curl (or wget).</p>
+<pre>curl -fsSL https://raw.githubusercontent.com/lakshyamodirocks/aasman/main/install.sh | bash</pre><p class="small mut">No curl? <code>wget -qO- https://raw.githubusercontent.com/lakshyamodirocks/aasman/main/install.sh | bash</code>. Fresh Mac: run <code>xcode-select --install</code> once first.</p></div>
   <div class="card"><h3>Windows 10/11</h3><p class="small mut">PowerShell, normal user, no admin.</p>
 <pre>irm https://raw.githubusercontent.com/lakshyamodirocks/aasman/main/install.ps1 | iex</pre></div>
 </div>
-<p class="small">Every installer is <strong>staged</strong>: it shows your machine first, then asks before each step. <code>Enter</code> = do it · <code>s</code> = skip · <code>q</code> = stop (done stays done). Nothing installs silently. Python and Ollama are installed <em>by you</em> from their official installers; the script only prints the command.</p>
+<p class="small">Every installer is <strong>staged</strong>: it shows your machine first, then asks before each step. <code>Enter</code> = do it · <code>s</code> = skip · <code>q</code> = stop (done stays done). Nothing installs silently. Python and Ollama are installed <em>only after you press Enter</em> (Linux/macOS print the exact command to run yourself; Windows offers to run winget for you) from their official installers; the script only prints the command.</p>
 
 <h2>What it does</h2>
 <div class="grid">
@@ -55,7 +55,7 @@ a{color:var(--acc)}#banner{display:none;background:var(--warn);color:#111;paddin
 <table>
 <tr><th>Writes</th><td>its own folder, <code>~/.ai-*</code> files, <code>~/ai-vault</code>. On Windows, one folder in your <em>user</em> PATH only if you press Enter. Everything is listed in a manifest; uninstall removes exactly that list and leaves your keys and memory.</td></tr>
 <tr><th>Sends</th><td>only what you typed or attached, to your local Ollama, a provider you keyed, or a keyless endpoint you invoked. Cloud-bound text is scrubbed of emails, phones, IDs, keys, private IPs and names you list.</td></tr>
-<tr><th>Never</th><td><code>sudo</code>/admin · <code>pip install</code> · editing <code>.bashrc</code>/<code>.zshrc</code> · touching your Ollama models · telemetry · a server of ours · acting unattended (the daemon can look, not act).</td></tr>
+<tr><th>Never</th><td><code>sudo</code>/admin · <code>pip install</code> · editing <code>.bashrc</code>/<code>.zshrc</code> on a PC (Termux adds one PATH line, shown first) · touching your Ollama models · telemetry · a server of ours · acting unattended (the daemon can look, not act).</td></tr>
 </table>
 
 <h2>Honest limits</h2>

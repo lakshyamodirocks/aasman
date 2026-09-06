@@ -21,6 +21,7 @@ docs/FLAGS.md
 docs/HANDS.md
 docs/PAIRING.md
 docs/ROADMAP.md
+docs/THREAT-MODEL.md
 docs/TRUST.md
 docs/WHY.md
 docs/index.html
@@ -74,6 +75,7 @@ panel.html
 pc-setup.sh
 setup-menu.sh
 setup-wizard.sh
+tests/adversarial.py
 tests/golden.py
 tools-routing.json
 whiteboard.html

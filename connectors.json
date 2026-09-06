@@ -434,7 +434,9 @@
      "404": "purana HA: MCP integration ka path /mcp_server/sse (SSE) hai jo ye client nahi bolta — HA update karo"
     }
    },
-   "vetted": "official integration per HA docs 2026-09-06; endpoint path unverified by a run — ask before offering (needs a running HA)"
+   "vetted": "official integration per HA docs 2026-09-06; endpoint path unverified by a run — ask before offering (needs a running HA)",
+   "suggest": false,
+   "ask_first": "Home Assistant = apna smart-home hub jo tumhare ghar ke server/Raspberry Pi pe chalta hai (lights, switches, sensors). Agar ye naam naya lag raha hai to ye tumhare liye nahi hai — sirf tab jab tum khud HA chalate ho."
   },
   {
    "name": "notion",

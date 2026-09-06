@@ -33,6 +33,10 @@ RAM=$(num_or "$(probe_ram_mb)" 0)
 FREE=$(num_or "$(probe_free_mb)" 0)
 DISK_RAW=$(probe_disk_mb "$HOME")      # "" = pata nahi chala
 CORES=$(probe_cores); DEV=$(probe_device)
+# what platform is this REALLY? (iOS can never run this script, so it is a manual pick only)
+if [ -d /data/data/com.termux/files ]; then PLAT_DET=1; PLAT_DET_NAME="Android (Termux)"
+elif [ "$(uname -s 2>/dev/null)" = Darwin ]; then PLAT_DET=3; PLAT_DET_NAME="Mac"
+else PLAT_DET=3; PLAT_DET_NAME="Linux"; fi
 DISK_KNOWN=yes; [ -z "$DISK_RAW" ] && DISK_KNOWN=no
 DISK=$(num_or "$DISK_RAW" 0)
 
@@ -40,7 +44,7 @@ TTY=/dev/tty; ( exec 3</dev/tty ) 2>/dev/null || TTY=/dev/stdin
 
 # ── choices (state) ─────────────────────────────────────────────
 LANGC="${AI_LANG:-en}"   # step 0: en (default) | hinglish | hi
-PLAT=1 INTENT=1 BRAIN=2 CTXI=3
+PLAT=${PLAT_DET:-1} INTENT=1 BRAIN=2 CTXI=3
 EX_VOICE=0 EX_SCREEN=0 EX_FFMPEG=1 EX_PANEL=1 EX_PENTEST=0
 
 # ── data tables ─────────────────────────────────────────────────
@@ -120,15 +124,16 @@ s_device(){
     printf '  💽 Disk  %s? pata nahi chala%s %s(probe fail — install rukega nahi,\n' "$Y" "$X" "$D"
     printf '            bas jagah ka hisaab nahi dikha paunga)%s\n' "$X"
   fi
-  printf '\n%s  1️⃣  Ye device kya hai?%s\n\n' "$B" "$X"
-  printf '  %s1%s 📟 Android (Termux)   %spura system yahin%s\n' "$C" "$X" "$G" "$X"
-  printf '  %s2%s 🍎 iPhone / iPad      %sclient-only%s\n' "$C" "$X" "$Y" "$X"
-  printf '  %s3%s 🐧 Linux / desktop    %ssab chalega%s\n' "$C" "$X" "$G" "$X"
+  printf '\n%s  1️⃣  Device%s   %s(mil gaya — badalna ho tabhi kuch dabao)%s\n\n' "$B" "$X" "$D" "$X"
+  printf '  %s✓ %s%s   %s— yahi, ispe pura system chalega%s\n\n' "$G" "$PLAT_DET_NAME" "$X" "$D" "$X"
+  printf '  %s[Enter]%s yahi rakho    ya badlo:  %s2%s 🍎 iPhone/iPad %s(client-only)%s   %s3%s 🐧 Linux/Mac\n' "$C" "$X" "$C" "$X" "$D" "$X" "$C" "$X"
+  printf '  %s(Windows? ye wizard nahi — PowerShell me:  irm .../install.ps1 | iex)%s\n' "$D" "$X"
   foot; askk
   case "$REPLY" in
     q|Q) bye ;;
     b|B) return 0 ;;
-    '?') printf '\n  %sAndroid=Termux me native. iOS pe ollama chalta hi nahi —\n  wahan phone sirf screen banta hai, compute kisi Android/Linux pe.%s\n' "$D" "$X"; pause; return 0 ;;
+    '?') printf '\n  %s%s detect hua (getprop/uname se). Android=Termux me native.\n  iOS pe ollama chalta hi nahi — wahan phone sirf screen banta hai, compute kisi Android/Linux/Mac pe.\n  Windows apne installer (install.ps1) se, PowerShell me.%s\n' "$D" "$PLAT_DET_NAME" "$X"; pause; return 0 ;;
+    1) PLAT=1; STEP=2; return 0 ;;
     2) PLAT=2
        printf '\n  %s🍎 iOS pe ye NATIVE nahi chalta%s — ollama iOS pe hai hi nahi,\n' "$Y" "$X"
        printf '  aur iOS downloaded code chalane nahi deta.\n\n'
@@ -137,7 +142,8 @@ s_device(){
        printf '    ⌨️  Blink / Termius → SSH\n'
        printf '    🔌 /v1 OpenAI shim → koi bhi iOS AI app isko backend bana le\n'
        pause; PLAT=1; STEP=2; return 0 ;;
-    1|3|'') PLAT=${REPLY:-1}; STEP=2; return 0 ;;
+    3) PLAT=3; STEP=2; return 0 ;;
+    '') PLAT=${PLAT_DET:-1}; STEP=2; return 0 ;;
     *) return 0 ;;
   esac; }
 
