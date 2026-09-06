@@ -4512,7 +4512,7 @@ class MCPHttp:
 class MCPStdio:
     """`python -m server` / `npx -y server` style. Spawned through the key-scrubbed subprocess wrapper; every such server is
     third-party code — attended-only, and only from the user's own config."""
-    def __init__(self,argv,timeout=60): self.argv,self.timeout=argv,timeout; self.p=None; self._id=0
+    def __init__(self,argv,timeout=60,env=None): self.argv,self.timeout,self.env=argv,timeout,env; self.p=None; self._id=0
     def _rpc(self,method,params=None,notify=False):
         self._id+=1
         msg=json.dumps({"jsonrpc":"2.0","method":method,"params":params or {},**({} if notify else {"id":self._id})})+"\n"
@@ -4529,7 +4529,7 @@ class MCPStdio:
                 if "error" in o: raise RuntimeError(str(o["error"])[:200])
                 return o.get("result")
     def connect(self):
-        self.p=subprocess.Popen(self.argv,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True,bufsize=1)
+        self.p=subprocess.Popen(self.argv,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True,bufsize=1,env=self.env or _child_env())
         r=self._rpc("initialize",{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":BRAND.lower(),"version":"0.1"}})
         self._rpc("notifications/initialized",notify=True); return r
     def tools(self): return (self._rpc("tools/list") or {}).get("tools",[])
@@ -4543,7 +4543,7 @@ def _mcp_client(pr):
     if pr.get("url"): return MCPHttp(pr["url"],os.environ.get(pr.get("key",""),"") or None)
     argv=pr.get("argv") or []
     if not argv or not isinstance(argv,list) or not all(isinstance(x,str) for x in argv): raise RuntimeError("mcp provider needs url or argv[]")
-    return MCPStdio(argv)
+    return MCPStdio(argv,env=_env_for(pr))
 def mcp_ready(pr):
     """(ok, why-not) — attended only; HTTP needs net unless loopback; stdio needs its binary."""
     if os.environ.get("AI_ATTENDED","1")=="0": return False,"mcp servers run attended only (daemon/unattended: no)"
@@ -4554,6 +4554,10 @@ def mcp_ready(pr):
     argv=pr.get("argv") or []
     if not argv: return False,"no url/argv"
     if not shutil.which(argv[0]) and not os.path.exists(argv[0]): return False,f"'{argv[0]}' not installed"
+    for var,src in (pr.get("env_map") or {}).items():
+        need=re.findall(r"\{(\w+)\}",src)
+        miss=[n for n in need if not os.environ.get(n)]
+        if miss: return False,f"login pending: {', '.join(miss)} not set — /mcp setup "+(pr.get("name") or "<name>")
     return True,""
 def mcp_run(pr,text,name="mcp"):
     """One MCP tool call: the user's text is ONE JSON argument (pr['arg'], default 'query'). Output printed + returned."""
@@ -4602,6 +4606,10 @@ def mcp_cmd(st,a):
             except Exception: pass
         return
     if parts[0]=="find": mcp_find(" ".join(parts[1:])); return
+    if parts[0]=="setup" and len(parts)>1:
+        kv={k:v for k,v in (x.split("=",1) for x in parts[2:] if "=" in x)}; mcp_setup(st,parts[1],kv); return
+    if parts[0]=="verify" and len(parts)>1:
+        ok,d=mcp_verify(parts[1]); print(("[mcp] ✓ " if ok else "[mcp] ✗ ")+d); return
     if parts[0]=="forge": mcp_forge(st," ".join(parts[1:])); return
     if parts[0]=="add" and len(parts)>=2 and (len(parts)==2 or all("=" in x for x in parts[2:])):
         kv={k:v for k,v in (x.split("=",1) for x in parts[2:])}
@@ -4814,7 +4822,7 @@ def connectors_cfg():
 def _plat_key(): return "termux" if IS_TERMUX else "darwin" if sys.platform=="darwin" else "nt" if os.name=="nt" else "linux"
 def _plat_install(c):
     k={"termux":"termux","darwin":"macos","nt":"windows","linux":"linux"}[_plat_key()]; return (c.get("install") or {}).get(k,"")
-_CONNECT_RX=re.compile(r"\b(?:connector|connect|jodo|jod do|jod de|link karo|integrat(?:e|ion)|hook up|setup kar(?:o| do)? .* (?:ka|ke) connector|mcp)\b",re.I)
+_CONNECT_RX=re.compile(r"\b(?:connector|connect|jodo|jod do|jod de|jodna|jodni|judna|jud jaye|link karo|integrat(?:e|ion)|hook up|setup kar(?:o| do)? .* (?:ka|ke) connector|mcp)\b",re.I)
 def connector_bucket(text):
     """Deterministic: keyword table from connectors.json → the bucket with most hits (tie → first in table order)."""
     cfg=connectors_cfg(); t=(text or "").lower(); best=None; bn=0
@@ -4835,12 +4843,13 @@ def connector_intent(text):
     b=connector_bucket(low)
     return b or "all"
 def _connector_line(c):
-    t=c.get("tier",1); tag={0:"official",1:"vetted",2:"REAL ACCOUNT"}.get(t,"?")
+    t=c.get("tier",1); tag={0:"official",1:"vetted",2:"REAL ACCOUNT",3:"LOGIN · guided"}.get(t,"?")
     key=f" · key: {c['key_env']} ({c.get('key_kind','')})" if c.get("needs_key") else " · no key"
     return (f"  {c['name']:<13} [{tag}] {c.get('what','')}\n"
             f"     leaves the device: {c.get('leaves','?')}{key} · licence {c.get('license','?')}\n"
             f"     install here ({_plat_key()}): {_plat_install(c) or 'nothing'}"+(f"\n     ⚠ {c['warn']}" if c.get("warn") else "")+
-            f"\n     add:  /mcp add {c['name']}"+("".join(f" {k}=<{v}>" for k,v in (c.get('params') or {}).items())))
+            (f"\n     login: {_login_of(c).get('account','')} · {len(_login_of(c).get('steps',[]))} guided steps, free → /mcp setup {c['name']}" if _login_of(c) else
+             f"\n     add:  /mcp add {c['name']}"+("".join(f" {k}=<{v}>" for k,v in (c.get('params') or {}).items()))))
 def mcp_find(q):
     """/mcp find <service|bucket|word> — catalogue lookup, offline. Names the honest alternative for OAuth-locked services."""
     cfg=connectors_cfg(); q=(q or "").strip().lower()
@@ -4860,7 +4869,7 @@ def mcp_find(q):
     if q in ("","all") and u: cs=sorted(cs,key=lambda c:(u not in c.get("use_cases",[]),c.get("tier",1)))
     print(f"[mcp] connectors{(' for '+q) if q and q!='all' else ''}{(' · tera use-case '+u+' pehle') if u and q in ('','all') else ''} — kuch apne aap install nahi hota; install line tu chalata hai:")
     for c in cs: print(_connector_line(c))
-    print("  tiers: official = reference servers · vetted = single-purpose, permissive licence · REAL ACCOUNT = warning, never default\n  OAuth-only services (notion, canva, calendar, photos…) yahan nahi hain — /mcp find <naam> local alternative batata hai")
+    print("  tiers: official = reference servers · vetted = single-purpose · REAL ACCOUNT = warning · LOGIN = tera account chahiye, free, guided (/mcp setup) — koi cheez chupi nahi, koi cheez auto nahi")
 def mcp_add_catalogue(name,kv):
     """/mcp add <catalogue name> [TOKEN=value …] → resolve the template ONCE, print install hint, write the provider, try to pick the tool."""
     cfg=connectors_cfg(); c=next((c for c in cfg.get("connectors",[]) if c["name"]==name),None)
@@ -4880,7 +4889,8 @@ def mcp_add_catalogue(name,kv):
     if c.get("warn"): print(f"[mcp] ⚠ {c['warn']}")
     if c.get("needs_key"): print(f"[mcp] key: export {c['key_env']}=…  (~/.ai-env me; {c.get('key_kind','')}) — bina iske 'not ready' dikhega")
     print(f"[mcp] install (tu chalata hai, main nahi): {_plat_install(c) or 'nothing needed'}")
-    pr={"connect":"mcp","cap":[c["cap"]],"tool":c.get("tool") or "","arg":c.get("arg","query"),"note":f"catalogue: {c.get('repo','')} · {c.get('license','')} · leaves: {c.get('leaves','')}"}
+    pr={"connect":"mcp","name":name,"cap":[c["cap"]],"tool":c.get("tool") or "","arg":c.get("arg","query"),"note":f"catalogue: {c.get('repo','')} · {c.get('license','')} · leaves: {c.get('leaves','')}"}
+    if c.get("env_map"): pr["env_map"]=dict(c["env_map"])
     if c.get("transport")=="streamable-http":
         pr["url"]=re.sub(r"\{(\w+)\}",lambda m:vals.get(m.group(1),""),c["url"])
     else:
@@ -4979,6 +4989,101 @@ def lists_cmd(a):
     else: print(lists_cmd.__doc__); return
     try: json.dump(d,open(LISTS_FILE,"w"),ensure_ascii=False,indent=1)
     except OSError as e: print(f"[list] save failed: {e}")
+# ══ GUIDED LOGIN CONNECTORS — a free service that needs an account is an OPTION, never a dead end (owner, 2026-09-06:
+# "user ke paas sab option hone chahiye … aware karao, agree kare to guide karo, phir hand-hold karke verify karo").
+# /mcp setup <name>: (1) AWARE — what it is, which account, what leaves the device and to whom, that it is free, how
+# many steps; (2) AGREE — nothing happens without a yes; (3) GUIDE — numbered steps from the catalogue, Enter by Enter,
+# tokens typed hidden into ~/.ai-env, file paths checked, install hint printed (you run it); (4) VERIFY — the server is
+# spawned with ONLY its own credential in its environment (never every key), its tools are listed, one read-only call
+# proves the link, and a failure prints the matching fix instead of a stack. OAuth is done by the server itself in the
+# user's browser when a server supports it; this program never sees the login page.
+def _login_of(c): return c.get("login") or {}
+def _env_for(pr):
+    """Environment for a connector's own process: the scrubbed base + ONLY the variables the catalogue mapped for it."""
+    env=_child_env()
+    for var,src in (pr.get("env_map") or {}).items():
+        v=re.sub(r"\{(\w+)\}",lambda m:os.environ.get(m.group(1),""),src)
+        if v and "{" not in v: env[var]=v
+    return env
+def mcp_verify(name,quiet=False):
+    """Prove a configured connector works: ready → connect → tools → one read-only call. Returns (ok, detail)."""
+    pr=tools_cfg().get("providers",{}).get(name)
+    if not pr or pr.get("connect")!="mcp": return False,"not configured — /mcp setup "+name
+    ok,why=mcp_ready(pr)
+    if not ok: return False,why
+    c=next((x for x in connectors_cfg().get("connectors",[]) if x["name"]==name),{}); lg=_login_of(c); vf=lg.get("verify") or {}
+    cl=None
+    try:
+        cl=_mcp_client(pr); cl.connect(); tools=[t.get("name","") for t in cl.tools()]
+        if not tools: return False,"server answered but lists no tools"
+        tool=vf.get("tool") if vf.get("tool") in tools else next((t for t in tools if any(h in t.lower() for h in ("list","search","get","read"))),"")
+        if not tool: return True,f"server answers · tools: {', '.join(tools[:8])} (no read-only tool to probe)"
+        out=cl.call(tool,vf.get("args") if vf.get("tool")==tool and vf.get("args") is not None else ({pr.get("arg","query"):vf.get("probe","")} if pr.get("arg") and "search" in tool.lower() else {}))
+        s=(out or "").strip().replace("\n"," ")[:160]
+        if s.lower().startswith("error"): return False,f"{tool} → {s}"
+        return True,f"{tool} → {s or '(empty, but the call went through)'}"
+    except Exception as e:
+        msg=f"{type(e).__name__}: {str(e)[:160]}"
+        for k,fix in (lg.get("fix") or {}).items():
+            if k.lower() in msg.lower(): return False,f"{msg}\n  fix: {fix}"
+        return False,msg
+    finally:
+        try: cl and cl.close()
+        except Exception: pass
+def _setup_card(c):
+    lg=_login_of(c)
+    L=[f"[setup] {c['name']} — {c.get('what','')}",
+       f"  account: {lg.get('account','none')} · free: {'yes' if lg.get('free',True) else 'NO'} · login kind: {lg.get('kind','none')}",
+       f"  data that leaves this device: {c.get('leaves','?')}",
+       f"  who runs the login page: {'the connector itself, in YOUR browser (this program never sees it)' if lg.get('kind')=='oauth-app' else 'nobody — a token/password you paste, stored in ~/.ai-env (0600)'}",
+       f"  steps: {len(lg.get('steps',[]))} · install here ({_plat_key()}): {_plat_install(c) or 'nothing'} · licence {c.get('license','?')}"]
+    if c.get("warn"): L.append(f"  ⚠ {c['warn']}")
+    if c.get("vetted"): L.append(f"  vet: {c['vetted']}")
+    if c.get("unverified"): L.append("  ⚠ exact package/flag names below are from documentation, not yet run by us — tell us if a step is wrong")
+    return "\n".join(L)
+def mcp_setup(st,name,kv=None):
+    """/mcp setup <name> [ENV=value …] — aware → agree → guide → add → verify. Non-interactive runs need every secret as ENV=value."""
+    kv=dict(kv or {}); cfg=connectors_cfg(); c=next((x for x in cfg.get("connectors",[]) if x["name"]==name),None)
+    if not c: print(f"[setup] '{name}' catalogue me nahi — /mcp find {name}"); return False
+    lg=_login_of(c); tty=sys.stdin.isatty() and os.environ.get("AI_YES","0")!="1"
+    print(_setup_card(c))
+    if not (kv.get("yes")=="1" or not tty and os.environ.get("AI_YES")=="1" or (tty and _confirm("[setup] aage badhen?"))):
+        print("[setup] theek hai, kuch nahi badla. Jab chahiye:  /mcp setup "+name); return False
+    for i,step in enumerate(lg.get("steps",[]),1):
+        print(f"  {i}. {step}")
+        if tty:
+            try: r=input("     [Enter] agla · q rok do  ").strip().lower()
+            except (EOFError,KeyboardInterrupt): r="q"
+            if r=="q": print("[setup] ruk gaye — jitna hua wo theek hai; dobara:  /mcp setup "+name); return False
+    for var,prompt in (lg.get("secrets") or {}).items():
+        v=kv.get(var,"")
+        if not v and tty:
+            import getpass
+            try: v=getpass.getpass(f"  {prompt} → {var} (typing hidden, blank = skip): ").strip()
+            except (EOFError,KeyboardInterrupt): v=""
+        if v:
+            if _RX_CTRL_HARD.search(v) or len(v)>4096: print(f"[setup] {var}: value looks wrong (control chars / too long)"); return False
+            _upsert_env(var,v); os.environ[var]=v; print(f"  ✓ {var} saved → {_env_file()} (0600)")
+        else: print(f"  · {var} not set — later:  /keys {var}")
+    for var,prompt in (lg.get("files") or {}).items():
+        v=kv.get(var,"")
+        if not v and tty:
+            try: v=input(f"  {prompt} → {var} (path, blank = skip): ").strip()
+            except (EOFError,KeyboardInterrupt): v=""
+        if v:
+            v=os.path.abspath(os.path.expanduser(v))
+            if not os.path.exists(v): print(f"[setup] {var}: file nahi mili: {v}"); return False
+            _upsert_env(var,v); os.environ[var]=v; print(f"  ✓ {var} = {v}")
+    if not mcp_add_catalogue(name,{k:v for k,v in kv.items() if k.isupper() and k not in (lg.get("secrets") or {}) and k not in (lg.get("files") or {})}): return False
+    pr=tools_cfg().get("providers",{}).get(name) or {}
+    ok,why=mcp_ready(pr)
+    if not ok:
+        print(f"[setup] abhi chal nahi sakta: {why}\n  install line upar hai — chalao, phir:  /mcp verify {name}"); return False
+    print("[setup] verifying (one read-only call)…")
+    ok,detail=mcp_verify(name)
+    print(("[setup] ✓ works: " if ok else "[setup] ✗ not yet: ")+detail)
+    if ok: print(f"  use:  /do {c['cap']} <text>   · plain words bhi chalenge · remove: /mcp rm {name}")
+    return ok
 KNOWN_CMDS=['/agent', '/agents', '/ask', '/attach', '/bg', '/budget', '/cache', '/canary', '/capabilities', '/clear', '/corpus', '/ctx', '/device', '/do', '/egress', '/embed', '/explain', '/group', '/help', '/impact', '/json', '/kb', '/keys', '/memory', '/metrics', '/mode', '/model', '/net', '/panel', '/privacy', '/remember', '/route', '/run', '/save', '/serve', '/setup', '/short', '/tags', '/tool', '/trace', '/update', '/version', '/why', '/wish', '/auto', '/online', '/local', '/quit', '/q', '/exit', '/hands', '/hand', '/stop', '/undo', '/calc', '/tour', '/lang', '/voice', '/models', '/connect', '/mcp', '/tuning', '/usage', '/plan', '/list']   # every command literal in the dispatcher (c=="/x" and c in(...)); golden pins parity; the typo-suggester matches against this
 HELP="""commands — everything is optional, plain text just talks to the best brain.
  BRAIN   /auto /online /local · /ask <brain> <q> · /panel %s · /model <name> · /route <q> · /why · /metrics [reset]
@@ -4987,7 +5092,7 @@ HELP="""commands — everything is optional, plain text just talks to the best b
  LEARN   /corpus [export [redact] [path]]  — har jawab ka archive (dataset, model nahi)
          /trace [<goal>]                   — jo /do chal gaya wo agli baar ka example ban jaata hai
  TUNING  /tuning (tier ke knobs: persona/kb/answer/plan) · /usage [days] (asli token counts per brain) · /plan <goal> (steps: expert/tool/hand/brain, dikha ke, poochh ke) · ~/.ai-tuning.json = numbers only
- CONNECT /mcp find <service|use-case> (vetted catalogue, offline; OAuth-only ones get the local alternative) · /mcp add <name> [TOKEN=..] · /mcp forge <kya kare> · /list [add|rm] — plain: "pdf ka connector chahiye", "shopping list me doodh"
+ CONNECT /mcp find <service|use-case> (catalogue, offline) · /mcp setup <name> (login wale: aware → haan → guided steps → verify) · /mcp verify <name> · /mcp add <name> [TOKEN=..] · /mcp forge <kya kare> · /list [add|rm] — plain: "pdf ka connector chahiye", "shopping list me doodh"
  MODELS  /models (Ollama me kya hai: chat/vision/embed, kaun attached) · /model <name> · ai connect <url> [model] [key] (LM Studio / llama.cpp / Jan / vLLM / koi gateway) · /mcp add|list|tools|rm
  VOICE   /voice (ya sirf  v ) = ek baar suno · /voice on|off|stop|log on|status|notify  — push-to-talk; safe commands turant, baaki bol ke haan; /quit /clear /keys /update /setup /net /bg ! sirf typed
  LANG    /lang [en|hinglish|hi|auto]  — English by default; installer asks; auto = mirrors what you type (2 of last 3)

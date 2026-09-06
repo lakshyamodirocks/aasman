@@ -1,37 +1,772 @@
 {
  "$schema_version": 1,
- "_note": "Vetted MCP connectors (fold-node/research/connectors/A-mcp-catalogue.md, 2026-09-06). Tier 0 = official reference servers · 1 = single-purpose, permissive licence, keyless or static key · 2 = touches a real account (warning banner, never default). OAuth-only services are NOT here on purpose: the client has no browser flow, so listing them would be a dead end — see 'locked' for the honest alternative. argv is a code-owned template array; {ROOT}-style tokens are filled at add time, never at run time; key_env names an env var the user exports, never a secret.",
+ "_note": "Vetted MCP connectors (fold-node/research/connectors/A-mcp-catalogue.md, 2026-09-06). Tier 0 = official reference servers · 1 = single-purpose, permissive licence, keyless or static key · 2 = touches a real account (warning banner, never default). OAuth-only services are NOT here on purpose: the client has no browser flow, so listing them would be a dead end — see 'locked' for the honest alternative. argv is a code-owned template array; {ROOT}-style tokens are filled at add time, never at run time; key_env names an env var the user exports, never a secret. Tier 3 = LOGIN: needs the user's own account (free); offered with an awareness card, numbered steps, hidden token entry, and a verify call — never hidden, never automatic. 'unverified': package/flag names from documentation, not yet run by us. Tier 3 = free service that needs your own account: /mcp setup <name> makes you aware, takes a yes, walks the steps, then verifies. Vet: research/connectors/C-login-connectors.md (2026-09-06).",
  "connectors": [
-  {"name":"fetch","use_cases":["study","chat","business"],"tier":0,"transport":"stdio","argv":["uvx","mcp-server-fetch"],"needs_key":false,"license":"MIT","repo":"https://github.com/modelcontextprotocol/servers","leaves":"the URL you fetch, to that site","install":{"termux":"pip install uv","linux":"pip install uv","macos":"pip install uv","windows":"pip install uv"},"cap":"fetch_page","tool_hint":"fetch","arg":"url","what":"fetch a web page as clean text (official reference server)"},
-  {"name":"duckduckgo","use_cases":["study","chat","business","content"],"tier":1,"transport":"stdio","argv":["uvx","duckduckgo-mcp-server"],"needs_key":false,"license":"MIT","repo":"https://github.com/nickclyde/duckduckgo-mcp-server","leaves":"the search query, to DuckDuckGo","install":{"termux":"pip install uv","linux":"pip install uv","macos":"pip install uv","windows":"pip install uv"},"cap":"web_search","tool_hint":"search","arg":"query","what":"keyless web search as an MCP tool"},
-  {"name":"arxiv","use_cases":["study"],"tier":1,"transport":"stdio","argv":["uvx","arxiv-mcp-server"],"needs_key":false,"license":"Apache-2.0","repo":"https://github.com/blazickjp/arxiv-mcp-server","leaves":"paper ids/queries to arXiv; PDFs cached locally","install":{"termux":"pip install uv","linux":"pip install uv","macos":"pip install uv","windows":"pip install uv"},"cap":"papers","tool_hint":"search","arg":"query","what":"search + read arXiv papers, cached on disk"},
-  {"name":"wikipedia","use_cases":["study","chat","family"],"tier":1,"transport":"stdio","argv":["uvx","wikipedia-mcp"],"needs_key":false,"license":"MIT","repo":"https://github.com/Rudra-ravi/wikipedia-mcp","leaves":"the search term, to Wikipedia","install":{"termux":"pip install uv","linux":"pip install uv","macos":"pip install uv","windows":"pip install uv"},"cap":"wiki","tool_hint":"search","arg":"query","what":"Wikipedia search/summary (small, auditable in 10 min)"},
-  {"name":"pdf","use_cases":["business","study","private"],"tier":1,"transport":"stdio","argv":["uvx","pdf-mcp"],"needs_key":false,"license":"MIT","repo":"https://github.com/jztan/pdf-mcp","leaves":"nothing — reads local PDFs only","install":{"termux":"pip install uv","linux":"pip install uv","macos":"pip install uv","windows":"pip install uv"},"cap":"pdf_read","tool_hint":"read","arg":"path","what":"text/tables/OCR from local PDFs — bank statements, invoices; nothing leaves the device"},
-  {"name":"git","use_cases":["code"],"tier":0,"transport":"stdio","argv":["uvx","mcp-server-git","--repository","{ROOT}"],"needs_key":false,"license":"MIT","repo":"https://github.com/modelcontextprotocol/servers","leaves":"nothing — local repo only","install":{"termux":"pip install uv","linux":"pip install uv","macos":"pip install uv","windows":"pip install uv"},"cap":"git_ops","tool_hint":"git_status","arg":"repo_path","what":"git status/diff/log/commit on a local repo (official)","params":{"ROOT":"repo folder"}},
-  {"name":"filesystem","use_cases":["code","content","private","study"],"tier":0,"transport":"stdio","argv":["npx","-y","@modelcontextprotocol/server-filesystem","{ROOT}"],"needs_key":false,"license":"MIT","repo":"https://github.com/modelcontextprotocol/servers","leaves":"nothing — the folder you allow only","install":{"termux":"pkg install nodejs","linux":"node + npm","macos":"node + npm (brew install node)","windows":"node + npm (winget install OpenJS.NodeJS)"},"cap":"files","tool_hint":"read_file","arg":"path","what":"read/write files under ONE folder you choose (never your whole home)","params":{"ROOT":"folder to allow (default ~/ai-vault)"},"warn":"npx fetches and runs npm code at first launch"},
-  {"name":"memory","use_cases":["content","chat"],"tier":0,"transport":"stdio","argv":["npx","-y","@modelcontextprotocol/server-memory"],"needs_key":false,"license":"MIT","repo":"https://github.com/modelcontextprotocol/servers","leaves":"nothing — local JSON graph","install":{"termux":"pkg install nodejs","linux":"node + npm","macos":"node + npm","windows":"node + npm"},"cap":"graph_memory","tool_hint":"search_nodes","arg":"query","what":"entity/relation memory graph (your /memory + /kb already cover most of this)","warn":"npx fetches and runs npm code at first launch"},
-  {"name":"sheets","use_cases":["business"],"tier":2,"transport":"stdio","argv":["python","-m","mcp_google_sheets"],"needs_key":true,"key_env":"GOOGLE_APPLICATION_CREDENTIALS","key_kind":"service-account JSON path (env var, no browser)","license":"MIT","repo":"https://github.com/xing5/mcp-google-sheets","leaves":"sheet cells ↔ Google's servers (same as using Sheets)","install":{"termux":"pip install mcp-google-sheets","linux":"pip install mcp-google-sheets","macos":"pip install mcp-google-sheets","windows":"pip install mcp-google-sheets"},"cap":"sheets","tool_hint":"read","arg":"range","what":"read/write Google Sheets via a service account","warn":"touches a real Google account; the credential is inherited by the child process, not sent as a header"},
-  {"name":"github","use_cases":["code"],"tier":2,"transport":"stdio","argv":["github-mcp-server","stdio"],"needs_key":true,"key_env":"GITHUB_PERSONAL_ACCESS_TOKEN","key_kind":"personal access token (scope it narrowly)","license":"MIT","repo":"https://github.com/github/github-mcp-server","leaves":"issues/PRs/repo content ↔ GitHub (already your data there)","install":{"termux":"binary release from the repo (Go); no pkg","linux":"binary release from the repo","macos":"brew install github-mcp-server","windows":"binary release from the repo"},"cap":"github_ops","tool_hint":"search","arg":"query","what":"issues, PRs, repo search on GitHub with a PAT","warn":"a PAT can write to your repos — scope it to what you need"},
-  {"name":"email","use_cases":["business"],"tier":2,"transport":"stdio","argv":["uvx","mcp-email-server"],"needs_key":true,"key_env":"EMAIL_APP_PASSWORD","key_kind":"IMAP/SMTP app password (not OAuth)","license":"BSD-3-Clause","repo":"https://github.com/ai-zerolab/mcp-email-server","leaves":"mail content ↔ your own IMAP/SMTP host","install":{"termux":"pip install uv","linux":"pip install uv","macos":"pip install uv","windows":"pip install uv"},"cap":"email","tool_hint":"list","arg":"query","what":"read/send mail over IMAP/SMTP with an app password","warn":"real inbox access; for client-facing mail this needs the owner's compliance call first"},
-  {"name":"homeassistant","use_cases":["family","devices"],"tier":1,"transport":"streamable-http","url":"http://{HA_HOST}:8123/mcp_server","needs_key":true,"key_env":"HA_TOKEN","key_kind":"Home Assistant long-lived token","license":"MIT","repo":"https://github.com/homeassistant-ai/ha-mcp","leaves":"device state/commands ↔ your own Home Assistant","install":{"termux":"nothing — HA runs elsewhere","linux":"nothing","macos":"nothing","windows":"nothing"},"cap":"home","tool_hint":"call_service","arg":"query","what":"lights, switches, sensors through your own Home Assistant","params":{"HA_HOST":"Home Assistant host/IP"},"warn":"only if you actually run Home Assistant"}
+  {
+   "name": "fetch",
+   "use_cases": [
+    "study",
+    "chat",
+    "business"
+   ],
+   "tier": 0,
+   "transport": "stdio",
+   "argv": [
+    "uvx",
+    "mcp-server-fetch"
+   ],
+   "needs_key": false,
+   "license": "MIT",
+   "repo": "https://github.com/modelcontextprotocol/servers",
+   "leaves": "the URL you fetch, to that site",
+   "install": {
+    "termux": "pip install uv",
+    "linux": "pip install uv",
+    "macos": "pip install uv",
+    "windows": "pip install uv"
+   },
+   "cap": "fetch_page",
+   "tool_hint": "fetch",
+   "arg": "url",
+   "what": "fetch a web page as clean text (official reference server)"
+  },
+  {
+   "name": "duckduckgo",
+   "use_cases": [
+    "study",
+    "chat",
+    "business",
+    "content"
+   ],
+   "tier": 1,
+   "transport": "stdio",
+   "argv": [
+    "uvx",
+    "duckduckgo-mcp-server"
+   ],
+   "needs_key": false,
+   "license": "MIT",
+   "repo": "https://github.com/nickclyde/duckduckgo-mcp-server",
+   "leaves": "the search query, to DuckDuckGo",
+   "install": {
+    "termux": "pip install uv",
+    "linux": "pip install uv",
+    "macos": "pip install uv",
+    "windows": "pip install uv"
+   },
+   "cap": "web_search",
+   "tool_hint": "search",
+   "arg": "query",
+   "what": "keyless web search as an MCP tool"
+  },
+  {
+   "name": "arxiv",
+   "use_cases": [
+    "study"
+   ],
+   "tier": 1,
+   "transport": "stdio",
+   "argv": [
+    "uvx",
+    "arxiv-mcp-server"
+   ],
+   "needs_key": false,
+   "license": "Apache-2.0",
+   "repo": "https://github.com/blazickjp/arxiv-mcp-server",
+   "leaves": "paper ids/queries to arXiv; PDFs cached locally",
+   "install": {
+    "termux": "pip install uv",
+    "linux": "pip install uv",
+    "macos": "pip install uv",
+    "windows": "pip install uv"
+   },
+   "cap": "papers",
+   "tool_hint": "search",
+   "arg": "query",
+   "what": "search + read arXiv papers, cached on disk"
+  },
+  {
+   "name": "wikipedia",
+   "use_cases": [
+    "study",
+    "chat",
+    "family"
+   ],
+   "tier": 1,
+   "transport": "stdio",
+   "argv": [
+    "uvx",
+    "wikipedia-mcp"
+   ],
+   "needs_key": false,
+   "license": "MIT",
+   "repo": "https://github.com/Rudra-ravi/wikipedia-mcp",
+   "leaves": "the search term, to Wikipedia",
+   "install": {
+    "termux": "pip install uv",
+    "linux": "pip install uv",
+    "macos": "pip install uv",
+    "windows": "pip install uv"
+   },
+   "cap": "wiki",
+   "tool_hint": "search",
+   "arg": "query",
+   "what": "Wikipedia search/summary (small, auditable in 10 min)"
+  },
+  {
+   "name": "pdf",
+   "use_cases": [
+    "business",
+    "study",
+    "private"
+   ],
+   "tier": 1,
+   "transport": "stdio",
+   "argv": [
+    "uvx",
+    "pdf-mcp"
+   ],
+   "needs_key": false,
+   "license": "MIT",
+   "repo": "https://github.com/jztan/pdf-mcp",
+   "leaves": "nothing — reads local PDFs only",
+   "install": {
+    "termux": "pip install uv",
+    "linux": "pip install uv",
+    "macos": "pip install uv",
+    "windows": "pip install uv"
+   },
+   "cap": "pdf_read",
+   "tool_hint": "read",
+   "arg": "path",
+   "what": "text/tables/OCR from local PDFs — bank statements, invoices; nothing leaves the device"
+  },
+  {
+   "name": "git",
+   "use_cases": [
+    "code"
+   ],
+   "tier": 0,
+   "transport": "stdio",
+   "argv": [
+    "uvx",
+    "mcp-server-git",
+    "--repository",
+    "{ROOT}"
+   ],
+   "needs_key": false,
+   "license": "MIT",
+   "repo": "https://github.com/modelcontextprotocol/servers",
+   "leaves": "nothing — local repo only",
+   "install": {
+    "termux": "pip install uv",
+    "linux": "pip install uv",
+    "macos": "pip install uv",
+    "windows": "pip install uv"
+   },
+   "cap": "git_ops",
+   "tool_hint": "git_status",
+   "arg": "repo_path",
+   "what": "git status/diff/log/commit on a local repo (official)",
+   "params": {
+    "ROOT": "repo folder"
+   }
+  },
+  {
+   "name": "filesystem",
+   "use_cases": [
+    "code",
+    "content",
+    "private",
+    "study"
+   ],
+   "tier": 0,
+   "transport": "stdio",
+   "argv": [
+    "npx",
+    "-y",
+    "@modelcontextprotocol/server-filesystem",
+    "{ROOT}"
+   ],
+   "needs_key": false,
+   "license": "MIT",
+   "repo": "https://github.com/modelcontextprotocol/servers",
+   "leaves": "nothing — the folder you allow only",
+   "install": {
+    "termux": "pkg install nodejs",
+    "linux": "node + npm",
+    "macos": "node + npm (brew install node)",
+    "windows": "node + npm (winget install OpenJS.NodeJS)"
+   },
+   "cap": "files",
+   "tool_hint": "read_file",
+   "arg": "path",
+   "what": "read/write files under ONE folder you choose (never your whole home)",
+   "params": {
+    "ROOT": "folder to allow (default ~/ai-vault)"
+   },
+   "warn": "npx fetches and runs npm code at first launch"
+  },
+  {
+   "name": "memory",
+   "use_cases": [
+    "content",
+    "chat"
+   ],
+   "tier": 0,
+   "transport": "stdio",
+   "argv": [
+    "npx",
+    "-y",
+    "@modelcontextprotocol/server-memory"
+   ],
+   "needs_key": false,
+   "license": "MIT",
+   "repo": "https://github.com/modelcontextprotocol/servers",
+   "leaves": "nothing — local JSON graph",
+   "install": {
+    "termux": "pkg install nodejs",
+    "linux": "node + npm",
+    "macos": "node + npm",
+    "windows": "node + npm"
+   },
+   "cap": "graph_memory",
+   "tool_hint": "search_nodes",
+   "arg": "query",
+   "what": "entity/relation memory graph (your /memory + /kb already cover most of this)",
+   "warn": "npx fetches and runs npm code at first launch"
+  },
+  {
+   "name": "sheets",
+   "use_cases": [
+    "business"
+   ],
+   "tier": 2,
+   "transport": "stdio",
+   "argv": [
+    "python",
+    "-m",
+    "mcp_google_sheets"
+   ],
+   "needs_key": true,
+   "key_env": "GOOGLE_APPLICATION_CREDENTIALS",
+   "key_kind": "service-account JSON path (env var, no browser)",
+   "license": "MIT",
+   "repo": "https://github.com/xing5/mcp-google-sheets",
+   "leaves": "sheet cells ↔ Google's servers (same as using Sheets)",
+   "install": {
+    "termux": "pip install mcp-google-sheets",
+    "linux": "pip install mcp-google-sheets",
+    "macos": "pip install mcp-google-sheets",
+    "windows": "pip install mcp-google-sheets"
+   },
+   "cap": "sheets",
+   "tool_hint": "read",
+   "arg": "range",
+   "what": "read/write Google Sheets via a service account",
+   "warn": "touches a real Google account; the credential is inherited by the child process, not sent as a header"
+  },
+  {
+   "name": "github",
+   "use_cases": [
+    "code"
+   ],
+   "tier": 2,
+   "transport": "stdio",
+   "argv": [
+    "github-mcp-server",
+    "stdio"
+   ],
+   "needs_key": true,
+   "key_env": "GITHUB_PERSONAL_ACCESS_TOKEN",
+   "key_kind": "personal access token (scope it narrowly)",
+   "license": "MIT",
+   "repo": "https://github.com/github/github-mcp-server",
+   "leaves": "issues/PRs/repo content ↔ GitHub (already your data there)",
+   "install": {
+    "termux": "pkg install golang git; git clone https://github.com/github/github-mcp-server; cd github-mcp-server; go build -o ~/.local/bin/github-mcp-server ./cmd/github-mcp-server",
+    "linux": "binary release from the repo, or: go build -o ~/.local/bin/github-mcp-server ./cmd/github-mcp-server",
+    "macos": "brew install github-mcp-server",
+    "windows": "binary release from the repo"
+   },
+   "cap": "github_ops",
+   "tool_hint": "search",
+   "arg": "query",
+   "what": "issues, PRs, repo search on GitHub with a PAT",
+   "warn": "a PAT can write to your repos — scope it to what you need",
+   "env_map": {
+    "GITHUB_PERSONAL_ACCESS_TOKEN": "{GITHUB_PERSONAL_ACCESS_TOKEN}"
+   },
+   "login": {
+    "kind": "token",
+    "account": "GitHub (free)",
+    "free": true,
+    "steps": [
+     "github.com → Settings → Developer settings → Personal access tokens → Fine-grained → Generate",
+     "Sirf wo repos chuno jo chahiye; permissions kam se kam",
+     "Token copy karo (ghp_/github_pat_) — yahan paste (typing hidden)"
+    ],
+    "secrets": {
+     "GITHUB_PERSONAL_ACCESS_TOKEN": "GitHub token"
+    },
+    "verify": {
+     "tool": "get_me",
+     "args": {}
+    },
+    "fix": {
+     "401": "token galat/expired — naya banao",
+     "ENOENT": "github-mcp-server binary nahi mila — install line chalao",
+     "403": "fine-grained token me wo repo select nahi hai (step 2)"
+    }
+   },
+   "vetted": "vetted against the servers' own docs/LICENSE files 2026-09-06 (research/connectors/C-login-connectors.md); not yet run end-to-end by us"
+  },
+  {
+   "name": "email",
+   "use_cases": [
+    "business"
+   ],
+   "tier": 2,
+   "transport": "stdio",
+   "argv": [
+    "uvx",
+    "mcp-email-server"
+   ],
+   "needs_key": true,
+   "key_env": "EMAIL_APP_PASSWORD",
+   "key_kind": "IMAP/SMTP app password (not OAuth)",
+   "license": "BSD-3-Clause",
+   "repo": "https://github.com/ai-zerolab/mcp-email-server",
+   "leaves": "mail content ↔ your own IMAP/SMTP host",
+   "install": {
+    "termux": "pip install uv",
+    "linux": "pip install uv",
+    "macos": "pip install uv",
+    "windows": "pip install uv"
+   },
+   "cap": "email",
+   "tool_hint": "list",
+   "arg": "query",
+   "what": "read/send mail over IMAP/SMTP with an app password",
+   "warn": "real inbox access; for client-facing mail this needs the owner's compliance call first",
+   "env_map": {
+    "MCP_EMAIL_SERVER_EMAIL_ADDRESS": "{EMAIL_USER}",
+    "MCP_EMAIL_SERVER_PASSWORD": "{EMAIL_APP_PASSWORD}"
+   },
+   "login": {
+    "kind": "app-password",
+    "account": "Gmail (ya koi IMAP mail) — 2-Step Verification ON chahiye",
+    "free": true,
+    "steps": [
+     "Google account → Security → 2-Step Verification ON (pehle se ho to skip; app passwords iske bina dikhte hi nahi)",
+     "myaccount.google.com/apppasswords → naam 'Aasmaan' → 16-char password copy karo (ek baar dikhta hai; spaces hata do)",
+     "Yahan apna email aur wo app password do (typing hidden)",
+     "Gmail ke liye host kuch nahi bharna — server imap.gmail.com:993 / smtp.gmail.com:465 default use karta hai; doosre mail ke liye MCP_EMAIL_SERVER_IMAP_HOST / SMTP_HOST env"
+    ],
+    "secrets": {
+     "EMAIL_USER": "email address",
+     "EMAIL_APP_PASSWORD": "16-char app password"
+    },
+    "verify": {
+     "args": {},
+     "note": "tool names not enumerated in the docs — the first read-only list/search tool is probed, never a send tool"
+    },
+    "fix": {
+     "Invalid credentials": "asli password nahi chalega — 2-Step ON ke baad sirf app password; dobara generate karo",
+     "AUTHENTICATIONFAILED": "app password galat, ya 2-Step Verification off hai",
+     "ENOENT": "uvx nahi mila — pip install uv"
+    }
+   },
+   "vetted": "vetted against the servers' own docs/LICENSE files 2026-09-06 (research/connectors/C-login-connectors.md); not yet run end-to-end by us"
+  },
+  {
+   "name": "homeassistant",
+   "use_cases": [
+    "family",
+    "devices"
+   ],
+   "tier": 3,
+   "transport": "streamable-http",
+   "url": "http://{HA_HOST}:8123/api/mcp",
+   "needs_key": true,
+   "key_env": "HA_TOKEN",
+   "key_kind": "Home Assistant long-lived token",
+   "license": "Apache-2.0 (Home Assistant core)",
+   "repo": "https://www.home-assistant.io/integrations/mcp_server/",
+   "leaves": "device state/commands ↔ your own Home Assistant",
+   "install": {
+    "termux": "nothing — HA runs elsewhere",
+    "linux": "nothing",
+    "macos": "nothing",
+    "windows": "nothing"
+   },
+   "cap": "home",
+   "tool_hint": "call_service",
+   "arg": "query",
+   "what": "lights, switches, sensors through Home Assistant's own built-in MCP Server integration (official)",
+   "params": {
+    "HA_HOST": "Home Assistant host/IP"
+   },
+   "warn": "only if you actually run Home Assistant",
+   "env_map": {
+    "HA_TOKEN": "{HA_TOKEN}"
+   },
+   "login": {
+    "kind": "token",
+    "account": "your own Home Assistant",
+    "free": true,
+    "steps": [
+     "HA → Settings → Devices & Services → Add Integration → 'Model Context Protocol Server' → enable (chuno kaunse entities/areas dikhe)",
+     "HA me apna profile kholo → Security → 'Long-lived access tokens' → Create → naam 'Aasmaan'",
+     "Token copy karo — yahan paste (typing hidden)",
+     "HA ka host/IP bhi chahiye (jaise homeassistant.local ya 192.168.1.20; Tailscale naam bhi chalega)"
+    ],
+    "secrets": {
+     "HA_TOKEN": "Home Assistant long-lived token"
+    },
+    "verify": {
+     "args": {},
+     "note": "first read-only state/list tool is probed, never a service call"
+    },
+    "fix": {
+     "401": "token galat ya revoke",
+     "Connection refused": "HA_HOST/port galat ya HA band hai — pehle LAN/Tailscale se pahunch check karo",
+     "404": "purana HA: MCP integration ka path /mcp_server/sse (SSE) hai jo ye client nahi bolta — HA update karo"
+    }
+   },
+   "vetted": "official integration per HA docs 2026-09-06; endpoint path unverified by a run — ask before offering (needs a running HA)"
+  },
+  {
+   "name": "notion",
+   "use_cases": [
+    "content",
+    "business",
+    "study"
+   ],
+   "tier": 3,
+   "transport": "stdio",
+   "argv": [
+    "npx",
+    "-y",
+    "@notionhq/notion-mcp-server"
+   ],
+   "needs_key": true,
+   "key_env": "NOTION_TOKEN",
+   "key_kind": "Internal Integration Secret (ntn_…) — no OAuth",
+   "license": "MIT",
+   "repo": "https://github.com/makenotion/notion-mcp-server",
+   "leaves": "the pages/databases you shared with the integration ↔ Notion",
+   "install": {
+    "termux": "pkg install nodejs",
+    "linux": "node + npm",
+    "macos": "node + npm",
+    "windows": "node + npm"
+   },
+   "cap": "notion",
+   "tool_hint": "search",
+   "arg": "query",
+   "what": "read/search/write your Notion pages (official server)",
+   "env_map": {
+    "NOTION_TOKEN": "{NOTION_TOKEN}"
+   },
+   "login": {
+    "kind": "token",
+    "account": "Notion (free plan is enough)",
+    "free": true,
+    "steps": [
+     "Browser me notion.so/profile/integrations kholo (login rehna chahiye)",
+     "'New integration' → naam do (jaise 'Aasmaan') → workspace chuno → Submit",
+     "'Internal Integration Secret' copy karo (ntn_ se shuru) — ye tera token hai, kisi ko mat dena",
+     "Jo pages/databases AI ko dikhane hain: page kholo → ··· → Connections → apni integration add karo (sirf wahi dikhega)",
+     "Wapas yahan aa ke token paste karo (typing hidden)"
+    ],
+    "secrets": {
+     "NOTION_TOKEN": "Notion Internal Integration Secret"
+    },
+    "verify": {
+     "tool": "API-get-self",
+     "args": {}
+    },
+    "fix": {
+     "401": "token galat ya expire — notion.so/profile/integrations se naya secret, phir /mcp setup notion",
+     "403": "page integration se connect nahi hai — page → ··· → Connections → integration add karo (sabse common miss)",
+     "object_not_found": "page integration se connect nahi hai — page → ··· → Connections → integration add karo",
+     "ENOENT": "node/npx nahi mila — install line chalao"
+    }
+   },
+   "vetted": "vetted against the servers' own docs/LICENSE files 2026-09-06 (research/connectors/C-login-connectors.md); not yet run end-to-end by us"
+  },
+  {
+   "name": "gcal",
+   "use_cases": [
+    "business",
+    "family",
+    "chat"
+   ],
+   "tier": 3,
+   "transport": "stdio",
+   "argv": [
+    "npx",
+    "-y",
+    "@cocal/google-calendar-mcp"
+   ],
+   "needs_key": true,
+   "key_env": "GOOGLE_OAUTH_CREDENTIALS",
+   "key_kind": "path to your own OAuth client JSON (Google Cloud, free)",
+   "license": "MIT",
+   "repo": "https://github.com/nspady/google-calendar-mcp",
+   "leaves": "calendar events ↔ Google; the login happens in YOUR browser via the connector, this program never sees it",
+   "install": {
+    "termux": "pkg install nodejs termux-api (+ Termux:API app) — pehli baar browser khulega; na khule to printed localhost URL Chrome me paste karo (same device, loopback chalta hai)",
+    "linux": "node + npm",
+    "macos": "node + npm",
+    "windows": "node + npm"
+   },
+   "cap": "calendar",
+   "tool_hint": "list",
+   "arg": "query",
+   "what": "read/create Google Calendar events with your own free OAuth app",
+   "env_map": {
+    "GOOGLE_OAUTH_CREDENTIALS": "{GOOGLE_OAUTH_CREDENTIALS}"
+   },
+   "login": {
+    "kind": "oauth-app",
+    "account": "Google account + a free Google Cloud project (no card)",
+    "free": true,
+    "steps": [
+     "console.cloud.google.com → naya project (free) → 'APIs & Services' → Enable 'Google Calendar API'",
+     "'OAuth consent screen' → External → app name + apna email → Test users me apna Gmail add karo",
+     "'Credentials' → Create credentials → OAuth client ID → Application type: Desktop app → Create → Download JSON",
+     "JSON file ko kahin rakho (jaise ~/.ai-gcal.json) — share mat karo",
+     "Path yahan do; pehle use pe browser khulega, Google tumse permission poochhega (connector ka flow, hamara nahi)"
+    ],
+    "files": {
+     "GOOGLE_OAUTH_CREDENTIALS": "OAuth client JSON ka path"
+    },
+    "verify": {
+     "tool": "list-calendars",
+     "args": {}
+    },
+    "fix": {
+     "access_blocked": "consent screen → Audience/Test users me apna Gmail add karo (step 2)",
+     "access_denied": "consent screen me Test users me apna email add nahi hai",
+     "invalid_client": "JSON galat file hai — 'Desktop app' wala OAuth client download karo",
+     "ENOENT": "node/npx nahi mila — install line chalao",
+     "EADDRINUSE": "loopback port busy — browser wala step dobara chalao"
+    }
+   },
+   "vetted": "vetted against the servers' own docs/LICENSE files 2026-09-06 (research/connectors/C-login-connectors.md); not yet run end-to-end by us"
+  },
+  {
+   "name": "todoist",
+   "use_cases": [
+    "family",
+    "business"
+   ],
+   "tier": 3,
+   "transport": "stdio",
+   "argv": [
+    "npx",
+    "-y",
+    "@ecfaria/todoist-mcp-server"
+   ],
+   "needs_key": true,
+   "key_env": "TODOIST_API_TOKEN",
+   "key_kind": "API token (Settings → Integrations → Developer)",
+   "license": "MIT",
+   "repo": "https://github.com/ecfaria/todoist-mcp",
+   "leaves": "your tasks ↔ Todoist",
+   "install": {
+    "termux": "pkg install nodejs",
+    "linux": "node + npm",
+    "macos": "node + npm",
+    "windows": "node + npm"
+   },
+   "cap": "tasks",
+   "tool_hint": "get",
+   "arg": "query",
+   "what": "tasks in Todoist (MIT; one-author repo — built-in /list needs no account)",
+   "env_map": {
+    "TODOIST_API_TOKEN": "{TODOIST_API_TOKEN}"
+   },
+   "login": {
+    "kind": "token",
+    "account": "Todoist (free plan)",
+    "free": true,
+    "steps": [
+     "todoist.com → Settings → Integrations → Developer → API token copy karo",
+     "Yahan paste karo (typing hidden)"
+    ],
+    "secrets": {
+     "TODOIST_API_TOKEN": "Todoist API token"
+    },
+    "verify": {
+     "args": {},
+     "note": "first read-only get/list tool is probed"
+    },
+    "fix": {
+     "401": "token galat ya trailing space — Settings → Integrations → Developer se dobara",
+     "ENOENT": "node/npx nahi mila — install line chalao"
+    }
+   },
+   "warn": "MIT confirmed, but a one-author, zero-review repo: npx runs its code on your device. Built-in /list needs no account; or /mcp forge a 40-line direct Todoist REST wrapper you can read",
+   "vetted": "vetted against the servers' own docs/LICENSE files 2026-09-06 (research/connectors/C-login-connectors.md); not yet run end-to-end by us"
+  },
+  {
+   "name": "spotify",
+   "use_cases": [
+    "chat",
+    "family"
+   ],
+   "tier": 3,
+   "transport": "stdio",
+   "argv": [
+    "uvx",
+    "spotify-mcp"
+   ],
+   "needs_key": true,
+   "key_env": "SPOTIFY_CLIENT_ID",
+   "key_kind": "your own free Spotify developer app (client id + secret)",
+   "license": "MIT",
+   "repo": "https://github.com/varunneal/spotify-mcp",
+   "leaves": "search queries + playback commands ↔ Spotify (your account); the login happens in YOUR browser via the connector",
+   "install": {
+    "termux": "pip install uv (+ termux-api for the one-time browser hop)",
+    "linux": "pip install uv",
+    "macos": "pip install uv",
+    "windows": "pip install uv"
+   },
+   "cap": "music",
+   "tool_hint": "search",
+   "arg": "query",
+   "what": "search and control Spotify (playback control needs Premium — Spotify's own gate; search works on free)",
+   "warn": "playback tools need Spotify Premium; search/metadata work on the free plan",
+   "env_map": {
+    "SPOTIFY_CLIENT_ID": "{SPOTIFY_CLIENT_ID}",
+    "SPOTIFY_CLIENT_SECRET": "{SPOTIFY_CLIENT_SECRET}",
+    "SPOTIFY_REDIRECT_URI": "http://127.0.0.1:8080/callback"
+   },
+   "vetted": "vetted against the servers' own docs/LICENSE files 2026-09-06 (research/connectors/C-login-connectors.md); not yet run end-to-end by us",
+   "login": {
+    "kind": "oauth-app",
+    "account": "Spotify (free account works) + developer.spotify.com dashboard (free)",
+    "free": true,
+    "steps": [
+     "developer.spotify.com/dashboard → Create app → Redirect URI EXACTLY http://127.0.0.1:8080/callback (http, loopback)",
+     "App settings se Client ID aur Client Secret copy karo",
+     "Yahan dono paste karo (typing hidden); pehle use pe browser khulega, Spotify permission poochhega (connector ka flow, hamara nahi)"
+    ],
+    "secrets": {
+     "SPOTIFY_CLIENT_ID": "Spotify Client ID",
+     "SPOTIFY_CLIENT_SECRET": "Spotify Client Secret"
+    },
+    "verify": {
+     "args": {},
+     "note": "first read-only search tool is probed, never play/pause"
+    },
+    "fix": {
+     "INVALID_CLIENT": "dashboard ka Redirect URI byte-to-byte http://127.0.0.1:8080/callback hona chahiye (trailing slash bhi galat)",
+     "ENOENT": "uvx nahi mila — pip install uv"
+    }
+   }
+  }
  ],
  "locked": {
-  "notion":"Notion's MCP is OAuth-only — this client has no browser flow. Local alternative: keep notes as Markdown in ~/ai-vault (/remember, /kb) or point the filesystem connector at your notes folder.",
-  "canva":"Canva's connector is OAuth-only. Local alternative: /agent chitrakar for prompts + /do image_generation (keyless).",
-  "google calendar":"Every Calendar server found is OAuth-only. Local alternative: 'remind me in 10 min' (timer hand on Linux, notification on Android) and a plain list: 'todo: …'.",
-  "calendar":"OAuth-only everywhere. Local alternative: reminders via hands + lists (/list).",
-  "google photos":"Google Photos API is OAuth-only for personal libraries. Local alternative: /attach a photo, or the filesystem connector on a synced folder.",
-  "whatsapp":"The only real WhatsApp MCP needs a Go bridge (no Termux package) and links your account like WhatsApp Web; for client messaging it is also a ToS/AMFI exposure. Local alternative: 'whatsapp <number>: <text>' opens a prefilled chat, nothing is sent by the program.",
-  "todoist":"Licence could not be verified. Local alternative: the built-in lists ('todo: buy milk', 'list dikhao')."
+  "canva": "Canva ka MCP remote hai (mcp.canva.com) aur login OAuth 2.1 + dynamic client registration se hota hai jo CLIENT ko khud bolna padta hai — is program me abhi nahi (koi token/local-bridge option nahi). Ek generic bridge (mcp-remote) mila hai, licence/safety vet pending — clear hua to catalogue me aayega. Alternative: /agent chitrakar (prompts) + /do image_generation (keyless).",
+  "google photos": "Ek hi community server mila (google-photos-mcp) — README 'MIT' kehta hai par repo me LICENSE file hai hi nahi → reject. Upar se Google ne 2025-03 se library-read scopes hata diye; sirf Picker API (har baar user chunta hai) bacha hai. Alternative: takeout.google.com export (free, one-time) → folder ko filesystem connector se jodo, ya /attach ek photo.",
+  "whatsapp": "Ek hi asli server hai (Go bridge, WhatsApp Web jaisa link). Desktop pe advanced recipe mil sakti hai, Termux pe nahi; client messaging ke liye ToS/AMFI risk. Abhi: 'whatsapp <number>: <text>' prefilled chat kholta hai, program kuch bhejta nahi."
  },
  "buckets": {
-  "business":["gmail","email","mail","inbox","calendar","meeting","appointment","sheet","sheets","excel","spreadsheet","pdf","statement","invoice","client","whatsapp"],
-  "code":["github","git","repo","pull request","commit","code","codebase","filesystem","files"],
-  "content":["notion","doc","docs","draft","notes","note likh","blog","memory graph"],
-  "study":["research","arxiv","paper","papers","wikipedia","wiki","search","dhoondo","dhundo","fetch","webpage","url"],
-  "family":["yaad dila","reminder","shopping","list","saman","todo","ghar","home","light","ac chalu","smart home","photos"],
-  "private":["local files","apni file","vault","takeout","offline"],
-  "devices":["home assistant","smart home","light","switch","sensor","iot"],
-  "chat":["chat","baat","general"]
+  "business": [
+   "gmail",
+   "email",
+   "mail",
+   "inbox",
+   "calendar",
+   "meeting",
+   "appointment",
+   "sheet",
+   "sheets",
+   "excel",
+   "spreadsheet",
+   "pdf",
+   "statement",
+   "invoice",
+   "client",
+   "whatsapp"
+  ],
+  "code": [
+   "github",
+   "git",
+   "repo",
+   "pull request",
+   "commit",
+   "code",
+   "codebase",
+   "filesystem",
+   "files"
+  ],
+  "content": [
+   "notion",
+   "doc",
+   "docs",
+   "draft",
+   "notes",
+   "note likh",
+   "blog",
+   "memory graph",
+   "notion"
+  ],
+  "study": [
+   "research",
+   "arxiv",
+   "paper",
+   "papers",
+   "wikipedia",
+   "wiki",
+   "search",
+   "dhoondo",
+   "dhundo",
+   "fetch",
+   "webpage",
+   "url"
+  ],
+  "family": [
+   "yaad dila",
+   "reminder",
+   "shopping",
+   "list",
+   "saman",
+   "todo",
+   "ghar",
+   "home",
+   "light",
+   "ac chalu",
+   "smart home",
+   "photos",
+   "calendar",
+   "todoist",
+   "tasks"
+  ],
+  "private": [
+   "local files",
+   "apni file",
+   "vault",
+   "takeout",
+   "offline"
+  ],
+  "devices": [
+   "home assistant",
+   "smart home",
+   "light",
+   "switch",
+   "sensor",
+   "iot"
+  ],
+  "chat": [
+   "chat",
+   "baat",
+   "general"
+  ]
  }
 }

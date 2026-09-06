@@ -143,7 +143,7 @@ def t_unknown_ram():
     return m.startswith("(unknown"), m
 case("device: unknown RAM (0) → '(unknown RAM — skip local)'", t_unknown_ram)
 case("device: arch via platform.machine(), no os.uname()", lambda:(ai.device_info()["arch"] not in ("?",""), ai.device_info()["arch"]))
-case("forge: posix forged path has no .py suffix (Windows-only branch)", lambda:(not ai._forged_path("research").endswith(".py"), ai._forged_path("research")))
+case("forge: forged path carries .py ONLY on Windows (nt), never on posix — the pin follows the platform it runs on", lambda:(ai._forged_path("research").endswith(".py")==(os.name=="nt"), f"{os.name} {ai._forged_path('research')}"))
 case("forge: prompt names a desktop shell, not Termux, on a PC", lambda:("Termux" not in ai._where(), ai._where()))
 
 
@@ -544,10 +544,10 @@ case("plan: only expert/do/hand/ask/tool0 steps, real names only, capped by the 
 # ── CONNECTORS: vetted catalogue is data with code-owned argv; intents route offline; locked = honest alternative ──
 def t_connectors_catalogue():
     c=ai.connectors_cfg(); cs=c.get("connectors",[])
-    bad=[x["name"] for x in cs if (x.get("transport")=="stdio" and not (isinstance(x.get("argv"),list) and all(isinstance(a,str) for a in x["argv"]))) or x.get("needs_key") and not x.get("key_env") or x.get("tier") not in (0,1,2) or not x.get("cap")]
+    bad=[x["name"] for x in cs if (x.get("transport")=="stdio" and not (isinstance(x.get("argv"),list) and all(isinstance(a,str) for a in x["argv"]))) or x.get("needs_key") and not x.get("key_env") or x.get("tier") not in (0,1,2,3) or not x.get("cap") or (x.get("tier")==3 and not (x.get("login") or {}).get("steps"))]
     import re as _re; sec=[x["name"] for x in cs if _re.search(r"(sk-|ghp_|AIza|xoxb-)[A-Za-z0-9]{10,}",json.dumps(x))]
-    return len(cs)>=10 and not bad and not sec and "notion" in c.get("locked",{}) and "business" in c.get("buckets",{}), f"n={len(cs)} bad={bad} sec={sec}"
-case("connectors: catalogue loads (≥10), every stdio entry has a list-of-str argv, keys are env names, tiers 0-2, OAuth-only services are 'locked' with an alternative", t_connectors_catalogue)
+    return len(cs)>=10 and not bad and not sec and "canva" in c.get("locked",{}) and "notion" not in c.get("locked",{}) and "business" in c.get("buckets",{}), f"n={len(cs)} bad={bad} sec={sec}"
+case("connectors: catalogue loads (≥10), every stdio entry has a list-of-str argv, keys are env names, tiers 0-3 (tier 3 = guided login with steps), only services with no usable API stay 'locked' with an alternative", t_connectors_catalogue)
 def t_connector_intent():
     T=[("mujhe gmail ka connector chahiye","business"),("pdf ka connector chahiye","pdf"),("connect my email please","email"),("github wala jodo","git"),("notion se connect karna hai","notion"),("canva chahiye","canva"),("connect google sheets","sheets"),("how do I install numpy",None),("2+2",None),("mera code kyun toot raha hai",None)]
     bad=[(t,e,ai.connector_intent(t)) for t,e in T if ai.connector_intent(t)!=e]
@@ -562,9 +562,9 @@ def t_connector_find_add():
     v=os.path.join(os.environ["HOME"],"ai-vault"); os.makedirs(v,exist_ok=True)
     with _cl.redirect_stdout(b4): ai.mcp_add_catalogue("git",{"ROOT":v})
     cfg=json.load(open(os.path.expanduser("~/.ai-tools.json"))); pr=cfg["providers"].get("git",{})
-    return ("/mcp add pdf" in b1.getvalue() and "leaves the device" in b1.getvalue() and "OAuth-only" in b2.getvalue() and "poora HOME" in b3.getvalue()
+    return ("/mcp add pdf" in b1.getvalue() and "leaves the device" in b1.getvalue() and "/mcp setup notion" in b2.getvalue() and "LOGIN" in b2.getvalue() and "poora HOME" in b3.getvalue()
             and pr.get("connect")=="mcp" and pr.get("argv",[])[-1]==v and "git" in cfg["capabilities"].get("git_ops",[])), f"{b1.getvalue()[:60]!r} {b3.getvalue()[:40]!r} {pr}"
-case("connectors: /mcp find prints what leaves the device + the exact add line; a locked service gets the alternative; the whole HOME is refused as a root; a catalogue add writes a code-owned argv provider", t_connector_find_add)
+case("connectors: /mcp find prints what leaves the device + the exact add line; a login service gets the guided card (/mcp setup); the whole HOME is refused as a root; a catalogue add writes a code-owned argv provider", t_connector_find_add)
 def t_lists():
     import io as _io, contextlib as _cl
     b=_io.StringIO()
@@ -573,6 +573,22 @@ def t_lists():
     return d.get("shopping")==["bread"] and "1. bread" in b.getvalue(), f"{d} {b.getvalue()[-60:]!r}"
 case("lists: shopping/todo lists add/remove/show offline in ~/.ai-lists.json (the 'nothing trustworthy' family bucket, built not searched)", t_lists)
 case("tuning: the exemplars knob is consumed (tiny tier keeps ≤1 exemplar) and 'plan' is a registered impact action", lambda:((lambda: (os.environ.__setitem__("AI_TIER_OVERRIDE","tiny"), len(ai.EXEMPLAR_RE.findall(ai.agent_persona("rachaka") or ""))<=1, os.environ.pop("AI_TIER_OVERRIDE",None), bool(ai.impact("plan","x"))))()[1:4:2]==(True,True), "knob or action missing"))
+def t_guided_setup():
+    import io as _io, contextlib as _cl
+    srv=('import sys,json,os\nfor line in sys.stdin:\n  o=json.loads(line); m=o.get("method"); i=o.get("id")\n'
+         '  if m=="initialize": print(json.dumps({"jsonrpc":"2.0","id":i,"result":{}}),flush=True)\n'
+         '  elif m=="tools/list": print(json.dumps({"jsonrpc":"2.0","id":i,"result":{"tools":[{"name":"list_items"}]}}),flush=True)\n'
+         '  elif m=="tools/call": print(json.dumps({"jsonrpc":"2.0","id":i,"result":{"content":[{"type":"text","text":"OK hdr="+os.environ.get("FAKE_HDR","(none)")+" leaked="+str(bool(os.environ.get("GROQ_API_KEY")))}]}}),flush=True)\n')
+    cat=ai.connectors_cfg(); cat["connectors"]=[x for x in cat["connectors"] if x["name"]!="fake"]
+    cat["connectors"].append({"name":"fake","use_cases":["chat"],"tier":3,"transport":"stdio","argv":[sys.executable,"-c",srv],"needs_key":True,"key_env":"FAKE_TOKEN","license":"MIT","leaves":"nothing","install":{},"cap":"fake_cap","tool_hint":"list","arg":"query","what":"t",
+        "env_map":{"FAKE_HDR":"Bearer {FAKE_TOKEN}"},"login":{"kind":"token","account":"fake","steps":["s1","s2"],"secrets":{"FAKE_TOKEN":"fake token"},"verify":{"tool":"list_items","args":{}},"fix":{"401":"renew"}}})
+    json.dump(cat,open(os.path.expanduser("~/.ai-connectors.json"),"w"))
+    os.environ["GROQ_API_KEY"]="gsk_should_not_leak"; b=_io.StringIO()
+    with _cl.redirect_stdout(b): r=ai.mcp_setup(None,"fake",{"yes":"1","FAKE_TOKEN":"abc123"})
+    pr=ai.tools_cfg()["providers"].get("fake",{}); ready=ai.mcp_ready(pr); os.environ.pop("FAKE_TOKEN",None); pend=ai.mcp_ready(pr); os.environ.pop("GROQ_API_KEY",None)
+    out=b.getvalue()
+    return r and "hdr=Bearer abc123" in out and "leaked=False" in out and "✓ works" in out and ready[0] and not pend[0] and "login pending" in pend[1] and "FAKE_TOKEN" in open(os.path.expanduser("~/.ai-env")).read(), f"r={r} ready={ready} pend={pend} out={out[-160:]!r}"
+case("guided: /mcp setup = card → consent → steps → token into ~/.ai-env → add → verify; the server gets ONLY its own credential (other keys never leak); a missing token reads 'login pending'", t_guided_setup)
 case("stop-words: 'band karo'/'ruk'/'stop' are a brake, not /quit", lambda:(bool(ai.STOP_RX.match("band karo")) and bool(ai.STOP_RX.match("ruk")) and ai.chat_command("band karo") is None and ai.chat_command("quit")[0]=="/quit", "mapping wrong"))
 
 bad=[n for n,ok,_ in R if not ok]; xp=[n for n,ok in XF if ok]
