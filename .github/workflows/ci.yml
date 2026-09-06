@@ -1,0 +1,72 @@
+name: ci
+# The same tests the maintainer runs before every publish, on the three PC platforms — including the
+# Windows installer, which the maintainer cannot run locally. A green badge means: syntax clean, the
+# pinned behaviours (golden set) hold, and a scripted install + `ai version` + one daemon tick work.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  golden:
+    name: golden · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: compile
+        run: python -m py_compile ai.py
+      - name: pinned behaviours (no network, no keys)
+        env: { AI_FORCE_OFFLINE: "1" }
+        run: python tests/golden.py
+  install-unix:
+    name: install · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: shell syntax
+        run: for f in *.sh lib/*.sh; do bash -n "$f"; done
+      - name: scripted install into a fresh HOME
+        env: { AI_YES: "1" }
+        run: |
+          export HOME="$RUNNER_TEMP/home"; mkdir -p "$HOME"
+          bash pc-setup.sh | tee install.log
+          grep -q '18/18 expert packs load' install.log
+      - name: ai version · daemon --once · uninstall
+        env: { AI_FORCE_OFFLINE: "1", AI_YES: "1" }
+        run: |
+          export HOME="$RUNNER_TEMP/home"
+          "$HOME/.local/bin/ai" version
+          "$HOME/.local/bin/ai" daemon --once
+          bash pc-setup.sh --uninstall
+          test ! -e "$HOME/.local/bin/ai"
+  install-windows:
+    name: install · windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: scripted install (install.ps1 from the checkout, no download)
+        shell: pwsh
+        env: { AI_YES: "1" }
+        run: |
+          .\install.ps1 | Tee-Object -FilePath install.log
+          if (-not (Select-String -Path install.log -Pattern '18/18 expert packs load' -Quiet)) { throw "packs did not load" }
+      - name: ai version · daemon --once · uninstall
+        shell: pwsh
+        env: { AI_FORCE_OFFLINE: "1", AI_YES: "1", AI_UNINSTALL: "" }
+        run: |
+          & "$env:LOCALAPPDATA\Aasmaan\bin\ai.cmd" version
+          & "$env:LOCALAPPDATA\Aasmaan\bin\ai.cmd" daemon --once
+          $env:AI_UNINSTALL = "1"; .\install.ps1
+          if (Test-Path "$env:LOCALAPPDATA\Aasmaan\app\ai.py") { throw "uninstall left ai.py" }

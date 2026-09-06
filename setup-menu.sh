@@ -89,7 +89,7 @@ menu_remote(){
 
   cat > "$BIN/panel" <<'PEOF'
 #!/data/data/com.termux/files/usr/bin/bash
-# panel -> start the Akasha web panel on the Tailscale IP and print the Moto URL.
+# panel -> start the Aasmaan web panel on the Tailscale IP and print the Moto URL.
 # read ONLY the three panel settings from ~/.ai-env — never export every API key into
 # this process (round2 G). `ai serve` loads its own keys itself.
 _v(){ grep -m1 "^export $1=" "$HOME/.ai-env" 2>/dev/null | sed "s/^[^=]*=//; s/^['\"]//; s/['\"]\$//"; }

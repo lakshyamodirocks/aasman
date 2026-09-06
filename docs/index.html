@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Aasmaan — free AI on your own device</title>
+<meta name="description" content="One Python file. Free AI on your phone or PC. No account, no server, your data stays with you.">
+<style>
+:root{--bg:#0b0e14;--fg:#e6edf6;--mut:#9aa6b8;--acc:#7cc4ff;--ok:#4cd28a;--warn:#f0b35a;--card:#121826;--line:#1f2937;color-scheme:dark}
+@media (prefers-color-scheme:light){:root{--bg:#fbfbfd;--fg:#111827;--mut:#4b5563;--acc:#1d6fd6;--ok:#15803d;--warn:#b45309;--card:#ffffff;--line:#e5e7eb;color-scheme:light}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.55 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+main{max-width:860px;margin:0 auto;padding:32px 20px 64px}
+h1{font-size:2.2rem;margin:.2em 0 .1em;letter-spacing:-.02em}h2{font-size:1.25rem;margin:2em 0 .5em;border-top:1px solid var(--line);padding-top:1.2em}
+p{margin:.5em 0}.mut{color:var(--mut)}.tag{display:inline-block;font-size:.8rem;padding:2px 8px;border:1px solid var(--line);border-radius:999px;color:var(--mut);margin-right:6px}
+pre{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;overflow-x:auto;font:13.5px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;margin:.4em 0 1em}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.card h3{margin:0 0 .3em;font-size:1rem}table{border-collapse:collapse;width:100%;font-size:.95rem}td,th{border-bottom:1px solid var(--line);padding:8px 6px;text-align:left;vertical-align:top}th{color:var(--mut);font-weight:600}
+a{color:var(--acc)}#banner{display:none;background:var(--warn);color:#111;padding:10px 14px;border-radius:10px;margin-bottom:16px;font-weight:600}
+.ok{color:var(--ok)}.small{font-size:.9rem}footer{margin-top:48px;color:var(--mut);font-size:.9rem}
+</style>
+</head>
+<body>
+<main>
+<div id="banner"></div>
+<span class="tag">beta</span><span class="tag">MIT</span><span class="tag">one file</span><span class="tag">no server</span>
+<h1>Aasmaan <span class="mut" style="font-weight:400">आसमान</span></h1>
+<p><strong>Free AI on your own device — phone or PC.</strong> One Python file you can read. No account. No server of ours. Your data stays with you.</p>
+<p class="mut">Built for the next billion: works on an ₹8,000 Android, in Hinglish, on 1 GB/month, for someone who has never typed to an AI. Adapts to your hardware; never depends on it.</p>
+
+<h2>Install — one command, three devices</h2>
+<div class="grid">
+  <div class="card"><h3>Android · Termux</h3><p class="small mut">Install <strong>Termux from F-Droid</strong> (not Play Store), open it, paste:</p>
+<pre>pkg install -y curl python &amp;&amp; curl -fsSL https://raw.githubusercontent.com/lakshyamodirocks/aasman/main/install.sh | bash</pre></div>
+  <div class="card"><h3>Linux · macOS · WSL2</h3><p class="small mut">Needs python3 and curl.</p>
+<pre>curl -fsSL https://raw.githubusercontent.com/lakshyamodirocks/aasman/main/install.sh | bash</pre></div>
+  <div class="card"><h3>Windows 10/11</h3><p class="small mut">PowerShell, normal user, no admin.</p>
+<pre>irm https://raw.githubusercontent.com/lakshyamodirocks/aasman/main/install.ps1 | iex</pre></div>
+</div>
+<p class="small">Every installer is <strong>staged</strong>: it shows your machine first, then asks before each step. <code>Enter</code> = do it · <code>s</code> = skip · <code>q</code> = stop (done stays done). Nothing installs silently. Python and Ollama are installed <em>by you</em> from their official installers; the script only prints the command.</p>
+
+<h2>What it does</h2>
+<div class="grid">
+  <div class="card"><h3>Talks, offline first</h3><p class="small">A local model through Ollama, sized to your RAM/GPU. Free cloud tiers only if you add a key. If nothing is available it says so; it never fakes an answer.</p></div>
+  <div class="card"><h3>18 experts with a base</h3><p class="small">Coding, writing, research-verify, video, voice, marketing, SEO, analytics, planning, finance (explain-only), coaching… each with a persona, refusals, a cheat-sheet and dated sources. <code>/agent auto &lt;task&gt;</code> picks.</p></div>
+  <div class="card"><h3>Files and screenshots</h3><p class="small"><code>/attach error.log</code>, <code>/attach shot.png</code> — with a preview of what the model will see, and which brains can see images.</p></div>
+  <div class="card"><h3>Knows itself</h3><p class="small"><code>/capabilities</code> reports what <em>this</em> install can do right now. "update yourself", "agents dikhao", "go offline" work as plain words — by rules, not by the model.</p></div>
+  <div class="card"><h3>Updates you press</h3><p class="small">A one-line notice when a new version exists. <code>ai update</code> reinstalls; keys and memory are always kept. Never automatic.</p></div>
+  <div class="card"><h3>Memory that is yours</h3><p class="small">Plain files in <code>~/ai-vault</code>. Search them offline. Nothing is uploaded to anyone.</p></div>
+</div>
+
+<h2>What it touches, what it never does</h2>
+<table>
+<tr><th>Writes</th><td>its own folder, <code>~/.ai-*</code> files, <code>~/ai-vault</code>. On Windows, one folder in your <em>user</em> PATH only if you press Enter. Everything is listed in a manifest; uninstall removes exactly that list and leaves your keys and memory.</td></tr>
+<tr><th>Sends</th><td>only what you typed or attached, to your local Ollama, a provider you keyed, or a keyless endpoint you invoked. Cloud-bound text is scrubbed of emails, phones, IDs, keys, private IPs and names you list.</td></tr>
+<tr><th>Never</th><td><code>sudo</code>/admin · <code>pip install</code> · editing <code>.bashrc</code>/<code>.zshrc</code> · touching your Ollama models · telemetry · a server of ours · acting unattended (the daemon can look, not act).</td></tr>
+</table>
+
+<h2>Honest limits</h2>
+<p class="small">A 7B–14B local model writes functions, fixes tracebacks, explains algorithms. It does not refactor whole repositories; that is Claude Code / Codex territory. On a phone a 4B model is a helper, not a coder. Windows is verified by CI, not yet on a physical machine. iOS is a thin-client path. See <a href="https://github.com/lakshyamodirocks/aasman/blob/main/docs/ROADMAP.md">ROADMAP</a>.</p>
+
+<h2>Community</h2>
+<p class="small"><a href="https://t.me/+iF1WcRNqpAk0ODQ1">Telegram group</a> · <a href="https://discord.gg/j8njkbbNY">Discord</a> — humans, questions, show-and-tell. Bugs and feedback go to <a href="https://github.com/lakshyamodirocks/aasman/issues/new/choose">GitHub issues</a> so nothing gets lost; the Telegram helper bot (run by the maintainer on his own device, no server) answers <code>/install</code>, <code>/faq</code>, <code>/version</code> and forwards <code>/feedback</code>. Read <a href="https://github.com/lakshyamodirocks/aasman/blob/main/docs/WHY.md">why this exists</a>.</p>
+
+<h2>Read more</h2>
+<p class="small"><a href="https://github.com/lakshyamodirocks/aasman#readme">README</a> · <a href="https://github.com/lakshyamodirocks/aasman/blob/main/docs/ARCHITECTURE.md">How it works (with diagrams)</a> · <a href="https://github.com/lakshyamodirocks/aasman/blob/main/docs/TRUST.md">Trust: what leaves the device</a> · <a href="https://github.com/lakshyamodirocks/aasman/blob/main/docs/FAQ.md">FAQ</a> · <a href="https://github.com/lakshyamodirocks/aasman/blob/main/SECURITY.md">Security</a> · <a href="https://github.com/lakshyamodirocks/aasman/issues/new/choose">Report a bug or send feedback</a> · <a href="https://github.com/lakshyamodirocks/aasman/discussions">Discussions</a></p>
+
+<footer>Made in Jaipur by Lakshya Sunderwani. MIT licensed. Models and Ollama are separate projects under their own licenses. This page loads nothing from anywhere except <code>status.json</code> beside it.</footer>
+</main>
+<script>
+// advisory banner: a tiny JSON beside this page, edited by hand when something needs a warning (a broken free tier, a bad version)
+fetch('status.json',{cache:'no-store'}).then(r=>r.json()).then(s=>{if(s&&s.notice){const b=document.getElementById('banner');b.textContent=s.notice;b.style.display='block'}}).catch(()=>{});
+</script>
+</body>
+</html>

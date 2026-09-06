@@ -15,7 +15,7 @@
 #  PowerShell 5.1 (Windows 10/11 default) compatible rakha hai: koi ?? / ternary / pwsh-7 syntax nahi.
 # ═══════════════════════════════════════════════════════════════
 $ErrorActionPreference = "Stop"
-$Repo   = if ($env:AI_REPO) { $env:AI_REPO } else { "lakshyamodirocks/aasman" }      # owner/name — build-dist.sh isse bharta hai
+$Repo   = if ($env:AI_lakshyamodirocks/aasman) { $env:AI_lakshyamodirocks/aasman } else { "lakshyamodirocks/aasman" }   # owner/name — build-dist.sh isse bharta hai (AI_REPO = a PATH inside ai.py, alag cheez)
 $Branch = if ($env:AI_BRANCH) { $env:AI_BRANCH } else { "main" }
 $Auto   = ($env:AI_YES -eq "1")
 $Base   = Join-Path $env:LOCALAPPDATA "Aasmaan"

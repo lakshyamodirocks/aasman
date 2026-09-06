@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════════════
-#  AKASHA · FIND-TOKENS — is ghar me kaun se token/key kahan pade hain.
+#  AASMAAN · FIND-TOKENS — is ghar me kaun se token/key kahan pade hain.
 #
 #    bash find-tokens.sh            # MASKED (screenshot-safe) — default
 #    bash find-tokens.sh --reveal   # poori value (Termux me type karne ke liye)

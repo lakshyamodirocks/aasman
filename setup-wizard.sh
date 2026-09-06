@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════════════
-#  AKASHA · SETUP WIZARD  v2
+#  AASMAAN · SETUP WIZARD  v2
 #  Install se PEHLE. Kuch install nahi karta — sirf ~/.ai-setup-profile
 #  likhta hai, jise installer chup-chaap follow karta hai.
 #
@@ -85,7 +85,7 @@ fitmark(){ # fitmark <need_mb>  -> RAM ke hisaab se nishaan
 
 hdr(){ clear 2>/dev/null
   printf '%s╭──────────────────────────────────────────────╮%s\n' "$M" "$X"
-  printf '%s│%s  %s🧭 AKASHA · SETUP%s   %sstep %s/5%s\n' "$M" "$X" "$B" "$X" "$D" "$1" "$X"
+  printf '%s│%s  %s🧭 AASMAAN · SETUP%s   %sstep %s/5%s\n' "$M" "$X" "$B" "$X" "$D" "$1" "$X"
   printf '%s╰──────────────────────────────────────────────╯%s\n' "$M" "$X"
   crumb; }
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════════════
-#  AKASHA · CLEANUP — 2 din ke test/command ka malba saaf karo.
+#  AASMAAN · CLEANUP — 2 din ke test/command ka malba saaf karo.
 #
 #  DRY-RUN by default: sirf DIKHATA hai, kuch delete nahi karta.
 #    bash cleanup.sh              # dekho kya hatega
@@ -53,7 +53,7 @@ show(){ # show <path> <why>
 
 MODE_TXT="DRY-RUN — kuch delete NAHI hoga"; [ "$GO" = yes ] && MODE_TXT="DELETE mode — sach me hatega"
 printf '%s╭──────────────────────────────────────────────────────╮%s\n' "$C" "$X"
-printf '%s│%s  %s🧹 AKASHA CLEANUP%s   %sghar: %s%s\n'  "$C" "$X" "$B" "$X" "$D" "$WHERE" "$X"
+printf '%s│%s  %s🧹 AASMAAN CLEANUP%s   %sghar: %s%s\n'  "$C" "$X" "$B" "$X" "$D" "$WHERE" "$X"
 printf '%s│%s  %s%s%s\n' "$C" "$X" "$D" "$MODE_TXT" "$X"
 printf '%s╰──────────────────────────────────────────────────────╯%s\n' "$C" "$X"
 printf '  %sNOTE: Termux aur Debian-VM alag filesystem hain — jis me malba%s\n' "$D" "$X"

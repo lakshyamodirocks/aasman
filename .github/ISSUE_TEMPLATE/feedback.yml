@@ -1,0 +1,31 @@
+name: Feedback / suggestion
+description: Something you want changed, added, or explained better. Free-form, any language.
+labels: [feedback]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This product is actively maintained and updated in place (`ai update`). Feedback is read weekly, tagged by severity, and the highest rank gets immediate attention. Hinglish, Hindi, English — sab chalta hai.
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      options: [Idea / feature, Confusing step in setup, Wrong or outdated answer, Docs / wording, Other]
+    validations: { required: true }
+  - type: textarea
+    id: text
+    attributes:
+      label: What, and why it matters to you
+    validations: { required: true }
+  - type: input
+    id: version
+    attributes:
+      label: ai version (optional)
+      placeholder: "ai 2026-09-06 abc1234 · edition pc"
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: No keys, tokens, or personal data in this report
+          required: true
