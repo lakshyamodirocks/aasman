@@ -1,0 +1,79 @@
+# How Aasmaan works — the whole system on one page
+
+Everything below lives in one file, `ai.py`. The diagrams are the map; the file is the territory. Grep the names in **bold** to find each piece.
+
+## 1. One message, start to finish
+
+```mermaid
+flowchart TD
+    U[You type or attach] --> I{Is it a command?}
+    I -- "/agents, 'go offline', 'update yourself'" --> C[Rule table → command\nsafe: runs · state-changing: asks y/N]
+    I -- plain question --> B[build prompt\nSELF · MEMORY · NOTES · ATTACHED · KB hits]
+    B --> P{Privacy scrub}
+    P -- local brain --> L[Ollama on this device\nraw text, never leaves]
+    P -- cloud brain --> S[emails · phones · IDs · keys · IPs · listed names → masked]
+    S --> R[Provider ladder]
+    L --> A[Answer + which brain + seconds]
+    R --> A
+    A --> J[journal · metrics · cache]
+```
+
+- **`chat_command`** and **`self_intent`**: fixed regex tables. The model never decides to run a command.
+- **`build`**: assembles the prompt. The `SELF` block tells the model its own version, files and limits every turn, so "what version are you?" is answered from fact.
+- **`redact`**: the privacy scrub, applied only to text bound for a cloud provider.
+- **`route`**: tries brains in order, records failures (a rate-limit is not a death), and refuses to send images to a brain that cannot see.
+
+## 2. The provider ladder — "no" is never the last answer
+
+```mermaid
+flowchart LR
+    A[local Ollama\nyour RAM/GPU] --> B[free cloud tiers\nonly with YOUR key] --> C[keyless builtins\nDDG search · scrape · Pollinations images] --> D[recipe\nexact manual steps for this device] --> E[brain in text form] --> F[forge a tool\nwrite · scan · ask · run]
+```
+
+- **`PROVIDERS`** is the brain order; **`brain_order`** re-sorts it by what is alive and what the question needs.
+- **`/do <capability>`** walks **`do_capability`** down the rungs. Rung 5 (**`_forge_capability`**) writes a small stdlib script, scans it (**`_risky`**), and asks before running anything that touches destructive surfaces. It is hard-blocked when unattended.
+- A capability that could not be granted offline is queued as a **wish** and granted when a brain returns.
+
+## 3. Experts — 18 specialists that know their limits
+
+Each expert is a folder: `experts/<name>/PERSONA.md` (voice, refusals, honest weak spots on a small model, 5 Hinglish exemplars) and `KB.md` (tool ladder, cheat-sheet, dated sources).
+
+- **`pick_expert`**: IDF-weighted keyword routing for `/agent auto <task>`; crisis phrasing always reaches the coaching expert's helpline protocol.
+- **`agent_persona`** / **`expert_kb`**: the persona head plus only the KB sections the question needs, inside a fixed character budget; exemplar #1 always survives; sources never ship to the model.
+
+## 4. Memory — plain files, searchable offline
+
+`~/ai-vault/` holds notes and journal as Markdown. **`kb_build`** indexes them (BM25, plus embeddings if Ollama has `nomic-embed-text`); **`/kb <query>`** and auto-retrieval read it. Nothing is uploaded. Delete the folder, the memory is gone.
+
+## 5. Self-awareness, self-update, daemon
+
+```mermaid
+flowchart LR
+    V[VERSION beside ai.py\ndate · sha · repo] --> U[daily 60-byte check\nAI_UPDATE_CHECK=0 to opt out]
+    U --> N[one-line notice under the banner]
+    N --> Y{you press}
+    Y -- "/update · ai update" --> R[re-download + reinstall\nkeys + memory kept]
+    Y -- "/setup" --> S[guided installer again]
+    Y -- "/keys" --> K[add/remove keys, typing hidden]
+    D[ai daemon\nevery 30 min] --> W[update check · brain ping · wishes · vault re-index]
+    W --> J[~/.ai-daemon.json → read by ai and by the model]
+```
+
+- **`self_info`** / **`capabilities`**: what this install is and can do *right now*, measured (keyed brains, alive brains, vision, tools, experts, daemon).
+- **`daemon_tick`** runs with `AI_ATTENDED=0`: it may look, never act.
+
+## 6. Installers — adapt, never depend
+
+| | Android / Termux | Linux · macOS · WSL2 | Windows |
+|---|---|---|---|
+| entry | `install.sh` → `setup-wizard.sh` → `fold-all-setup.sh` | `install.sh` → `pc-setup.sh` | `install.ps1` |
+| hardware | wizard: RAM/battery/model with a fit-check | probes RAM/GPU; tiers a coder model | same, via CIM + nvidia-smi |
+| touches | `~/.local/bin/ai`, `~/.ai-*`, `~/ai-vault` | same, listed in a manifest | `%LOCALAPPDATA%\Aasmaan`, `~\.ai-*`, one user-PATH entry on consent |
+| never | `pkg` without asking | sudo · pip · rc files | admin · system PATH |
+| undo | `cleanup.sh` (dry-run first) | `pc-setup.sh --uninstall` | `$env:AI_UNINSTALL=1; irm … \| iex` |
+
+Every stage prints what it will do and waits: `Enter` / `s` / `q`. Ollama and Python come from their official installers; the scripts only print the command.
+
+## 7. The gate — how a change earns its way in
+
+`tests/golden.py` pins the behaviours that must never regress (privacy scrub shapes, prompt fences, risky-code detection, routing, pack loading, intents, vision refusal, attended gate, daemon state). CI runs it on Linux, macOS and Windows, then a scripted install on each. A change that is only "written" is not done; a change that was **run** is.

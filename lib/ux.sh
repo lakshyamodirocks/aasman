@@ -73,6 +73,6 @@ runv(){ local label="$1"; shift
 
 ux_summary(){
   printf '\n%s╭%s╮%s\n' "$_UXG" "$_UXHR" "$_UXX"
-  printf '%s│%s  %s✅ Akasha ready%s\n' "$_UXG" "$_UXX" "$_UXB" "$_UXX"
+  printf '%s│%s  %s✅ Aasmaan ready%s\n' "$_UXG" "$_UXX" "$_UXB" "$_UXX"
   printf '%s╰%s╯%s\n' "$_UXG" "$_UXHR" "$_UXX"
   local l; for l in "$@"; do printf '  %s\n' "$l"; done; printf '\n'; }

@@ -122,7 +122,7 @@ if [ ! -f "$HOME/.ai-profile" ]; then
   cat > "$HOME/.ai-profile" <<'PROFEOF'
 {
   "owner": "You",
-  "assistant": "Akasha",
+  "assistant": "Aasmaan",
   "about": ""
 }
 PROFEOF
@@ -152,6 +152,7 @@ import urllib.error, urllib.parse, urllib.request
 
 # ── EDITION: the same file runs on a phone (Termux) and on a PC (Linux/macOS/Windows). Every
 # device-specific hint or recipe branches on this ONE flag — never on a guess.
+BRAND=os.environ.get("AI_BRAND","Aasmaan")
 IS_TERMUX=os.path.isdir("/data/data/com.termux/files")
 EDITION="termux" if IS_TERMUX else "pc"
 if os.name=="nt":
@@ -1285,14 +1286,14 @@ def trace_report(a=""):
         "  recall dekhne ko:  /trace <goal>"])
 
 # Termux: the owner's clone. PC: the folder this file lives in (the bundle) — agents/packs fall back there.
-REPO=os.path.expanduser(os.environ.get("AI_REPO","~/lakshya-projects" if IS_TERMUX else os.path.dirname(os.path.abspath(__file__))))
+REPO=os.path.expanduser(os.environ.get("AI_REPO") or ("~/lakshya-projects" if IS_TERMUX and os.path.isdir(os.path.expanduser("~/lakshya-projects")) else os.path.dirname(os.path.abspath(__file__))))
 AGENTS_DIR=os.path.join(REPO,".claude","agents")
 DEFAULT_GROUP=["shodh","alochak","parakh"]   # researcher · critic · verifier (a no-excuse trio)
 def experts():
     """The 12 isolated domain experts. We can't fine-tune, so 'embedded learnings' =
     a tight persona + a checklist + the exact caps/tools + what to do when a tool is missing.
     Self-contained JSON so they work on the Fold with NO repo clone."""
-    try: return (json.loads(_read_first(["~/.ai-experts.json",REPO+"/fold-node/termux/experts.json"],"{}") or "{}")
+    try: return (json.loads(_read_first(["~/.ai-experts.json",REPO+"/experts.json",REPO+"/fold-node/termux/experts.json"],"{}") or "{}")
                  .get("experts",{}))
     except Exception: return {}
 def list_agents():
@@ -1302,7 +1303,7 @@ def list_agents():
 # 3-line sketch; the pack is the full base ("sabke paas base ho, personality ho"): voice, refusals,
 # honest 4B weak-spots, 5 golden exemplars, and a KB with the tool ladder + a cheat-sheet.
 # Installed to ~/.ai-experts/<name>/ by fold-all-setup.sh; the repo copy is the fallback.
-EXPERT_PACK_DIRS=["~/.ai-experts",REPO+"/fold-node/termux/experts"]
+EXPERT_PACK_DIRS=["~/.ai-experts",REPO+"/experts",REPO+"/fold-node/termux/experts"]
 def expert_pack(name,which):
     n=re.sub(r"[^a-z0-9_-]","",(name or "").lower())
     if not n: return ""
@@ -1676,7 +1677,7 @@ BUILTIN_CFG={"capabilities":{"scrape":["webget_builtin"],"research":["ddg_builti
   "pollinations_builtin":{"cap":["image_generation"],"connect":"builtin","invoke":"imagegen","net":True},
   "tts_builtin":{"cap":["tts"],"connect":"builtin","invoke":"speak"}}}
 def tools_cfg():
-    try: cfg=json.loads(_read_first(["~/.ai-tools.json",REPO+"/fold-node/tools-routing.json"],"{}") or "{}")
+    try: cfg=json.loads(_read_first(["~/.ai-tools.json",REPO+"/tools-routing.json",REPO+"/fold-node/tools-routing.json"],"{}") or "{}")
     except Exception: cfg={}
     if not cfg.get("capabilities"): return json.loads(json.dumps(BUILTIN_CFG))
     for c,order in BUILTIN_CFG["capabilities"].items():   # merge, never lose the floor
@@ -2796,7 +2797,7 @@ def run_self_cmd(kind):
     rc=subprocess.run(cmd,shell=True).returncode
     print(f"[ai] {kind} {'done' if rc==0 else 'exit '+str(rc)} — 'ai' dobara start karo.")
     return rc==0
-KNOWN_KEYS=[p["k"] for p in PROVIDERS if p["k"]]+["OPENROUTER_API_KEY","TAVILY_API_KEY","EXA_API_KEY","JINA_API_KEY","TOGETHER_API_KEY","FAL_KEY","STABILITY_API_KEY","REPLICATE_API_TOKEN"]
+KNOWN_KEYS=[p["k"] for p in PROVIDERS if p["k"]]+["TELEGRAM_BOT_TOKEN","DISCORD_WEBHOOK_URL","OPENROUTER_API_KEY","TAVILY_API_KEY","EXA_API_KEY","JINA_API_KEY","TOGETHER_API_KEY","FAL_KEY","STABILITY_API_KEY","REPLICATE_API_TOKEN"]
 def _env_file(): return os.path.expanduser("~/.ai-env")
 def _upsert_env(name,val):
     """Write/replace `export NAME=val` in ~/.ai-env (0600) and in this process. Empty val = remove."""
@@ -2903,6 +2904,107 @@ def capabilities():
     dm=daemon_state()
     if dm: L.append(f"daemon: last run {dm.get('when','?')} · {dm.get('summary','')}")
     return "\n".join(L)
+# ══ TELEGRAM GATEWAY (stdlib long-poll) + ANNOUNCE. The community's helper bot, run by the owner on the
+# owner's device. Fail-closed: it answers only in chats listed in TELEGRAM_ALLOWED_CHATS (or the owner's
+# private chat). Commands are fixed; free-text Q&A is OFF unless TELEGRAM_QA=1, rate-limited, unattended
+# (no forge, no shell), and every reply is capped. Chat text is untrusted input, never a command.
+TG_STATE=os.path.expanduser("~/.ai-telegram.json"); FEEDBACK=os.path.expanduser("~/.ai-feedback.jsonl")
+def tg_config():
+    return {"token":os.environ.get("TELEGRAM_BOT_TOKEN",""),
+            "allowed":{c.strip() for c in os.environ.get("TELEGRAM_ALLOWED_CHATS","").split(",") if c.strip()},
+            "owner":os.environ.get("TELEGRAM_OWNER_ID","").strip(),
+            "qa":os.environ.get("TELEGRAM_QA","0")=="1","per_hour":int(os.environ.get("TELEGRAM_QA_PER_HOUR","6") or 6),
+            "api":os.environ.get("TELEGRAM_API","https://api.telegram.org")}
+def _tg_api(cfg,method,payload=None):
+    return _post(f"{cfg['api']}/bot{cfg['token']}/{method}",payload or {},{"Content-Type":"application/json"},timeout=35)
+def _tg_install_text():
+    slug=self_version()[1] or "REPO_SLUG"; raw=f"https://raw.githubusercontent.com/{slug}/main"
+    return ("Install (ek command, apne device pe):\n"
+            f"• Android (Termux, F-Droid wala):\n  pkg install -y curl python && curl -fsSL {raw}/install.sh | bash\n"
+            f"• Linux / macOS:\n  curl -fsSL {raw}/install.sh | bash\n"
+            f"• Windows (PowerShell, admin nahi):\n  irm {raw}/install.ps1 | iex\n"
+            f"Har step poochhta hai; kuch chupke install nahi hota. Docs: https://github.com/{slug}")
+TG_HELP=("Main Aasmaan ka helper bot hoon — koi server nahi, ye owner ke apne device pe chalta hai.\n"
+         "/install — teen commands (Android / Linux-macOS / Windows)\n/faq — chhote jawab\n/version — kaunsa version live hai\n"
+         "/feedback <text> — seedha maintainer tak (weekly vetting, severity tag)\n/capabilities — ye bot abhi kya kar sakta hai")
+TG_FAQ=("• Bina account/key chalega? Haan: Ollama + local model, zero login.\n• Data kahan jaata hai? Local brain: kahin nahi. Cloud sirf teri key se, scrub ke baad.\n"
+        "• Kya nahi karta? Poore repo ka refactor; phone pe 4B helper hai, coder nahi.\n• Toota? /feedback likho ya GitHub issue: `ai version` ka output saath me, key kabhi nahi.")
+def _tg_rate_ok(state,uid,per_hour,now):
+    h=state.setdefault("rate",{}); lst=[t for t in h.get(uid,[]) if now-t<3600]
+    if len(lst)>=per_hour: h[uid]=lst; return False
+    lst.append(now); h[uid]=lst; return True
+def tg_handle(st,msg,cfg,state,now=None):
+    """One incoming message → reply text or None. PURE except /feedback (appends a file) and Q&A (calls a brain)."""
+    now=now or time.time(); chat=msg.get("chat",{}); cid=str(chat.get("id","")); ctype=chat.get("type","")
+    uid=str(msg.get("from",{}).get("id","")); name=(msg.get("from",{}).get("first_name") or "?")[:40]
+    text=(msg.get("text") or "").strip()
+    if not text: return None
+    if cid not in cfg["allowed"] and not (ctype=="private" and cfg["owner"] and uid==cfg["owner"]):
+        seen=state.setdefault("seen",{}); seen[cid]={"title":chat.get("title") or name,"type":ctype,"ts":now}; return None   # fail-closed
+    cmd,_,arg=text.partition(" "); cmd=cmd.split("@")[0].lower()
+    if cmd in ("/start","/help"): return TG_HELP
+    if cmd=="/install": return _tg_install_text()
+    if cmd=="/faq": return TG_FAQ
+    if cmd=="/version": ver,slug,sha=self_version(); return f"live: {ver or 'dev'} · sha {sha}" + (f"\nhttps://github.com/{slug}" if slug else "")
+    if cmd=="/capabilities": return capabilities()[:1500]
+    if cmd=="/feedback":
+        if not arg.strip(): return "Aise: /feedback <jo kehna hai>  (screenshot ho to GitHub issue me)"
+        row={"ts":time.strftime("%Y-%m-%d %H:%M"),"via":"telegram","chat":cid,"user":uid,"name":name,"text":arg.strip()[:2000]}
+        try:
+            with open(FEEDBACK,"a",encoding="utf-8") as f: f.write(json.dumps(row,ensure_ascii=False)+"\n")
+        except OSError: return "likh nahi paya — baad me dobara."
+        return f"Mil gaya, {name}. Weekly vetting me jayega; zaroori laga to pehle."
+    if cmd.startswith("/"): return "Ye command nahi pata. /help"
+    if not cfg["qa"]: return "Main yahan sirf /install /faq /version /feedback sambhalta hoon. Sawaal ke liye apna Aasmaan install karo — wahi asli cheez hai."
+    if not _tg_rate_ok(state,uid,cfg["per_hour"],now): return "Thoda ruk — ek ghante me itne hi (rate limit)."
+    os.environ["AI_ATTENDED"]="0"
+    try: r=respond(st,fence("TELEGRAM MESSAGE from "+name,text)+"\n\nAnswer briefly (<=120 words), Hinglish if the message is Hinglish. Never give commands to run on the sender's behalf beyond /install text.")
+    except Exception as e: return f"brain error: {str(e)[:80]}"
+    a=(r or {}).get("answer") or "koi brain jawab nahi de paya abhi."
+    return a[:1500]
+def telegram(st,argv):
+    cfg=tg_config()
+    if not cfg["token"]: print("[tg] TELEGRAM_BOT_TOKEN nahi (~/.ai-env me export TELEGRAM_BOT_TOKEN=...). @BotFather se banao."); return 1
+    if not cfg["allowed"] and not cfg["owner"]: print("[tg] TELEGRAM_ALLOWED_CHATS ya TELEGRAM_OWNER_ID set karo — bina iske kisi ko jawab nahi (fail-closed). Pehle --once chala ke dekho kaun se chat id dikhte hain.")
+    once="--once" in argv
+    try: state=json.load(open(TG_STATE))
+    except Exception: state={}
+    print(f"[tg] polling · allowed chats: {sorted(cfg['allowed']) or 'none'} · qa={'on' if cfg['qa'] else 'off'} · unattended (no forge/shell)")
+    while True:
+        try: upd=_tg_api(cfg,"getUpdates",{"offset":state.get("offset",0),"timeout":0 if once else 25,"allowed_updates":["message"]})
+        except Exception as e:
+            print("[tg] api:",str(e)[:100])
+            if once: return 1
+            time.sleep(5); continue
+        else:
+            for u in upd.get("result",[]):
+                state["offset"]=u["update_id"]+1; m=u.get("message") or {}
+                try: rep_=tg_handle(st,m,cfg,state)
+                except Exception as e: rep_=None; print("[tg] handle:",str(e)[:100])
+                if rep_:
+                    try: _tg_api(cfg,"sendMessage",{"chat_id":m["chat"]["id"],"text":rep_,"disable_web_page_preview":True})
+                    except Exception as e: print("[tg] send:",str(e)[:100])
+            for cid,info in list(state.get("seen",{}).items()):
+                if not info.get("logged"): print(f"[tg] chat {cid} ({info.get('type')}: {info.get('title')}) not allowed — add to TELEGRAM_ALLOWED_CHATS"); info["logged"]=True
+            try: json.dump(state,open(TG_STATE,"w"))
+            except OSError: pass
+        if once: return 0
+def announce(text):
+    """Post one message to the community channels the owner configured. Telegram sendMessage + Discord webhook."""
+    text=(text or "").strip()
+    if not text: print("usage: ai announce <text>"); return 1
+    cfg=tg_config(); chat=os.environ.get("TELEGRAM_ANNOUNCE_CHAT",""); hook=os.environ.get("DISCORD_WEBHOOK_URL",""); n=0
+    if cfg["token"] and chat:
+        try: _tg_api(cfg,"sendMessage",{"chat_id":chat,"text":text,"disable_web_page_preview":True}); n+=1; print("[announce] telegram ✓")
+        except Exception as e: print("[announce] telegram ✗",str(e)[:100])
+    if hook:
+        try: _post(hook,{"content":text[:1900]},{"Content-Type":"application/json"},timeout=15); n+=1; print("[announce] discord ✓")
+        except urllib.error.HTTPError as e:
+            if e.code==204: n+=1; print("[announce] discord ✓")
+            else: print("[announce] discord ✗",e.code)
+        except Exception as e: print("[announce] discord ✗",str(e)[:100])
+    if not n: print("[announce] kahin nahi gaya — TELEGRAM_BOT_TOKEN+TELEGRAM_ANNOUNCE_CHAT ya DISCORD_WEBHOOK_URL set karo (~/.ai-env)")
+    return 0 if n else 1
 HELP="""commands — everything is optional, plain text just talks to the best brain.
  BRAIN   /auto /online /local · /ask <brain> <q> · /panel %s · /model <name> · /route <q> · /why · /metrics [reset]
  ANSWER  /short · /json <q> · /clear · /save · /mode
@@ -2915,6 +3017,7 @@ HELP="""commands — everything is optional, plain text just talks to the best b
  EXPERTS /agents · /agent auto <task>  (naam yaad na ho to khud chunta hai) · /agent <name> <task> · /group
  SYSTEM  /attach <file> · /run <cmd> · /explain · /serve [port] · /device · /net [off|on] · /canary · /embed <text> · /privacy [on|off|<text>]
  SELF    /version · /capabilities (ye install abhi kya kar sakta hai) · /update · /setup · /keys [NAME|rm NAME] · /attach <file|png|pdf> · ai daemon [--once]
+ COMMUNITY  ai telegram [--once]  (helper bot for your group: /install /faq /feedback — fail-closed allowlist)  ·  ai announce <text>
  EXIT    /quit
  the DO ladder never answers 'no': 1 provider -> 2 keyless builtin -> 3 recipe -> 4 brain -> 5 forge the tool."""
 def repl(st):
@@ -3205,7 +3308,7 @@ def repl(st):
             try: journal("system",f"cmd {c} crashed: {type(e).__name__}: {e}")
             except Exception: pass
 
-PANEL_FALLBACK = "<!doctype html><meta charset=utf-8><title>Akasha</title><body style=\"font:15px system-ui;background:#0b0e14;color:#e6edf6;padding:20px\"><h3>panel.html not found</h3><p>Install it: <code>setup-menu</code>, or copy fold-node/termux/panel.html to ~/.ai-panel.html</p>"
+PANEL_FALLBACK = "<!doctype html><meta charset=utf-8><title>"+BRAND+"</title><body style=\"font:15px system-ui;background:#0b0e14;color:#e6edf6;padding:20px\"><h3>panel.html not found</h3><p>Install it: <code>setup-menu</code>, or copy fold-node/termux/panel.html to ~/.ai-panel.html</p>"
 
 # ================= web control panel (ai serve) =================
 def _host_ok(hostport):
@@ -3262,8 +3365,8 @@ def _read_first(paths,fallback):
             try: return open(pth,encoding="utf-8").read()
             except OSError: pass
     return fallback
-def _panel_html(): return _read_first(["~/.ai-panel.html",REPO+"/fold-node/termux/panel.html"],PANEL_FALLBACK)
-def _board_html(): return _read_first(["~/.ai-whiteboard.html",REPO+"/fold-node/akasha-whiteboard.html"],
+def _panel_html(): return _read_first(["~/.ai-panel.html",REPO+"/panel.html",REPO+"/fold-node/termux/panel.html"],PANEL_FALLBACK)
+def _board_html(): return _read_first(["~/.ai-whiteboard.html",REPO+"/whiteboard.html",REPO+"/fold-node/akasha-whiteboard.html"],
     "<!doctype html><meta charset=utf-8><title>Board</title><body style=\"font:15px system-ui;background:#0b0e14;color:#e6edf6;padding:20px\"><h3>whiteboard not found</h3><p>copy fold-node/akasha-whiteboard.html to ~/.ai-whiteboard.html</p>")
 def serve(port=8765):
     import http.server
@@ -3352,7 +3455,7 @@ def serve(port=8765):
                 return self._stream_ask(q)
             if path=="/": return self._send(200,_panel_html(),"text/html; charset=utf-8")
             if path=="/board": return self._send(200,_board_html(),"text/html; charset=utf-8")
-            if path=="/manifest.json": return self._json({"name":"Akasha","short_name":"Akasha","start_url":"/","display":"standalone","background_color":"#0b0e14","theme_color":"#0b0e14","icons":[]})
+            if path=="/manifest.json": return self._json({"name":BRAND,"short_name":BRAND,"start_url":"/","display":"standalone","background_color":"#0b0e14","theme_color":"#0b0e14","icons":[]})
             if path=="/api/status": return self._json(status_dict(st))
             if path=="/api/metrics": return self._json(metrics())
             if path=="/api/tags": return self._json(tag_counts())
@@ -3518,6 +3621,8 @@ def main():
             n=update_notice(); print(n if n else ("  up to date" if self_version()[1] else "  (dev copy — no VERSION/slug, no update check)")); return
         if sys.argv[1] in ("update","setup"): return run_self_cmd(sys.argv[1])
         if sys.argv[1]=="daemon": return daemon(st,sys.argv[2:])
+        if sys.argv[1]=="telegram": return telegram(st,sys.argv[2:])
+        if sys.argv[1]=="announce": return announce(" ".join(sys.argv[2:]))
         if sys.argv[1]=="capabilities": print(capabilities()); return
         if sys.argv[1]=="keys": return keys_cmd(" ".join(sys.argv[2:]))
         if sys.argv[1]=="canary":            # cron/termux-job friendly: ai canary
@@ -3633,7 +3738,7 @@ else echo "  rish not up -> start Shizuku, re-run; phantom-killer disable needs 
 mkdir -p "$HOME/.termux/boot"
 cat > "$HOME/.termux/boot/akasha-boot.sh" <<'BOOTEOF'
 #!/data/data/com.termux/files/usr/bin/sh
-# Akasha boot-autostart. Needs the Termux:Boot app (F-Droid) installed to actually fire on reboot.
+# Aasmaan boot-autostart. Needs the Termux:Boot app (F-Droid) installed to actually fire on reboot.
 termux-wake-lock 2>/dev/null
 export OLLAMA_KEEP_ALIVE=30m
 command -v ollama >/dev/null 2>&1 && (ollama serve >/dev/null 2>&1 &)
@@ -3641,7 +3746,7 @@ BOOTEOF
 chmod +x "$HOME/.termux/boot/akasha-boot.sh"
 echo "  boot-autostart written: ~/.termux/boot/akasha-boot.sh  (install Termux:Boot from F-Droid to arm it)"
 
-substage "Screen-sight — Akasha ki aankh (screen-dump)"
+substage "Screen-sight — Aasmaan ki aankh (screen-dump)"
 cat > "$HOME/.local/bin/screen-dump" <<'SDEOF'
 #!/data/data/com.termux/files/usr/bin/bash
 # screen-dump -> visible text on the current Android screen, via the sanctioned rish hand.
@@ -3717,5 +3822,5 @@ ux_summary \
   "ai            chat (router · cache · hybrid KB · /do tools · /tool forge)" \
   "ai serve      web panel + /board flowchart + /v1 OpenAI backend" \
   "setup-menu    G = GUIDED (free brains + tool APIs) · 1 = keys · T = tokens · C = cleanup" \
-  "screen-dump   Akasha ki aankh (screen ka text, rish se)" \
+  "screen-dump   Aasmaan ki aankh (screen ka text, rish se)" \
   "nmap ...      pentest (sirf authorized targets)"

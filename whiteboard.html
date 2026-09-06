@@ -1,6 +1,6 @@
 <!doctype html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#0b0e14"><title>Akasha Flowchart</title>
+<meta name="theme-color" content="#0b0e14"><title>Aasmaan Flowchart</title>
 <style>
 :root{--bg:#0b0e14;--card:#151a24;--line:#232a38;--ink:#e6edf6;--dim:#8b97a8;--acc:#6ea8fe;
  --done:#3fb950;--wip:#d29922;--plan:#8b97a8;--crown:#c9a227;--edge:#5b6f95}
@@ -46,7 +46,7 @@ textarea{width:100%;background:#0d121b;color:var(--ink);border:1px solid var(--l
 small.hint2{color:var(--dim)}
 </style></head><body>
 <header>
- <div class="h1"><b>🗺 Akasha Flowchart</b><span class="sub" id="sub">…</span></div>
+ <div class="h1"><b>🗺 Aasmaan Flowchart</b><span class="sub" id="sub">…</span></div>
  <div class="legend">
   <span><i style="background:var(--done)"></i>Done</span><span><i style="background:var(--wip)"></i>WIP</span>
   <span><i style="background:var(--plan)"></i>Planned</span><span><i style="background:var(--crown)"></i>Crown</span>
@@ -141,7 +141,7 @@ const E=[
  {z:"tools",id:"notebooklm",n:"NotebookLM (video/audio)",st:"plan",purpose:"Documents se explainer VIDEO + podcast overview.",use:"/do video_overview -> steps deta; khud kholke banao.",ways:"CONFIRMED: koi API kisi tier pe nahi (2 Google docs) -> manual/browser only. Audio ka API-alt: ElevenLabs GenFM.",to:["toolrouter"]},
  {z:"tools",id:"cloudgen",n:"Cloud gen APIs",st:"plan",purpose:"Video/image/audio jo Fold CPU pe ban hi nahi sakte.",use:"/do video_generation | image_generation | audio_overview <prompt>.",ways:"fal (video ~$0.05/s) · Together (image ~$0.002/img) · ElevenLabs GenFM (audio). Sab paid/cloud, key chahiye.",to:["toolrouter"]},
  {z:"tools",id:"researchapi",n:"Research/scrape APIs",st:"plan",purpose:"Web research + saaf scrape, jab local kaafi na ho.",use:"/do research | scrape <query/url>.",ways:"Tavily/Exa free tier (no card) · Jina Reader (light use, no key) · local trafilatura.",to:["toolrouter"]},
- {z:"tools",id:"screensight",n:"Screen sight (/do screen)",st:"done",purpose:"Akasha ki AANKH — current screen ka text.",use:"/do screen; screen-dump.",ways:"uiautomator dump over rish (sanctioned hand).",to:["toolrouter","shizuku"]},
+ {z:"tools",id:"screensight",n:"Screen sight (/do screen)",st:"done",purpose:"Aasmaan ki AANKH — current screen ka text.",use:"/do screen; screen-dump.",ways:"uiautomator dump over rish (sanctioned hand).",to:["toolrouter","shizuku"]},
  {z:"tools",id:"mcp",n:"MCP tools",st:"plan",purpose:"Bahari services ko TOOL ki tarah jodna — brain nahi.",use:"MCP client se; ek capability provider ban jaata.",ways:"9 official MCP (Firecrawl/Exa/Tavily/ElevenLabs/Replicate/Jina/Deepgram/Browserless/Perplexity). Raksha scan baaki. NotebookLM community MCP = cookie-hijack, mat wire.",to:["toolrouter","cloudgen","researchapi"]},
  // cross-cutting keys node
  {z:"brains",id:"keys",n:"Brain keys (~/.ai-env)",st:"wip",purpose:"Free brains ko chालू karne ki chaabiyan.",use:"setup-menu -> option 1; .bashrc auto-load.",ways:"printf %q se save; kabhi commit nahi.",to:["brains7"]},

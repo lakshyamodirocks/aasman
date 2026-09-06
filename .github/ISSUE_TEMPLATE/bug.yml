@@ -1,0 +1,40 @@
+name: Bug / kuch toota
+description: Something did not work. Paste what `ai version` prints and what you saw.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks. Two rules that keep everyone safe: **never paste an API key or token** (mask it: `gsk_…abcd`), and if a screenshot shows a key, crop it first.
+  - type: textarea
+    id: version
+    attributes:
+      label: ai version
+      description: Run `ai version` (or `/version` inside `ai`) and paste the output. It has the edition, OS, Python and the sha256 of the file you are running.
+      render: text
+    validations: { required: true }
+  - type: dropdown
+    id: device
+    attributes:
+      label: Device
+      options: [Android / Termux, Windows, Linux, macOS, WSL2, iOS (a-Shell)]
+    validations: { required: true }
+  - type: textarea
+    id: what
+    attributes:
+      label: What you typed, and what happened
+      description: The exact command or chat line, then the output. `/why` shows which brain answered; `/capabilities` shows what the install can do.
+      render: text
+    validations: { required: true }
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I removed any keys / tokens / personal data from the paste
+          required: true
+        - label: I ran the install again once (it is idempotent) and the problem stayed
