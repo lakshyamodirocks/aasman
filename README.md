@@ -72,7 +72,15 @@ Every installer is **staged**: it shows your device first (RAM, GPU, Python, Oll
 | daemon (awareness only) | `ai daemon` in tmux / Termux:Boot | systemd --user / LaunchAgent (opt-in) | Task Scheduler (opt-in) |
 | uninstall | `cleanup.sh` (dry-run first) | `pc-setup.sh --uninstall` (manifest) | `$env:AI_UNINSTALL=1; irm … \| iex` |
 
-iOS: a thin-client path only (terminal app + your own PC's Ollama or your own key); see [Roadmap](docs/ROADMAP.md).
+| **phone ↔ computer pairing** (`ai pair`, QR) | phone side: any browser | host side ✓ | host side ✓ |
+
+## Pair your phone with your computer — iPhone included
+
+Most people with an iPhone also have a Mac or a PC. Run this on the computer:
+```
+ai pair
+```
+It prints a QR code in the terminal. Scan it with the phone's camera: the phone opens the web panel of **that** computer's `ai` — its local model, its memory, its experts — over your own Wi-Fi or Tailscale. No server of ours, no account, nothing leaves your two devices. On iPhone: Safari → Share → **Add to Home Screen** and it behaves like an app. The QR carries a one-time-generated token (kept in `~/.ai-env`, revoke with `ai keys rm AI_SERVE_TOKEN`); the panel refuses every call without it. Plain Wi-Fi http is unencrypted, so for use outside your home install Tailscale on both devices and `ai pair` will prefer it automatically. Mac: `caffeinate -i ai pair` keeps it awake with the lid closed.
 
 ## What it touches — the full list
 

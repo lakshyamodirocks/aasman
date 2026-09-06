@@ -2797,7 +2797,7 @@ def run_self_cmd(kind):
     rc=subprocess.run(cmd,shell=True).returncode
     print(f"[ai] {kind} {'done' if rc==0 else 'exit '+str(rc)} — 'ai' dobara start karo.")
     return rc==0
-KNOWN_KEYS=[p["k"] for p in PROVIDERS if p["k"]]+["TELEGRAM_BOT_TOKEN","DISCORD_WEBHOOK_URL","OPENROUTER_API_KEY","TAVILY_API_KEY","EXA_API_KEY","JINA_API_KEY","TOGETHER_API_KEY","FAL_KEY","STABILITY_API_KEY","REPLICATE_API_TOKEN"]
+KNOWN_KEYS=[p["k"] for p in PROVIDERS if p["k"]]+["AI_SERVE_TOKEN","TELEGRAM_BOT_TOKEN","DISCORD_WEBHOOK_URL","OPENROUTER_API_KEY","TAVILY_API_KEY","EXA_API_KEY","JINA_API_KEY","TOGETHER_API_KEY","FAL_KEY","STABILITY_API_KEY","REPLICATE_API_TOKEN"]
 def _env_file(): return os.path.expanduser("~/.ai-env")
 def _upsert_env(name,val):
     """Write/replace `export NAME=val` in ~/.ai-env (0600) and in this process. Empty val = remove."""
@@ -3005,6 +3005,130 @@ def announce(text):
         except Exception as e: print("[announce] discord ✗",str(e)[:100])
     if not n: print("[announce] kahin nahi gaya — TELEGRAM_BOT_TOKEN+TELEGRAM_ANNOUNCE_CHAT ya DISCORD_WEBHOOK_URL set karo (~/.ai-env)")
     return 0 if n else 1
+# ── stdlib QR encoder: byte mode · EC level L · versions 1–10 · mask 0 (fixed). ~90 lines. Used for
+# `ai pair` so a phone can scan the panel URL from the terminal. Decoders accept any mask; fixing mask 0
+# keeps this small and testable (matrix compared bit-for-bit against a reference encoder in the gate).
+_QR_L=[(19,7,[(1,19)]),(34,10,[(1,34)]),(55,15,[(1,55)]),(80,20,[(1,80)]),(108,26,[(1,108)]),
+       (136,18,[(2,68)]),(156,20,[(2,78)]),(194,24,[(2,97)]),(232,30,[(2,116)]),(274,18,[(2,68),(2,69)])]
+_QR_ALIGN=[[],[6,18],[6,22],[6,26],[6,30],[6,34],[6,22,38],[6,24,42],[6,26,46],[6,28,50]]
+_QR_VINFO={7:0x07C94,8:0x085BC,9:0x09A99,10:0x0A4D3}
+_QR_FMT_L0=0x77C4
+def _gf():
+    exp=[0]*512; log=[0]*256; x=1
+    for i in range(255):
+        exp[i]=x; log[x]=i; x<<=1
+        if x&0x100: x^=0x11D
+    for i in range(255,512): exp[i]=exp[i-255]
+    return exp,log
+def _rs(data,n):
+    exp,log=_gf(); g=[1]
+    for i in range(n):
+        ng=[0]*(len(g)+1)
+        for j,c in enumerate(g):
+            ng[j]^=c; ng[j+1]^=exp[(log[c]+i)%255] if c else 0
+        g=ng
+    res=list(data)+[0]*n
+    for i in range(len(data)):
+        c=res[i]
+        if c:
+            for j in range(1,len(g)): res[i+j]^=exp[(log[g[j]]+log[c])%255]
+    return res[len(data):]
+def qr_matrix(text):
+    b=text.encode("utf-8")
+    for v,(cap,ec,blocks) in enumerate(_QR_L,1):
+        if len(b)<=cap-(2 if v<10 else 3): break      # 4-bit mode + 8/16-bit count + terminator
+    else: raise ValueError("too long for QR v10-L")
+    cap,ec,blocks=_QR_L[v-1]
+    bits="0100"+(format(len(b),"08b") if v<10 else format(len(b),"016b"))+"".join(format(x,"08b") for x in b)
+    bits+="0"*min(4,cap*8-len(bits)); bits+="0"*((8-len(bits)%8)%8)
+    pad=[0xEC,0x11]; i=0
+    while len(bits)<cap*8: bits+=format(pad[i%2],"08b"); i+=1
+    cw=[int(bits[k:k+8],2) for k in range(0,len(bits),8)]
+    blks=[]; p=0
+    for cnt,ln in blocks:
+        for _ in range(cnt): blks.append(cw[p:p+ln]); p+=ln
+    ecs=[_rs(d,ec) for d in blks]
+    out=[]
+    for k in range(max(len(d) for d in blks)):
+        for d in blks:
+            if k<len(d): out.append(d[k])
+    for k in range(ec):
+        for e in ecs: out.append(e[k])
+    n=17+4*v; M=[[None]*n for _ in range(n)]
+    def put(r,c,val):
+        if 0<=r<n and 0<=c<n: M[r][c]=val
+    def finder(r,c):
+        for dr in range(-1,8):
+            for dc in range(-1,8):
+                rr,cc=r+dr,c+dc
+                if 0<=rr<n and 0<=cc<n:
+                    inside=0<=dr<=6 and 0<=dc<=6
+                    M[rr][cc]=1 if inside and (dr in (0,6) or dc in (0,6) or (2<=dr<=4 and 2<=dc<=4)) else 0
+    finder(0,0); finder(0,n-7); finder(n-7,0)
+    for a in _QR_ALIGN[v-1]:
+        for bb in _QR_ALIGN[v-1]:
+            if M[a][bb] is not None: continue
+            for dr in range(-2,3):
+                for dc in range(-2,3): M[a+dr][bb+dc]=1 if max(abs(dr),abs(dc))!=1 else 0
+    for k in range(8,n-8): M[6][k]=M[k][6]=1-(k%2)
+    for k in range(9): 
+        if k!=6: M[8][k]=M[k][8]=0
+    for k in range(8): M[8][n-1-k]=0; M[n-1-k][8]=0
+    M[n-8][8]=1                                        # the dark module — after the format-area reservation
+    if v>=7:
+        vi=_QR_VINFO[v]
+        for k in range(18): r,c=k//3,k%3; bit=(vi>>k)&1; M[r][n-11+c]=bit; M[n-11+c][r]=bit
+    data=bits_iter=iter("".join(format(x,"08b") for x in out))
+    col=n-1; up=True
+    while col>0:
+        if col==6: col-=1
+        rng=range(n-1,-1,-1) if up else range(n)
+        for r in rng:
+            for c in (col,col-1):
+                if M[r][c] is None:
+                    bit=int(next(bits_iter,"0")); M[r][c]=bit^(1 if (r+c)%2==0 else 0)
+        col-=2; up=not up
+    f=_QR_FMT_L0; fb=[(f>>(14-k))&1 for k in range(15)]
+    pos1=[(8,0),(8,1),(8,2),(8,3),(8,4),(8,5),(8,7),(8,8),(7,8),(5,8),(4,8),(3,8),(2,8),(1,8),(0,8)]
+    for k,(r,c) in enumerate(pos1): M[r][c]=fb[k]
+    pos2=[(n-1,8),(n-2,8),(n-3,8),(n-4,8),(n-5,8),(n-6,8),(n-7,8),(8,n-8),(8,n-7),(8,n-6),(8,n-5),(8,n-4),(8,n-3),(8,n-2),(8,n-1)]
+    for k,(r,c) in enumerate(pos2): M[r][c]=fb[k]
+    return M
+def qr_text(text,quiet=2):
+    M=qr_matrix(text); n=len(M); rows=[[0]*(n+2*quiet) for _ in range(quiet)]+[[0]*quiet+r+[0]*quiet for r in M]+[[0]*(n+2*quiet) for _ in range(quiet)]
+    if len(rows)%2: rows.append([0]*(n+2*quiet))
+    out=[]
+    for i in range(0,len(rows),2):
+        out.append("".join({(0,0):" ",(1,0):"▀",(0,1):"▄",(1,1):"█"}[(rows[i][k],rows[i+1][k])] for k in range(len(rows[0]))))
+    return "\n".join(out)
+
+# ══ PAIR: phone ↔ this computer. The Mac/PC runs `ai pair`; the phone (iPhone included) scans the QR and gets
+# the panel with a token. Your hardware, your network — no server of ours. Tailscale preferred (encrypted,
+# works outside home); plain LAN http otherwise (same Wi-Fi only; say so).
+def _lan_ip():
+    import socket
+    try:
+        sk=socket.socket(socket.AF_INET,socket.SOCK_DGRAM); sk.connect(("10.255.255.255",1)); ip=sk.getsockname()[0]; sk.close(); return ip
+    except Exception: return ""
+def _tailscale_ip():
+    if not shutil.which("tailscale"): return ""
+    try: return (subprocess.run(["tailscale","ip","-4"],capture_output=True,text=True,timeout=3).stdout.strip().split() or [""])[0]
+    except Exception: return ""
+def pair_url(host,port,token): return f"http://{host}:{port}/?t={token}"
+def pair(argv):
+    import secrets
+    port=int(next((a for a in argv if a.isdigit()),os.environ.get("AI_SERVE_PORT","8765")))
+    lan="--lan" in argv; ts=_tailscale_ip(); ip=(ts if ts and not lan else "") or _lan_ip()
+    if not ip: print("[pair] koi network address nahi mila — Wi-Fi/Tailscale on karo."); return 1
+    tok=os.environ.get("AI_SERVE_TOKEN","")
+    if not tok: tok=secrets.token_urlsafe(18); _upsert_env("AI_SERVE_TOKEN",tok); print("[pair] naya token bana ke ~/.ai-env me rakha (AI_SERVE_TOKEN) — dobara pair karna ho to wahi chalega")
+    os.environ["AI_SERVE_HOST"]=ip; url=pair_url(ip,port,tok)
+    print(f"\n[pair] phone ke camera se scan karo ({'Tailscale — encrypted, kahin se bhi' if ip==ts and ts else 'same Wi-Fi only — LAN http encrypted nahi hai; bahar se chahiye to Tailscale'}):\n")
+    print(qr_text(url)); print(f"\n  {url}\n")
+    print("  iPhone: Safari me khula → Share → 'Add to Home Screen' = app jaisa icon.  Android: Chrome → Install app.")
+    if sys.platform=="darwin": print("  Mac ka lid band = server band. Chalu rakhne ko:  caffeinate -i ai pair")
+    print("  Rokna: Ctrl-C. Token badalna: ai keys rm AI_SERVE_TOKEN, phir ai pair.\n")
+    return serve(port)
 HELP="""commands — everything is optional, plain text just talks to the best brain.
  BRAIN   /auto /online /local · /ask <brain> <q> · /panel %s · /model <name> · /route <q> · /why · /metrics [reset]
  ANSWER  /short · /json <q> · /clear · /save · /mode
@@ -3017,6 +3141,7 @@ HELP="""commands — everything is optional, plain text just talks to the best b
  EXPERTS /agents · /agent auto <task>  (naam yaad na ho to khud chunta hai) · /agent <name> <task> · /group
  SYSTEM  /attach <file> · /run <cmd> · /explain · /serve [port] · /device · /net [off|on] · /canary · /embed <text> · /privacy [on|off|<text>]
  SELF    /version · /capabilities (ye install abhi kya kar sakta hai) · /update · /setup · /keys [NAME|rm NAME] · /attach <file|png|pdf> · ai daemon [--once]
+ PAIR    ai pair [port] [--lan]  — QR se phone (iPhone bhi) is computer ke 'ai' se jud jaata hai; tera hardware, tera network
  COMMUNITY  ai telegram [--once]  (helper bot for your group: /install /faq /feedback — fail-closed allowlist)  ·  ai announce <text>
  EXIT    /quit
  the DO ladder never answers 'no': 1 provider -> 2 keyless builtin -> 3 recipe -> 4 brain -> 5 forge the tool."""
@@ -3622,6 +3747,7 @@ def main():
         if sys.argv[1] in ("update","setup"): return run_self_cmd(sys.argv[1])
         if sys.argv[1]=="daemon": return daemon(st,sys.argv[2:])
         if sys.argv[1]=="telegram": return telegram(st,sys.argv[2:])
+        if sys.argv[1]=="pair": return pair(sys.argv[2:])
         if sys.argv[1]=="announce": return announce(" ".join(sys.argv[2:]))
         if sys.argv[1]=="capabilities": print(capabilities()); return
         if sys.argv[1]=="keys": return keys_cmd(" ".join(sys.argv[2:]))
