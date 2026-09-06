@@ -160,12 +160,20 @@ $srcDir = $null
 if ($PSScriptRoot -and (Test-Path (Join-Path $PSScriptRoot "ai.py"))) { $srcDir = $PSScriptRoot }
 else {
   $zip = Join-Path $env:TEMP "aasmaan.zip"; $ex = Join-Path $env:TEMP "aasmaan-src"
-  $url = "https://github.com/$Repo/archive/refs/heads/$Branch.zip"
-  Write-Host "  download: $url"
-  Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
+  $url = "https://github.com/$Repo/archive/refs/heads/$Branch.zip"; $raw = "https://raw.githubusercontent.com/$Repo/$Branch"
   if (Test-Path $ex) { Remove-Item -Recurse -Force $ex }
-  Expand-Archive -Path $zip -DestinationPath $ex -Force
-  $srcDir = (Get-ChildItem $ex -Directory | Select-Object -First 1).FullName
+  Write-Host "  download: $url"
+  try { Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing; Expand-Archive -Path $zip -DestinationPath $ex -Force
+        $srcDir = (Get-ChildItem $ex -Directory | Select-Object -First 1).FullName }
+  catch {
+    # zip blocked (some proxies block github.com archives, not raw): raw per-file via FILES.txt
+    Write-Host "  (zip blocked — raw files ek-ek karke)"
+    $list = (Invoke-WebRequest -Uri "$raw/FILES.txt" -UseBasicParsing).Content -split "`n" | Where-Object { $_.Trim() -ne "" }
+    $srcDir = Join-Path $ex "raw"; New-Item -ItemType Directory -Force -Path $srcDir | Out-Null
+    foreach ($f in $list) { $f = $f.Trim(); $dst = Join-Path $srcDir $f; New-Item -ItemType Directory -Force -Path (Split-Path $dst) | Out-Null
+      Invoke-WebRequest -Uri "$raw/$f" -OutFile $dst -UseBasicParsing }
+    Write-Host ("  {0} files" -f $list.Count)
+  }
 }
 Copy-Item (Join-Path $srcDir "ai.py") (Join-Path $App "ai.py") -Force; Mf (Join-Path $App "ai.py")
 foreach ($f in @("experts.json","tools-routing.json","panel.html","whiteboard.html","VERSION","README.md","LICENSE","install.ps1")) { $s = Join-Path $srcDir $f; if (Test-Path $s) { Copy-Item $s (Join-Path $App $f) -Force; Mf (Join-Path $App $f) } }
