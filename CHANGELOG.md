@@ -4,6 +4,42 @@ Every published version is a line in `VERSION` (`date sha repo`). Installed copi
 
 Changes ship as **impact radii**: one commit per concern, each entry names what it touched and what it deliberately did not, so a fix in one place cannot quietly break another. (How this works: CONTRIBUTING.md → "How changes ship".)
 
+## 2026-09-06 · radius 17 — the login catalogue is vetted, not guessed
+
+The research pass (khoji, `C-login-connectors.md` in the monorepo) checked every login connector against its own repo, docs and LICENSE file. Corrections landed as data:
+
+- **Notion:** the official server takes `NOTION_TOKEN` directly (no header JSON); verify = `API-get-self`; a 403 means the page was never connected to the integration (the common miss), now named in the fix table.
+- **Gmail:** the real env names are `MCP_EMAIL_SERVER_EMAIL_ADDRESS` / `MCP_EMAIL_SERVER_PASSWORD` (mapped from the values you type); Gmail needs no host settings; "Invalid credentials" with the real password is expected once 2-Step is on.
+- **Todoist:** package corrected to `@ecfaria/todoist-mcp-server` (MIT confirmed three ways) with an honest warning: one-author, zero-review repo — built-in `/list` or a forged 40-line REST wrapper are the cautious paths.
+- **Google Calendar:** `access_blocked` → add yourself as a test user; Termux gets the browser-hop recipe (termux-api, or paste the printed localhost URL — loopback works on the same device).
+- **GitHub:** Termux has no Docker — the Go build line is printed instead.
+- **Home Assistant:** the official built-in "Model Context Protocol Server" integration (Apache-2.0, HA core) replaces the third-party repo; Bearer token over streamable HTTP; endpoint path still unverified by a run.
+- **Spotify** joins as a guided entry (own loopback OAuth, MIT; playback needs Premium, search does not).
+- **Locked reasons are now the real ones:** Canva = remote OAuth 2.1 + dynamic client registration the client itself would have to speak (a generic bridge, `mcp-remote`, is under vetting); Google Photos = the only server claims MIT in its README but ships no LICENSE file, and Google removed library-read scopes in 2025.
+- Cards print a `vet:` line (what was checked, when, and that we have not yet run it end to end) instead of a blanket "unverified".
+
+Touched: connectors.json, ai.py (`_setup_card` vet line; verify probe passes a query only to search-like tools), README, docs/FAQ.md.
+Not touched: setup/verify flow, MCP protocol code, keys, tests (117/117 unchanged).
+
+## 2026-09-06 · radius 16 — CI run #5: one pin, not the product, was Windows-blind
+
+`golden · windows` on run #5: 115/116, the only red was the pin "posix forged path has no .py suffix (Windows-only branch)" — it asserted posix behaviour while running on Windows, where `_forged_path` deliberately adds `.py` (Windows cannot exec a shebang-only file). The pin now expects `.py` exactly when `os.name == "nt"` and never otherwise, so it proves the branch on both platforms instead of failing on one. Install jobs and the other golden jobs were already green.
+
+Touched: tests/golden.py (one pin).
+Not touched: ai.py, installers, catalogue, docs.
+
+## 2026-09-06 · radius 15 — login connectors are options, guided and verified
+
+The owner overruled the "OAuth-only = locked" stance: a free service that needs your own account must stay an option — make the user aware, take their yes, guide the setup, then hand-hold the verification.
+
+- **`/mcp setup <name>`** (Notion, Google Calendar, GitHub, Gmail app-password, Todoist, Home Assistant): an awareness card (account needed, what leaves the device and to whom, free, who runs the login page, number of steps), nothing without a yes, numbered steps Enter by Enter (`q` stops, progress kept), tokens typed hidden into `~/.ai-env`, file paths checked, install hint printed (you run it), provider written, then **`/mcp verify`**: connect, list tools, one read-only call; a failure prints the matching fix from the catalogue instead of a stack.
+- **Credential isolation:** a connector's process receives the scrubbed environment plus ONLY the variables mapped for it (`env_map`); other keys never reach it. Pinned with a fake server that reports what it saw.
+- **`mcp_ready` says "login pending: X not set — /mcp setup name"** instead of a generic "not ready".
+- Catalogue: `login` blocks with steps/secrets/files/verify/fix per service; entries whose exact package or flag names come from documentation carry `unverified` and say so on the card (a research pass is confirming them). `locked` now holds only Canva, Google Photos and WhatsApp, each with its alternative and the reason.
+
+Touched: ai.py (`mcp_setup`, `mcp_verify`, `_env_for`, `MCPStdio(env=)`, `mcp_ready` message, find/add carry `env_map`+`name`, intent regex), connectors.json, tests/golden.py (+1 pin), README, docs/FAQ.md.
+Not touched: MCP protocol code, keys handling, hands, voice, language, experts.
+
 ## 2026-09-06 · radius 14 — the gate must be true on Windows too
 
 CI run #4 on the live repo: every install job green (the pipefail root cause was real), `golden · ubuntu/macos` green, `golden · windows` red. The test file, not the product, used POSIX-only pieces: `sleep`, `echo`, `cat` as process stand-ins, `os.kill(pid, 0)` as a liveness probe (on Windows that call would terminate the process), and a console that cannot print ✓/✗ in cp1252. Every pin now spawns the running Python interpreter instead, checks `poll()`, and stdout is forced to UTF-8. Behaviours pinned are unchanged (116/116). If `golden · windows` is still red after this, the failure is real and the step's last lines are the next thing to read.
