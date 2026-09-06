@@ -21,6 +21,12 @@ Brain jitna, utna. 16 GB RAM pe `qwen2.5-coder:7b` chhote functions, tracebacks,
 **Mera data kahan jaata hai?**
 Local brain: kahin nahi. Cloud brain (tumhari key): scrub ke baad us provider ko. Baaki sab `~/` me files. Poori list: [TRUST.md](TRUST.md).
 
+**Gmail / Notion / Sheets / Canva jod sakta hoon?**
+Jo bina browser-login ke chalte hain, haan: `/mcp find <naam>` ya bas likho "sheets ka connector chahiye" — catalogue batata hai kya device se bahar jaata hai, install line, aur exact `/mcp add` line. Notion, Canva, Google Calendar/Photos OAuth-only hain, unke liye `/mcp find notion` local raasta batata hai. Kuch na mile to `/mcp forge <ye kya kare>` ek chhota MCP server likh ke, scan karke, dikha ke jodta hai.
+
+**"Tuning" ka matlab yahan kya hai? Model train hota hai?**
+Nahi — weights kabhi nahi chhede jaate. Tuning = harness: model ke tier (1.7B phone vs cloud) ke hisaab se persona/KB/jawab ka budget, routing (kaun pehle, kab demote), seekhe hue examples (`/trace`), cache, aur `/plan` jo kaam ko steps me todta hai. `/tuning` sab knobs dikhata hai; `~/.ai-tuning.json` me sirf numbers badal sakte ho. `/usage` batata hai kitne tokens kahan gaye.
+
 **LM Studio / llama.cpp / koi aur local server hai — jud jayega?** 
 Haan: `ai connect http://localhost:1234` (LM Studio) — server ke models list hote hain, ek chun ke brain ban jaata hai; local address = raw text, `/net off` me bhi chalta hai. Ollama ke naye models apne aap dikhte hain (`/models`) aur khali roles (vision/embed) apne aap attach ho jaate hain. MCP server: `/mcp add`. Model weights kabhi nahi chhede jaate — "tuning" = routing, context, cache, seekhe hue examples.
 

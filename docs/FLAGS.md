@@ -31,6 +31,9 @@ Aasmaan is configured by environment variables (put them in `~/.ai-env` as `expo
 | `AI_REPO_SLUG` | from `VERSION` | slug for update-check + `/install` text (:2542) | — | **silent** — update check quietly dies |
 | `AI_SETUP_CMD` | `""`→update cmd | the command `/setup` runs (:2574) | pc-setup, install.ps1 | **loud, and dangerous — runs what you put** |
 | `AI_UPDATE_CHECK` | `1` | `0` disables the daily `VERSION` GET (:2581) | README, SECURITY, TRUST, ARCH | silent (only `"0"`) |
+| `AI_USE` | `chat` | installer's "mostly for?" (chat/code/content/study/business/family/private) — orders expert and connector suggestions only | README | silent (unknown = unset) |
+| `AI_TIER_OVERRIDE` | unset | force the tuning tier (tiny/small/mid/large/cloud) instead of reading it off the answering brain | FLAGS | silent (unknown = ignored) |
+| `~/.ai-tuning.json` | absent | numeric overrides for `TUNING` (per-tier budgets, routing thresholds); non-numbers and unknown keys are ignored and named at start | README | loud (named at start) |
 | `AI_OAI_URL` | unset | an OpenAI-compatible chat endpoint (base or `/v1/chat/completions`) → provider `custom`; loopback/private = local, else cloud | README | loud (ping fails, ladder moves on) |
 | `AI_OAI_MODEL` | unset | model id on that server (`ai connect` lists them) | README | loud |
 | `AI_OAI_KEY` | unset | bearer key for that server, if it wants one | README | loud (401) |

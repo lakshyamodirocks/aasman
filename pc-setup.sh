@@ -19,11 +19,11 @@ SELFDIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 #             (2) monorepo — fold-node/termux ke andar se.
 if [ -f "$SELFDIR/ai.py" ]; then
   SRC_AI="$SELFDIR/ai.py"; SRC_LIB="$SELFDIR/lib"; SRC_EXPERTS="$SELFDIR/experts.json"; SRC_PACKS="$SELFDIR/experts"
-  SRC_TOOLS="$SELFDIR/tools-routing.json"; SRC_PANEL="$SELFDIR/panel.html"; SRC_BOARD="$SELFDIR/whiteboard.html"
+  SRC_TOOLS="$SELFDIR/tools-routing.json"; SRC_PANEL="$SELFDIR/panel.html"; SRC_BOARD="$SELFDIR/whiteboard.html"; SRC_CONN="$SELFDIR/connectors.json"
 else
   ROOT="$(cd "$SELFDIR/../.." && pwd)"; TX="$ROOT/fold-node/termux"
   SRC_AI="$TX/ai-termux.py"; SRC_LIB="$TX/lib"; SRC_EXPERTS="$TX/experts.json"; SRC_PACKS="$TX/experts"
-  SRC_TOOLS="$ROOT/fold-node/tools-routing.json"; SRC_PANEL="$TX/panel.html"; SRC_BOARD="$ROOT/fold-node/akasha-whiteboard.html"
+  SRC_TOOLS="$ROOT/fold-node/tools-routing.json"; SRC_PANEL="$TX/panel.html"; SRC_BOARD="$ROOT/fold-node/akasha-whiteboard.html"; SRC_CONN="$ROOT/fold-node/connectors.json"
   [ -f "$ROOT/akasha-fold/lib/probe.sh" ] && PROBE="$ROOT/akasha-fold/lib/probe.sh"
 fi
 . "$SRC_LIB/ux.sh"; . "${PROBE:-$SRC_LIB/probe.sh}"
@@ -38,6 +38,14 @@ if [ -z "$AI_LANG" ] && [ "${AI_YES:-0}" != "1" ] && [ -r "${UX_TTY:-/dev/tty}" 
   case "$_l" in 2) AI_LANG=hinglish;; 3) AI_LANG=hi;; *) AI_LANG=en;; esac; export AI_LANG
 fi
 AI_LANG="${AI_LANG:-en}"; export UX_LANG="$AI_LANG"
+_pu="$(grep -m1 '^AI_USE=' "$PROF0" 2>/dev/null | cut -d= -f2)"; export AI_USE="${AI_USE:-${_pu:-}}"
+if [ -z "$AI_USE" ] && [ "${AI_YES:-0}" != "1" ] && [ -r "${UX_TTY:-/dev/tty}" ]; then
+  if [ "$AI_LANG" = en ]; then printf '\n  Mostly for?   [1] chat & thinking  [2] coding  [3] content  [4] study/research  [5] business/office  [6] family/home  [7] private/offline      Enter = chat\n  (only orders suggestions; nothing is locked)\n  > '
+  else printf '\n  Sabse zyada kis liye?   [1] chat/sochna  [2] coding  [3] content  [4] padhai/research  [5] business/office  [6] family/ghar  [7] private/offline      Enter = chat\n  (sirf suggestions ka order badalta hai; kuch lock nahi hota)\n  > '; fi
+  IFS= read -r _u <"${UX_TTY:-/dev/tty}" || _u=1
+  case "$_u" in 2) AI_USE=code;; 3) AI_USE=content;; 4) AI_USE=study;; 5) AI_USE=business;; 6) AI_USE=family;; 7) AI_USE=private;; *) AI_USE=chat;; esac; export AI_USE
+fi
+AI_USE="${AI_USE:-chat}"
 t(){ case "$1" in   # t <key> — stage titles in the chosen language (Hinglish is today's text; hi reads the same)
   machine) [ "$AI_LANG" = en ] && printf 'Your machine' || printf 'Teri machine';;
   machine.what) [ "$AI_LANG" = en ] && printf 'OS · RAM · GPU · Python · Ollama — only LOOKS, changes nothing' || printf 'OS · RAM · GPU · Python · Ollama — sirf DEKHTA hai, kuch badalta nahi';;
@@ -171,12 +179,13 @@ np=0; for d in "$SRC_PACKS"/*/; do e=$(basename "$d"); [ -f "$d/PERSONA.md" ] ||
   for f in "$d"/*.md; do put "$f" "$HOME/.ai-experts/$e/$(basename "$f")"; done; np=$((np+1)); done
 mf "$HOME/.ai-experts"; ok "$np expert packs (persona + KB) → ~/.ai-experts/"
 [ -f "$SRC_TOOLS" ] && put "$SRC_TOOLS" "$HOME/.ai-tools.json" && ok "tool router (~/.ai-tools.json)"
+[ -f "${SRC_CONN:-}" ] && put "$SRC_CONN" "$HOME/.ai-connectors.json" && ok "connector catalogue (~/.ai-connectors.json — /mcp find)"
 [ -f "$SRC_PANEL" ] && put "$SRC_PANEL" "$HOME/.ai-panel.html" && ok "web panel (ai serve)"
 [ -f "$SELFDIR/VERSION" ] && put "$SELFDIR/VERSION" "$BIN/VERSION"   # 'ai version' + update-check read it beside 'ai'
 [ -f "$SRC_BOARD" ] && put "$SRC_BOARD" "$HOME/.ai-whiteboard.html"
 [ -n "$MODEL" ] && { grep -q '^AI_LOCAL_MODEL=' "$HOME/.ai-setup-profile" 2>/dev/null || { printf 'AI_TIER=PC\nAI_LOCAL_MODEL=%s\nAI_LOCAL_CTX=16384\n' "$MODEL" > "$HOME/.ai-setup-profile"; mf "$HOME/.ai-setup-profile"; }; }
 # /setup inside 'ai' re-runs THIS script; /update re-fetches from the repo. Recorded, not guessed.
-PROF="$HOME/.ai-setup-profile"; touch "$PROF"; grep -v '^AI_SETUP_CMD=\|^AI_LANG=' "$PROF" > "$PROF.tmp" 2>/dev/null; printf 'AI_SETUP_CMD=bash %q\nAI_LANG=%s\n' "$SELFDIR/pc-setup.sh" "$AI_LANG" >> "$PROF.tmp"; mv "$PROF.tmp" "$PROF"; mf "$PROF"
+PROF="$HOME/.ai-setup-profile"; touch "$PROF"; grep -v '^AI_SETUP_CMD=\|^AI_LANG=\|^AI_USE=' "$PROF" > "$PROF.tmp" 2>/dev/null; printf 'AI_SETUP_CMD=bash %q\nAI_LANG=%s\nAI_USE=%s\n' "$SELFDIR/pc-setup.sh" "$AI_LANG" "$AI_USE" >> "$PROF.tmp"; mv "$PROF.tmp" "$PROF"; mf "$PROF"
 
 # ── stage 4: keys — jo env me pehle se hain unhe REUSE, naye 0600 file me ────
 stage "$(t keys)" "$(t keys.what)" \

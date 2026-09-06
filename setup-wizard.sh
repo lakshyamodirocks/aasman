@@ -319,6 +319,7 @@ s_write(){
 # akasha setup profile — $(date -u +%FT%TZ) · wizard v2
 # Installer ise padh ke chalta hai. Haath se badal sakte ho, ya:  bash setup-wizard.sh
 AI_LANG=$LANGC
+AI_USE=$(case $INTENT in 2) echo private;; 3) echo content;; *) echo chat;; esac)
 AI_TIER=$tn
 AI_LOCAL_MODEL=$(bf "$BRAIN" 2)
 AI_LOCAL_CTX=$ctxv
