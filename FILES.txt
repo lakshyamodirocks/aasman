@@ -1,7 +1,10 @@
 LICENSE
 README.md
+SCRIPTING-101.md
 VERSION
 ai.py
+cleanup.sh
+disk-doctor.sh
 experts.json
 experts/alankar/KB.md
 experts/alankar/PERSONA.md
@@ -39,11 +42,15 @@ experts/vipanan/KB.md
 experts/vipanan/PERSONA.md
 experts/vyuh/KB.md
 experts/vyuh/PERSONA.md
+find-tokens.sh
+fold-all-setup.sh
 install.ps1
 install.sh
 lib/probe.sh
 lib/ux.sh
 panel.html
 pc-setup.sh
+setup-menu.sh
+setup-wizard.sh
 tools-routing.json
 whiteboard.html
