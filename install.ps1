@@ -1,4 +1,4 @@
-# ═══════════════════════════════════════════════════════════════
+﻿# ═══════════════════════════════════════════════════════════════
 #  AASMAAN · PC edition · Windows installer (native, no WSL, no admin)
 #
 #  Ek command (PowerShell, normal user, koi admin nahi):
@@ -15,7 +15,11 @@
 #  PowerShell 5.1 (Windows 10/11 default) compatible rakha hai: koi ?? / ternary / pwsh-7 syntax nahi.
 # ═══════════════════════════════════════════════════════════════
 $ErrorActionPreference = "Stop"
-$Repo   = if ($env:AI_lakshyamodirocks/aasman) { $env:AI_lakshyamodirocks/aasman } else { "lakshyamodirocks/aasman" }   # owner/name — build-dist.sh isse bharta hai (AI_REPO = a PATH inside ai.py, alag cheez)
+try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch {}   # PS 5.1 on old Win10: downloads need TLS 1.2
+try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch {}                                                                             # ✓ ⚠ → in a cp437 console
+if (Test-Path variable:PSNativeCommandUseErrorActionPreference) { $PSNativeCommandUseErrorActionPreference = $false }                       # pwsh 7.4: a native non-zero exit is not a throw
+function Native([scriptblock]$sb) { $old = $ErrorActionPreference; $ErrorActionPreference = "Continue"; try { & $sb } finally { $ErrorActionPreference = $old } }
+$Repo   = if ($env:AASMAAN_REPO) { $env:AASMAAN_REPO } else { "lakshyamodirocks/aasman" }   # owner/name — build-dist.sh substitutes the literal lakshyamodirocks/aasman only
 $Branch = if ($env:AI_BRANCH) { $env:AI_BRANCH } else { "main" }
 $Auto   = ($env:AI_YES -eq "1")
 $Base   = Join-Path $env:LOCALAPPDATA "Aasmaan"
@@ -55,14 +59,15 @@ function Ok([string]$m)   { Write-Host "    ✓ $m" -ForegroundColor Green }
 function Warn([string]$m) { Write-Host "    ⚠ $m" -ForegroundColor Yellow }
 function Mf([string]$p)   { New-Item -ItemType Directory -Force -Path $Base | Out-Null
   if (-not (Test-Path $Manifest) -or -not ((Get-Content $Manifest) -contains $p)) { Add-Content -Path $Manifest -Value $p } }
-function RefreshPath { $env:Path = [Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Environment]::GetEnvironmentVariable("Path","User") }
+function RefreshPath { $env:Path = ([Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Environment]::GetEnvironmentVariable("Path","User") + ";" + $env:Path) }
 function FindPython {
   # 'py' launcher pehle (python.org installer deta hai). 'python' naam Microsoft Store ka stub bhi ho sakta hai jo Store kholta hai — use WindowsApps path se pehchan ke skip karo.
   foreach ($c in @(@("py","-3"), @("python"), @("python3"))) {
     $cmd = Get-Command $c[0] -ErrorAction SilentlyContinue
     if (-not $cmd) { continue }
     if ($cmd.Source -like "*WindowsApps*") { continue }
-    try { $v = & $c[0] $c[1..($c.Length-1)] -c "import sys;print('%d.%d'%sys.version_info[:2])" 2>$null
+    $extra = if ($c.Length -gt 1) { @($c[1..($c.Length-1)]) } else { @() }     # PS range 1..0 would yield (null,$c[0]) — never slice a 1-element array
+    try { $v = & $c[0] @extra -c "import sys;print('%d.%d'%sys.version_info[:2])" 2>$null
           if ($v -match '^3\.(8|9|1\d)$' -or $v -match '^3\.[2-9]\d') { return @{ Exe = $c; Ver = $v } } } catch {}
   }
   return $null
@@ -75,11 +80,11 @@ if ($env:AI_UNINSTALL -eq "1") {
   Write-Host "  ye hatega (sirf ye — tere Ollama models, keys-file, vault NAHI):"; Get-Content $Manifest | ForEach-Object { "    $_" }
   Write-Host "  $Home_\.ai-env (keys) aur $Home_\ai-vault (memory) rakhe jaate hain — hataane ho to khud."
   if (-not $Auto) { $r = Read-Host "  [Enter] hatao   [q] rehne do"; if ($r -eq "q") { exit 0 } }
-  if ((Get-Content $Manifest) -contains "task:Aasmaan-daemon") { & schtasks /Delete /TN "Aasmaan-daemon" /F | Out-Null; Write-Host "  - Task Scheduler: Aasmaan-daemon removed" }
+  if ((Get-Content $Manifest) -contains "task:Aasmaan-daemon") { Native { & schtasks /Delete /TN "Aasmaan-daemon" /F 2>&1 | Out-Null }; Write-Host "  - Task Scheduler: Aasmaan-daemon removed" }
   foreach ($p in Get-Content $Manifest) { if (($p -like "$Home_*" -or $p -like "$Base*") -and (Test-Path $p)) { Remove-Item -Recurse -Force $p; Write-Host "  - $p" } }
   $up = [Environment]::GetEnvironmentVariable("Path","User")
-  if ($up -and $up.Split(";") -contains $BinDir) { [Environment]::SetEnvironmentVariable("Path", (($up.Split(";") | Where-Object { $_ -ne $BinDir }) -join ";"), "User"); Write-Host "  - PATH entry ($BinDir) removed" }
-  $rt = @(".ai-daemon.json",".ai-update.json",".ai-chat.json",".ai-cache.jsonl",".ai-device.json",".ai-metrics.json",".ai-kb.jsonl",".ai-brains.json",".ai-jobs.json",".ai-tasks.json",".ai-traces.jsonl",".ai-wishes.jsonl",".ai-feedback.jsonl",".ai-corpus.jsonl",".ai-profile",".ai-private-names") | ForEach-Object { Join-Path $Home_ $_ } | Where-Object { Test-Path $_ }
+  if ($up -and $up.Split(";") -contains $BinDir) { Set-ItemProperty -Path "HKCU:\Environment" -Name Path -Value (($up.Split(";") | Where-Object { $_ -ne $BinDir }) -join ";") -Type ExpandString; Write-Host "  - PATH entry ($BinDir) removed" }
+  $rt = @(".ai-daemon.json",".ai-update.json",".ai-egress.log",".ai-first-cloud",".ai-telegram.json",".ai-chat.json",".ai-cache.jsonl",".ai-device.json",".ai-metrics.json",".ai-kb.jsonl",".ai-brains.json",".ai-jobs.json",".ai-tasks.json",".ai-traces.jsonl",".ai-wishes.jsonl",".ai-feedback.jsonl",".ai-corpus.jsonl",".ai-profile",".ai-private-names") | ForEach-Object { Join-Path $Home_ $_ } | Where-Object { Test-Path $_ }
   if ($rt) { Write-Host "  'ai' ki runtime files (chat state, cache — koi key/memory nahi):"; $rt | ForEach-Object { "    $_" }
     $r = if ($Auto) { "" } else { Read-Host "  [Enter] ye bhi hatao   [k] rakho" }
     if ($r -ne "k") { $rt | ForEach-Object { Remove-Item -Force $_ }; Write-Host "  - runtime files removed" } }
@@ -95,7 +100,7 @@ $ram = [int]((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1MB)
 $freeDisk = [int]((Get-PSDrive -Name $Home_.Substring(0,1)).Free / 1MB)
 $gpu = (Get-CimInstance Win32_VideoController | Select-Object -First 1).Name
 $vram = 0
-if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) { try { $vram = [int](& nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>$null | Select-Object -First 1) } catch {} }
+if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) { try { $vram = [int](Native { & nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>$null | Select-Object -First 1 }) } catch {} }
 $py = FindPython
 $oll = Get-Command ollama -ErrorAction SilentlyContinue; $ollUp = $false; $ollModels = ""
 try { $t = Invoke-RestMethod -Uri "http://127.0.0.1:11434/api/tags" -TimeoutSec 2; $ollUp = $true; $ollModels = ($t.models | ForEach-Object { $_.name }) -join " " } catch {}
@@ -111,7 +116,7 @@ if (-not $py) {
   if (StageOpt "Python 3 chahiye" "Official Python (python.org) winget se, sirf tere user ke liye — admin nahi" "Command: winget install -e --id Python.Python.3.12 --scope user. Ye Microsoft ka package manager hai, Windows 10/11 me built-in. Kuch aur nahi chhedta.") {
     if (-not (Get-Command winget -ErrorAction SilentlyContinue)) { Warn "winget nahi mila. Python yahan se lo: https://www.python.org/downloads/windows/  ('Add python.exe to PATH' tick karo), phir dobara."; exit 1 }
     Write-Host "  chal raha hai:  winget install -e --id Python.Python.3.12 --scope user"
-    & winget install -e --id Python.Python.3.12 --scope user --accept-package-agreements --accept-source-agreements
+    Native { & winget install -e --id Python.Python.3.12 --scope user --accept-package-agreements --accept-source-agreements }
     RefreshPath; $py = FindPython
     if (-not $py) { Warn "Python install ke baad bhi nahi dikha — ye PowerShell band karke nayi kholo, phir wahi command dobara."; exit 1 }
     Ok "Python $($py.Ver)"
@@ -138,7 +143,7 @@ if (StageOpt "Local brain (Ollama)" $what "Ollama tere user folder me install ho
     Write-Host "     2) https://ollama.com/download/windows  (OllamaSetup.exe)"
     $r = if ($Auto) { "s" } else { Read-Host "  [Enter] winget wala chalao   [s] khud karunga" }
     if ($r -ne "s") {
-      if (Get-Command winget -ErrorAction SilentlyContinue) { & winget install -e --id Ollama.Ollama --accept-package-agreements --accept-source-agreements; RefreshPath; $oll = Get-Command ollama -ErrorAction SilentlyContinue }
+      if (Get-Command winget -ErrorAction SilentlyContinue) { Native { & winget install -e --id Ollama.Ollama --accept-package-agreements --accept-source-agreements }; RefreshPath; $oll = Get-Command ollama -ErrorAction SilentlyContinue }
       else { Warn "winget nahi — link 2 se install karo, phir dobara chalao." }
     }
     if ($oll) { Ok "ollama mil gaya. Model pull ke liye ye script dobara chalao (ya khud:  ollama pull $model)" }
@@ -148,7 +153,7 @@ if (StageOpt "Local brain (Ollama)" $what "Ollama tere user folder me install ho
     else {
       Write-Host "  pull hoga: $model  (disk free: $freeDisk MB). Tere baaki models ko chhua nahi jayega."
       $r = if ($Auto) { "s" } else { Read-Host "  [Enter] pull   [s] skip" }
-      if ($r -ne "s") { & ollama pull $model }
+      if ($r -ne "s") { Native { & ollama pull $model } }
     }
   }
 }
@@ -181,6 +186,7 @@ Copy-Item (Join-Path $srcDir "experts.json") (Join-Path $Home_ ".ai-experts.json
 if (Test-Path (Join-Path $srcDir "tools-routing.json")) { Copy-Item (Join-Path $srcDir "tools-routing.json") (Join-Path $Home_ ".ai-tools.json") -Force; Mf (Join-Path $Home_ ".ai-tools.json") }
 if (Test-Path (Join-Path $srcDir "panel.html")) { Copy-Item (Join-Path $srcDir "panel.html") (Join-Path $Home_ ".ai-panel.html") -Force; Mf (Join-Path $Home_ ".ai-panel.html") }
 $packs = 0; $pk = Join-Path $Home_ ".ai-experts"
+foreach ($d in @("experts","lib","docs")) { $sd = Join-Path $srcDir $d; if (Test-Path $sd) { Copy-Item $sd (Join-Path $App $d) -Recurse -Force; Mf (Join-Path $App $d) } }
 Get-ChildItem (Join-Path $srcDir "experts") -Directory | ForEach-Object { $d = Join-Path $pk $_.Name; New-Item -ItemType Directory -Force -Path $d | Out-Null; Copy-Item (Join-Path $_.FullName "*.md") $d -Force; $packs++ }
 Mf $pk
 $pyCmd = ($py.Exe -join " ")
@@ -198,14 +204,14 @@ Ok "18 experts · $packs packs (persona + KB)"
 Stage "Cloud brains (free keys)" "Groq · Cerebras · Gemini · OpenRouter — sab optional, sab free tier; blank + Enter = skip" "Keys $Home_\.ai-env me — sirf tera user padh sakta hai (icacls). 'ai' khud padhta hai; koi system env var nahi banta." | Out-Null
 $envf = Join-Path $Home_ ".ai-env"
 if (-not (Test-Path $envf)) { New-Item -ItemType File -Path $envf | Out-Null }
-& icacls $envf /inheritance:r /grant:r "$($env:USERNAME):(R,W)" | Out-Null
+Native { & icacls $envf /inheritance:r /grant:r "$($env:USERNAME):(R,W)" 2>&1 | Out-Null }
 function SetKey([string]$var, [string]$what, [string]$url) {
   if ([Environment]::GetEnvironmentVariable($var)) { Ok "$var tere env me pehle se hai — wahi use hoga"; return }
   if ((Get-Content $envf) -match "^export $var=") { Ok "$var .ai-env me hai"; return }
   if ($Auto) { return }
   $sec = Read-Host "  $what ($url) — blank = skip" -AsSecureString
   $val = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec))
-  if ($val) { Add-Content -Path $envf -Value "export $var=$val"; Ok "$var saved" }
+  if ($val) { [IO.File]::AppendAllText($envf, "export $var=$val`n", (New-Object Text.UTF8Encoding($false))); Ok "$var saved" }
 }
 SetKey "GROQ_API_KEY" "Groq (fast, free)" "console.groq.com"
 SetKey "CEREBRAS_API_KEY" "Cerebras (fast, free)" "cloud.cerebras.ai"
@@ -215,7 +221,7 @@ SetKey "OPENROUTER_API_KEY" "OpenRouter (free models)" "openrouter.ai/keys"
 # ── stage 6: daemon (optional) — Task Scheduler, logon pe, sirf tera user ────
 if (StageOpt "Daemon (optional)" "har 30 min: update-check · brains ping · pending wishes · vault re-index → ~\.ai-daemon.json" "Windows Task Scheduler me ek logon task (sirf tera user, admin nahi). Unattended = koi forge/shell nahi (code me gate). Uninstall hata deta hai. Skip karo to 'ai daemon' haath se chalta hai. [Windows pe abhi untested]") {
   $tr = "`"$($py.Exe[0])`" " + $(if ($py.Exe.Length -gt 1) { ($py.Exe[1..($py.Exe.Length-1)] -join " ") + " " } else { "" }) + "`"$App\ai.py`" daemon --interval=30"
-  & schtasks /Create /TN "Aasmaan-daemon" /SC ONLOGON /TR $tr /F | Out-Null
+  Native { & schtasks /Create /TN "Aasmaan-daemon" /SC ONLOGON /TR $tr /F 2>&1 | Out-Null }
   if ($LASTEXITCODE -eq 0) { Ok "Task Scheduler: Aasmaan-daemon (logon)"; Mf "task:Aasmaan-daemon" } else { Warn "schtasks fail — haath se: ai daemon" }
 }
 
@@ -225,14 +231,17 @@ $up = [Environment]::GetEnvironmentVariable("Path","User")
 if ($up -and ($up.Split(";") -contains $BinDir)) { Ok "PATH me pehle se hai" }
 else {
   $r = if ($Auto) { "" } else { Read-Host "  [Enter] PATH me jodo   [n] nahi, poore path se chalaunga" }
-  if ($r -ne "n") { [Environment]::SetEnvironmentVariable("Path", ($(if ($up) { "$up;" } else { "" }) + $BinDir), "User"); RefreshPath; Ok "PATH me juda (nayi PowerShell/CMD window me 'ai' chalega)" }
+  if ($r -ne "n") { $newPath = ($(if ($up) { "$up;" } else { "" }) + $BinDir); Set-ItemProperty -Path "HKCU:\Environment" -Name Path -Value $newPath -Type ExpandString; $env:Path += ";$BinDir"; Ok "PATH me juda (nayi PowerShell/CMD window me 'ai' chalega)" }
   else { Warn "theek hai — chalao:  $BinDir\ai.cmd" }
 }
-& $py.Exe[0] $py.Exe[1..($py.Exe.Length-1)] -m py_compile (Join-Path $App "ai.py"); Ok "ai.py compiles on Python $($py.Ver)"
+function PyRun { $extra = if ($py.Exe.Length -gt 1) { @($py.Exe[1..($py.Exe.Length-1)]) } else { @() }; & $py.Exe[0] @extra @args }
+PyRun -m py_compile (Join-Path $App "ai.py"); Ok "ai.py compiles on Python $($py.Ver)"
 $env:AI_FORCE_OFFLINE = "1"
-& $py.Exe[0] $py.Exe[1..($py.Exe.Length-1)] (Join-Path $App "ai.py") version 2>&1 | ForEach-Object { "    $_" }
-$out = "/agents`n/quit`n" | & $py.Exe[0] $py.Exe[1..($py.Exe.Length-1)] (Join-Path $App "ai.py") 2>&1 | Out-String
-$n = ([regex]::Matches(($out -split "`n" | Where-Object { $_ -match "agents:" }), "[a-z]+\*")).Count
+PyRun (Join-Path $App "ai.py") version 2>&1 | ForEach-Object { "    $_" }
+$pyExtra = if ($py.Exe.Length -gt 1) { @($py.Exe[1..($py.Exe.Length-1)]) } else { @() }
+$out = ("/agents`n/quit`n" | & $py.Exe[0] @pyExtra (Join-Path $App "ai.py") 2>&1 | Out-String -Width 4096)
+$agentsLine = [string](($out -split "`n" | Where-Object { $_ -match "agents:" } | Select-Object -First 1))
+$n = if ($agentsLine) { ([regex]::Matches($agentsLine, "[a-z]+\*")).Count } else { 0 }
 Remove-Item Env:AI_FORCE_OFFLINE
 if ($n -ge 18) { Ok "$n/18 expert packs load hote hain (offline, bina brain ke)" } else { Warn "packs load nahi hue ($n/18) — 'ai' me /agents chala ke dekho. Output:`n$out" }
 Write-Host ""; Write-Host "  ✅ Aasmaan ready" -ForegroundColor Green

@@ -12,7 +12,8 @@
 #  Termux: pehle  pkg install -y curl python  (Termux F-Droid se, Play Store wala purana/toota hai).
 # ═══════════════════════════════════════════════════════════════
 set -u
-REPO="${AI_lakshyamodirocks/aasman:-lakshyamodirocks/aasman}"; BRANCH="${AI_BRANCH:-main}"
+BRANCH="${AI_BRANCH:-main}"
+REPO="${AASMAAN_REPO:-lakshyamodirocks/aasman}"   # AASMAAN_REPO: build-dist substitutes the literal lakshyamodirocks/aasman only — nothing else on this line
 DEST="${AI_APP_DIR:-$HOME/.local/share/aasmaan/app}"
 c(){ printf '\033[%sm%s\033[0m\n' "$1" "$2"; }
 c 36 "  AASMAAN · PC edition — bootstrap ($REPO@$BRANCH)"

@@ -173,16 +173,69 @@ def _load_env():
     (we never overwrite one already set)."""
     for fn in ("~/.ai-env","~/.ai-setup-profile"):
         try:
-            for line in open(os.path.expanduser(fn),encoding="utf-8"):
+            for line in open(os.path.expanduser(fn),encoding="utf-8",errors="replace"):   # a stray byte from a Windows editor must not kill every launch
                 line=line.strip()
                 if not line or line.startswith("#"): continue
                 if line.startswith("export "): line=line[7:]
                 if "=" not in line: continue
                 k,_,v=line.partition("="); k=k.strip()
-                v=v.strip().strip('"').strip("'")
+                v=v.strip()
+                if len(v)>=2 and v[0]==v[-1] and v[0] in "\"'": v=v[1:-1]     # strip only a MATCHED pair — never a trailing quote alone
                 if k and k not in os.environ: os.environ[k]=v
         except OSError: pass
 _load_env()
+# ── TRUST INVARIANT: keys never reach a child process. _load_env puts them in os.environ so the
+# providers can read them; every subprocess (forged tools, /run, ffmpeg, pdftotext, tailscale…) gets a
+# SCRUBBED copy instead. Wrapping the four subprocess entry points once covers all 15+ call sites and
+# any future one. A caller that passes env= explicitly is left alone.
+_SECRET_RX=re.compile(r"(_API_KEY|_TOKEN|_SECRET|_WEBHOOK_URL|_PASSWORD)$|^(FAL_KEY|AI_SERVE_TOKEN|TELEGRAM_BOT_TOKEN|DISCORD_WEBHOOK_URL)$")
+def _child_env(base=None):
+    return {k:v for k,v in (base or os.environ).items() if not _SECRET_RX.search(k)}
+def _wrap_subprocess():
+    import subprocess as _sp
+    for name in ("run","Popen","check_output","call","check_call"):
+        orig=getattr(_sp,name)
+        def mk(orig):
+            def w(*a,**k):
+                if "env" not in k: k["env"]=_child_env()
+                return orig(*a,**k)
+            w.__name__=orig.__name__; w.__doc__=orig.__doc__; return w
+        setattr(_sp,name,mk(orig))
+_wrap_subprocess()
+# ── TRUST INVARIANT #7: a readable EGRESS LOG. Every outbound HTTP call this program makes lands in
+# ~/.ai-egress.log as one line: time · local/cloud · method · host/path · bytes out. Never the query
+# string (it can carry a token), never the body (it can carry your text). `/egress` shows it. Opt out
+# only by editing the code — it is the "we don't phone home" claim, made checkable.
+EGRESS_LOG=os.path.expanduser("~/.ai-egress.log")
+def _egress_line(url,method="GET",nbytes=0):
+    try:
+        u=urllib.parse.urlsplit(url); host=u.hostname or "?"
+        local=host in ("127.0.0.1","localhost","::1") or host.startswith("100.") and host.split(".")[1].isdigit() and 64<=int(host.split(".")[1])<=127
+        return f"{time.strftime('%Y-%m-%d %H:%M:%S')} {'local' if local else 'CLOUD'} {method:4s} {u.scheme}://{host}{u.path or '/'} out={nbytes}B"
+    except Exception: return ""
+def _egress_note(url,method="GET",nbytes=0):
+    line=_egress_line(url,method,nbytes)
+    if not line: return
+    try:
+        with open(EGRESS_LOG,"a",encoding="utf-8") as f: f.write(line+"\n")
+    except OSError: pass
+def _wrap_urlopen():
+    import urllib.request as _ur
+    orig=_ur.urlopen
+    def w(req,*a,**k):
+        try:
+            if isinstance(req,str): _egress_note(req,"GET",0)
+            else: _egress_note(req.full_url,req.get_method(),len(req.data) if getattr(req,"data",None) else 0)
+        except Exception: pass
+        return orig(req,*a,**k)
+    _ur.urlopen=w
+_wrap_urlopen()
+def egress_report(n=20):
+    try: lines=open(EGRESS_LOG,encoding="utf-8").read().splitlines()
+    except OSError: return "[ai] egress log khali — is install ne abhi tak koi network call nahi ki."
+    cloud=sum(1 for l in lines if " CLOUD " in l)
+    return (f"[ai] egress: {len(lines)} calls total · {cloud} to the cloud · file: {EGRESS_LOG}\n"+
+            "\n".join("  "+l for l in lines[-n:])+"\n  (query strings and bodies are never logged — sirf kahan, kab, kitna)")
 
 VAULT=os.path.expanduser(os.environ.get("AI_VAULT","~/ai-vault"))
 STATE=os.path.expanduser("~/.ai-chat.json")
@@ -241,7 +294,7 @@ REDACT=[
  (re.compile(r"\b[A-Z]{4}0[A-Z0-9]{6}\b"),                            "<IFSC>"),
  (re.compile(r"\b\d{9,18}\b"),                                        "<ACCOUNT>"),
  (re.compile(r"\b\d{4}\s?\d{4}\s?\d{4}\b"),                           "<AADHAAR>"),
- (re.compile(r"\b(?:sk-|ghp_|gho_|github_pat_|xoxb-|AIza)[A-Za-z0-9_\-]{12,}"), "<APIKEY>"),
+ (re.compile(r"\b(?:sk-|sk-or-|gsk_|csk-|nvapi-|xai-|ghp_|gho_|github_pat_|xoxb-|AIza|hf_|r8_|fal-)[A-Za-z0-9_\-]{12,}"), "<APIKEY>"),   # groq/cerebras/nvidia/openrouter/hf/replicate/fal shapes too
  (re.compile(r"\b(?:100|10|192\.168|172\.(?:1[6-9]|2\d|3[01]))\.\d{1,3}\.\d{1,3}\.?\d{0,3}\b"), "<PRIVATE-IP>"),
  (re.compile(r"\b[A-Za-z0-9+/]{40,}={0,2}\b"),                        "<LONG-TOKEN>"),
 ]
@@ -327,6 +380,10 @@ def route(prompt,names,cap,localmodel,fmt=None,images=None):
     # names=None -> unrestricted. names=[] -> NOTHING (a gate that filtered everything out must NOT
     # invert into "try every cloud brain" — that was a real inversion bug).
     order=list(PROVIDERS) if names is None else [p for n in names for p in PROVIDERS if p["n"]==n]
+    if os.environ.get("AI_FORCE_OFFLINE")=="1":
+        # /net off must be a wall, not a hint: the local brain only, whatever the mode says
+        dropped=[p["n"] for p in order if p["n"]!="local"]; order=[p for p in order if p["n"]=="local"]
+        if dropped: sys.stderr.write(f"[ai] offline mode: {', '.join(dropped)} ko nahi bheja (local only). /net on se kholo.\n")
     if images:
         # an image can only go to a brain that can see; a text-only brain would answer as if no image existed
         order=[p for p in order if vision_ok(p)]
@@ -616,6 +673,7 @@ BAD_RE=re.compile(r"(?-i:^\s*\[[a-z][a-z0-9.-]*\]\s)|i (?:don'?t|do not) know\b|
 # inference — so the archive keeps the real sub-goal and just records that it was augmented.
 _FENCE_RE=re.compile(r"(?s)<<<.*?<<<END[^>]*>>>\s*")
 def corpus_put(q,a,who,st=None,hit=False,secs=0.0):
+    q=scrub_keys(q); a=scrub_keys(a) if a else a
     """One lean, trainable row per answered turn. Never raises: a training archive must never be
     the reason a chat breaks. hit=True writes a repeat-ask marker WITHOUT the answer (the answer is
     already archived) — that count is the cheapest real quality signal we have."""
@@ -844,7 +902,7 @@ def speak(text):
     """TTS that degrades instead of failing: Termux:API -> espeak -> plain text."""
     t=(text or "").strip()
     if not t: return "[speak] usage: speak <text>"
-    for cmd in (["termux-tts-speak"],["espeak"],["piper","--output_raw"]):
+    for cmd in (["termux-tts-speak"],["say"],["espeak-ng"],["espeak"],["piper","--output_raw"]):
         if shutil.which(cmd[0]):
             try:
                 subprocess.run(cmd,input=t,text=True,capture_output=True,timeout=120)
@@ -1060,7 +1118,17 @@ def bm25(ctx,q,frac):  # compact Okapi BM25 sentence extraction, original order
 
 def vp(*a):
     p=os.path.join(VAULT,*a); os.makedirs(os.path.dirname(p),exist_ok=True); return p
-def journal(role,t): open(vp("journal",time.strftime("%Y-%m-%d")+".md"),"a",encoding="utf-8").write(f"- {time.strftime('%H:%M')} **{role}:** {t.strip()}\n")
+_KEYSHAPE=[rx for rx,tag in REDACT if tag in ("<APIKEY>","<LONG-TOKEN>")]
+def scrub_keys(t):
+    """Key/token-shaped strings never get persisted (journal, corpus, feedback) — a pasted key would otherwise sit in plain files forever."""
+    for rx in _KEYSHAPE: t=rx.sub("<KEY-REDACTED>",t or "")
+    return t
+def _open_private(path,mode="a"):
+    f=open(path,mode,encoding="utf-8")
+    try: os.chmod(path,0o600)
+    except OSError: pass
+    return f
+def journal(role,t): _open_private(vp("journal",time.strftime("%Y-%m-%d")+".md")).write(f"- {time.strftime('%H:%M')} **{role}:** {scrub_keys(t).strip()}\n")
 def memory(): 
     try: return open(vp("memory.md"),encoding="utf-8").read().strip()
     except OSError: return ""
@@ -1562,6 +1630,13 @@ def build(st,hist,text,run):
     kpt=toks("\n".join(t for _,t in kept)) if kept else 0
     return "\n".join(L),raw,kpt
 
+_FIRST_CLOUD=os.path.expanduser("~/.ai-first-cloud")
+def _first_cloud_note(who):
+    """Once per install, right under the first cloud answer: where it went, what was scrubbed, how to see/avoid."""
+    if os.path.exists(_FIRST_CLOUD): return
+    try: open(_FIRST_CLOUD,"w").write(time.strftime("%Y-%m-%d %H:%M"))
+    except OSError: pass
+    print(f"[ai] pehla cloud jawab: ye sawaal {who} ke server pe gaya (email/phone jaisa kuch pehle hata diya). Kahan-kahan gaya:  /egress   ·  sirf apne device pe rehna ho:  /local")
 def ask(st,hist,text,run=None,brain=None,rec=True):
     if _cache_ok(st,run,brain):
         hit=cache_get(text)
@@ -1585,7 +1660,8 @@ def ask(st,hist,text,run=None,brain=None,rec=True):
         return None
     a=a.strip(); ctx=f" · ctx {raw}→{kpt} tok" if raw else ""
     pf=(LAST_ROUTE["profile"]+" · ") if (st["mode"]=="auto" and not brain) else ""
-    print(f"\n{a}\n\n[{who} · {pf}{time.time()-t0:.1f}s · prompt {toks(prompt)} tok{ctx}]")
+    print(f"\n{a}\n\n[{who} {'(tere device pe)' if who=='local' else '(cloud)'} · {pf}{time.time()-t0:.1f}s · prompt {toks(prompt)} tok{ctx}]")
+    if who and who!="local": _first_cloud_note(who)
     if rec:
         hist+=[("user",text),("assistant",a)]; journal(OWNER,text); journal(who,a)
         # cache_put() archives on its way through. The else-branch is the half the corpus used to
@@ -1809,7 +1885,7 @@ def _forge_capability(st,cap,rest):
         # The one place a confirmation is right: freshly-generated code that touches destructive
         # surfaces. The tool is still WRITTEN and the path handed over — the ladder isn't broken,
         # only the auto-run is gated. A prompt can't talk its way past this; it's a code check.
-        print(f"[ai] ⚠ this forged tool contains: {', '.join(hits)} — auto-run is gated.")
+        print(f"[ai] ⚠ abhi-abhi bana ye tool {', '.join(hits)} ko chhoo raha hai — isliye maine chalaya NAHI. File likh di, neeche 15 line dikha raha hoon. Padh lo, phir [y].")
         print("--- preview ---\n"+"\n".join(code.splitlines()[:15]))
         if not sys.stdin.isatty(): print(f"[ai] not a terminal — review it, then:  chmod +x {path} && {path} {rest}".rstrip()); return True
         try: ok=input("[ai] run it now? [y/N] ").strip().lower().startswith("y")
@@ -2829,16 +2905,59 @@ def keys_cmd(arg=""):
     _upsert_env(name,v); print(f"[ai] {name} saved → {_env_file()} (0600) · abhi se live.")
 # Chat-intent → self-command. Deterministic regex on purpose: a model must never decide to run an
 # installer. Tight on purpose too: "update the function" is code, "update yourself" is us.
-_INTENT=[("update",re.compile(r"\b(update|upgrade)\s+(yourself|urself|your\s*self|khud|apne\s*aap|tu|tum|apna\s*aap)\b|\bself[\s-]?(update|upgrade)\b|\b(khud|apne\s*aap)\s*ko\s*(update|upgrade)\b|\bupdate\s+(kar|ho)\s+(le|ja|jao)\b",re.I)),
-         ("setup",re.compile(r"\b(run|re-?run|chala|chalao|start|open)\w*\s+(the\s+|apna\s+|tera\s+)?(setup|installer|install\s*menu)\b|\bsetup\s+(run|chala|chalao|kar|karo|dobara)\b",re.I)),
-         ("keys",re.compile(r"(?:\b(?:api[\s_-]?key|access\s*token|[A-Z0-9]+_API_KEY|(?:groq|gemini|cerebras|openrouter|mistral|nvidia|tavily|exa|jina|together)\s*(?:key|token))\b.{0,40}\b(?:add|set|update|change|replace|badal|badlo|daal|dalo|lagao|hatao|remove|rm)\b)|(?:\b(?:add|set|update|change|replace|badal|badlo|daal|dalo|lagao|hatao|remove)\b.{0,40}\b(?:api[\s_-]?key|access\s*token|[A-Z0-9]+_API_KEY|(?:groq|gemini|cerebras|openrouter|mistral|nvidia|tavily|exa|jina|together)\s*(?:key|token))\b)",re.I))]
+DEV_RX=r"iphone|ios|ipad|android|phone|mobile|fold|pixel|samsung|oneplus|redmi|realme|vivo|oppo|moto|motorola|nothing|poco|iqoo|infinix|honor|huawei|nokia|tecno|lava"
+_BIG=r"mac|macbook|windows|laptop|pc|computer|desktop|linux|fedora|ubuntu"
+_PVERB=r"setup|set\s*up|pair|connect|jod\w*|jud\w*|link|install|chal\w*|karo|kar\s*do|kar\s*lo|lagao|chahiye|chaiye|dena|de\s*do"
+_PNEG=r"(?!\s*(?:number|no\.|call|slow|battery|storage|screen\s*time|app\s*store|market|sales|company))"   # "phone number regex" is code, not pairing
+_KNOUN=r"api[\s_-]?key|access\s*token|[A-Z0-9]+_API_KEY|(?:groq|gemini|cerebras|openrouter|mistral|nvidia|tavily|exa|jina|together)\s*(?:key|token)"
+_KVERB=r"add|set|update|change|replace|badal\w*|badl\w*|daal\w*|dal\w*|lag\w*|hata\w*|remove|rm|nikal\w*"
+_KHIN=r"badal\w*|badl\w*|daal\w*|dal\w*|hata\w*|lagao|lagana|nikal\w*"     # Hinglish only: English "set the key" is a dict key
+_INTENT=[("pair",re.compile(rf"\b(?:{DEV_RX})\b{_PNEG}.{{0,30}}\b(?:{_PVERB})\b|\b(?:{_PVERB})\b.{{0,30}}\b(?:{DEV_RX})\b{_PNEG}"
+                             rf"|\b(?:{DEV_RX})\b{_PNEG}.{{0,30}}\b(?:aur|and|plus)\b.{{0,20}}\b(?:{_BIG}|{DEV_RX})\b"
+                             rf"|\bqr\b.{{0,25}}\b(?:scan|pair|code|jod\w*)\b|\bpair\b(?!\s*(?:programming|of\b|value))",re.I)),
+         ("update",re.compile(r"\b(update|upgrade)\s+(yourself|urself|your\s*self|khud|apne\s*aap|tu|tum|apna\s*aap)\b|\bself[\s-]?(update|upgrade)\b|\b(khud|apne\s*aap)\s*ko\s*(update|upgrade)\b"
+                               r"|\b(update|upgrade)\s+(kar|ho)\s*(le|lo|ja|jao|do|na)?\s*$|\b(tu|tum|khud|apne\s*aap)\b.{0,15}\b(update|upgrade)\b|\b(naya|new)\s+version\b.{0,25}\b(update|upgrade|le\s*lo)\b",re.I)),
+         ("setup",re.compile(r"\b(run|re-?run|chala|chalao|start|open|khol)\w*\s+(the\s+|apna\s+|tera\s+)?(setup|installer|install\s*menu|setup[\s-]?menu|setup\s*wizard)\b"
+                              r"|\b(setup|installer|install\s*menu|setup[\s-]?menu|setup\s*wizard)\b\s*(?:ko\s+|phir\s+|dobara\s+)*\b(run|chala\w*|khol\w*|open|start|kar\w*|dobara|phir\s*se)\b",re.I)),
+         ("keys",re.compile(rf"\b(?:{_KNOUN})\b.{{0,40}}\b(?:{_KVERB})\b|\b(?:{_KVERB})\b.{{0,40}}\b(?:{_KNOUN})\b"
+                             rf"|\b(?:meri|apni|apna|purani|nayi|naya|nai)?\s*\bkeys?\b.{{0,25}}\b(?:{_KHIN})\b|\b(?:{_KHIN})\b.{{0,25}}\bkeys?\b",re.I))]
 def self_intent(text):
     for k,rx in _INTENT:
         if rx.search(text or ""): return k
     return None
+def _phone_kind(text):
+    t=(text or "").lower()
+    if re.search(r"\b(iphone|ios|ipad)\b",t): return "iphone"
+    if re.search(r"\b(?:"+DEV_RX.replace("phone|mobile|","")+r")\b",t): return "android"   # a named Android brand; bare 'phone'/'mobile' = ask
+    return ""
+def _pair_help(kind):
+    slug=self_version()[1]; raw=f"https://raw.githubusercontent.com/{slug}/main" if slug else "<repo>"
+    L=["[ai] Phone ko is computer ke 'ai' se jodne ka tareeka: yahan  ai pair  chalao → terminal me QR → phone ke camera se scan.",
+       "     Phone us par is computer ka poora ai kholta hai (local model, memory, experts) — tera Wi-Fi/Tailscale, koi server nahi."]
+    if kind=="iphone": L.append("     iPhone: QR scan → Safari me khulega → Share → 'Add to Home Screen' = app jaisa icon. (iOS pe alag install nahi hota; brain is computer ka.)")
+    elif kind=="android": L+=["     Android ke do raaste:",
+                              "       1) pair — is computer ka ai phone ke browser me (Chrome → ⋮ → 'Add to Home screen'). Tez, phone pe kuch install nahi.",
+                              f"       2) FULL install phone pe (Termux, F-Droid se): voice, floater, offline brain phone ke andar:  pkg install -y curl python && curl -fsSL {raw}/install.sh | bash"]
+    return "\n".join(L)
+def handle_pair_intent(text):
+    kind=_phone_kind(text)
+    if not kind and sys.stdin.isatty():
+        try: a=input("[ai] Kaunsa phone? [i] iPhone  [a] Android  [q] rehne do: ").strip().lower()
+        except (EOFError,KeyboardInterrupt): a="q"
+        kind={"i":"iphone","a":"android"}.get(a[:1],"")
+        if not kind: print("[ai] theek hai — jab chahiye:  ai pair"); return True
+    print(_pair_help(kind or "iphone"))
+    if kind=="android" and sys.stdin.isatty():
+        try: c=input("[ai] [1] pair (QR abhi)   [2] sirf Termux command dikhao   [q]: ").strip()
+        except (EOFError,KeyboardInterrupt): c="q"
+        if c.startswith("2") or c.startswith("q"): return True
+    if not sys.stdin.isatty(): print("[ai] terminal me chalao:  ai pair"); return True
+    if _confirm("[ai] abhi QR banaun (ai pair)?"): pair([])
+    return True
 def handle_self_intent(text):
     k=self_intent(text)
     if not k: return False
+    if k=="pair": return handle_pair_intent(text)
     hint={"update":"/update — naya version fetch + reinstall (keys/memory rehte hain)",
           "setup":"/setup — guided installer dobara (keys, model, PATH badalne ke liye)",
           "keys":"/keys — keys list/add/remove (typing hidden)"}[k]
@@ -2858,7 +2977,7 @@ _CC=[ # (regex, command-builder, safe)
  (r"^(?:ask|poochho|pucho)\s+(\w+)\s+(?:expert\s+)?(?:to\s+|se\s+)?(.+)", lambda m:f"/agent {m.group(1)} {m.group(2)}", True),
  (r"\b(?:memory|yaad(?:ein|en)?|remembered|jo yaad)\s*(?:dikhao|batao|show|list|kya hai|hai)?$", lambda m:"/memory", True),
  (r"^(?:remember|yaad rakh(?:o|na)?|note (?:this|kar))[:\s]+(.+)", lambda m:f"/remember {m.group(1)}", False),
- (r"^(?:version|apna version|which version|kaunsa version|what version)", lambda m:"/version", True),
+ (r"^(?:which|what|kaunsa|konsa|apna|tera)?\s*version\b\s*(?:hai|kya|batao|dikhao|\?)*\s*$", lambda m:"/version", True),
  (r"\b(?:device|hardware|machine|system)\s*(?:info|details?|dikhao|batao|specs?)\b|\bwhat (?:machine|device|hardware)", lambda m:"/device", True),
  (r"\b(?:brains?|providers?)\s*(?:alive|status|check|zinda|kaun (?:chal|zinda))|\bcanary\b|\bcheck (?:the )?brains?", lambda m:"/canary", True),
  (r"\b(?:go|jao|chalo)\s+offline\b|\bnet\s+(?:off|band)\b|\boffline (?:mode|kar|ho ja)", lambda m:"/net off", False),
@@ -2874,6 +2993,7 @@ _CC=[ # (regex, command-builder, safe)
  (r"^(?:search|dhoondo|dhundo|find)\s+(?:in\s+)?(?:my\s+)?(?:notes|vault|kb|memory)\s*(?:for|me)?\s+(.+)", lambda m:f"/kb query {m.group(1)}", True),
  (r"^(?:attach|add|include)\s+(?:file|image|screenshot|photo)?\s*[:\s]\s*(\S+)$", lambda m:f"/attach {m.group(1)}", True),
  (r"\b(?:privacy|redact(?:ion)?)\s*(?:status|on hai|off hai|kya hai|dikhao)", lambda m:"/privacy", True),
+ (r"\b(?:egress|network (?:calls?|log)|kahan (?:kahan )?(?:bheja|gaya)|what did you send|kya bheja|outbound)\b", lambda m:"/egress", True),
  (r"^(?:export|save)\s+(?:the\s+)?corpus\b", lambda m:"/corpus export", False),
  (r"^(?:serve|start (?:the )?(?:panel|web ?ui|server))\b|\bpanel (?:kholo|open|start)", lambda m:"/serve", False),
  (r"^(?:quit|exit|bye|band karo|nikal|khatam)$", lambda m:"/quit", True),
@@ -3115,20 +3235,56 @@ def _tailscale_ip():
     try: return (subprocess.run(["tailscale","ip","-4"],capture_output=True,text=True,timeout=3).stdout.strip().split() or [""])[0]
     except Exception: return ""
 def pair_url(host,port,token): return f"http://{host}:{port}/?t={token}"
+def _all_ips():
+    """Every IPv4 this machine has (private LAN first, then Tailscale, then the rest) — a VPN or a second NIC
+    must not hide the address the phone can actually reach."""
+    import socket
+    out=[]
+    for ip in ([_lan_ip()]+[_tailscale_ip()]):
+        if ip and ip not in out: out.append(ip)
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(),None,socket.AF_INET):
+            ip=info[4][0]
+            if ip and not ip.startswith("127.") and ip not in out: out.append(ip)
+    except Exception: pass
+    if hasattr(socket,"if_nameindex"):
+        pass
+    def rank(ip):
+        if ip.startswith("100.") and ip.split(".")[1].isdigit() and 64<=int(ip.split(".")[1])<=127: return 1     # tailscale
+        if ip.startswith(("192.168.","10.")) or (ip.startswith("172.") and 16<=int(ip.split(".")[1])<=31): return 0
+        return 2
+    return sorted(out,key=rank)
 def pair(argv):
     import secrets
     port=int(next((a for a in argv if a.isdigit()),os.environ.get("AI_SERVE_PORT","8765")))
-    lan="--lan" in argv; ts=_tailscale_ip(); ip=(ts if ts and not lan else "") or _lan_ip()
-    if not ip: print("[pair] koi network address nahi mila — Wi-Fi/Tailscale on karo."); return 1
-    tok=os.environ.get("AI_SERVE_TOKEN","")
-    if not tok: tok=secrets.token_urlsafe(18); _upsert_env("AI_SERVE_TOKEN",tok); print("[pair] naya token bana ke ~/.ai-env me rakha (AI_SERVE_TOKEN) — dobara pair karna ho to wahi chalega")
-    os.environ["AI_SERVE_HOST"]=ip; url=pair_url(ip,port,tok)
-    print(f"\n[pair] phone ke camera se scan karo ({'Tailscale — encrypted, kahin se bhi' if ip==ts and ts else 'same Wi-Fi only — LAN http encrypted nahi hai; bahar se chahiye to Tailscale'}):\n")
-    print(qr_text(url)); print(f"\n  {url}\n")
-    print("  iPhone: Safari me khula → Share → 'Add to Home Screen' = app jaisa icon.  Android: Chrome → Install app.")
+    ips=_all_ips(); ts=_tailscale_ip()
+    if "--lan" in argv: ips=[i for i in ips if i!=ts] or ips
+    if not ips: print("[pair] koi network address nahi mila — Wi-Fi/Tailscale on karo."); return 1
+    show=ips[0] if "--lan" in argv or not ts or "--tailscale" not in argv else ts
+    tok=_serve_token() or os.environ.get("AI_SERVE_TOKEN","")
+    if not tok:
+        tok=secrets.token_urlsafe(18); _upsert_env("AI_SERVE_TOKEN",tok)
+        print("[pair] ek password bana ke ~/.ai-env me rakh diya (AI_SERVE_TOKEN) — jiske paas ye QR hai wahi is computer ka ai khol sakta hai. Badalna: ai keys rm AI_SERVE_TOKEN")
+    os.environ["AI_SERVE_HOST"]="0.0.0.0"; os.environ["AI_SERVE_HOSTS"]=",".join(ips)     # bind all; host-check accepts each
+    url=pair_url(show,port,tok)
+    print(f"\n[pair] phone ke camera se scan karo — {'same Wi-Fi' if show!=ts else 'Tailscale (encrypted, ghar ke bahar bhi)'}:\n")
+    print(qr_text(url)); print(f"\n  {url}")
+    for ip in ips:
+        if ip!=show: print(f"  {'Tailscale' if ip==ts else 'ye bhi'}:  {pair_url(ip,port,tok)}")
+    print("\n  Jo bhi ye QR scan karega wo YAHI seat use karega — same memory, same files. Family profiles abhi nahi hain; QR sirf apne logon ko.")
+    print("  iPhone: Safari me khula → Share → 'Add to Home Screen' = app jaisa icon.  Android: Chrome → ⋮ → 'Add to Home screen' (shortcut; http pe 'Install app' nahi aata).")
+    print("  LAN http encrypted nahi hai — ghar ke bahar Tailscale dono device pe lagao, phir ai pair --tailscale.")
+    try:
+        if "microsoft" in open("/proc/version").read().lower(): print("  ⚠ WSL: ye address WSL ke andar ka hai — phone ise NAHI pahunch sakta (NAT). Windows 11: Settings → WSL → Networking mode 'Mirrored'; ya Windows-native install (install.ps1) use karo.")
+    except OSError: pass
+    if os.name=="nt": print("  Windows: pehli baar 'Windows Firewall' ka dialog aayega — 'Private networks' allow karo. Wi-Fi 'Public' profile pe ho to Settings → Network → Wi-Fi → Private.")
     if sys.platform=="darwin": print("  Mac ka lid band = server band. Chalu rakhne ko:  caffeinate -i ai pair")
-    print("  Rokna: Ctrl-C. Token badalna: ai keys rm AI_SERVE_TOKEN, phir ai pair.\n")
+    if IS_TERMUX:
+        if shutil.which("termux-wake-lock"): subprocess.run(["termux-wake-lock"],capture_output=True); print("  Termux: wake-lock ON (screen band hone pe bhi chalega). Band karna: termux-wake-unlock")
+        else: print("  Termux: Termux:API nahi — screen off pe Android ise maar sakta hai. Termux:API install karo ya screen on rakho.")
+    print("  Rokna: Ctrl-C. Phone hataana: ai keys rm AI_SERVE_TOKEN (turant, running server bhi maan lega).\n")
     return serve(port)
+KNOWN_CMDS=['/agent', '/agents', '/ask', '/attach', '/bg', '/budget', '/cache', '/canary', '/capabilities', '/clear', '/corpus', '/ctx', '/device', '/do', '/egress', '/embed', '/explain', '/group', '/help', '/impact', '/json', '/kb', '/keys', '/memory', '/metrics', '/mode', '/model', '/net', '/panel', '/privacy', '/remember', '/route', '/run', '/save', '/serve', '/setup', '/short', '/tags', '/tool', '/trace', '/update', '/version', '/why', '/wish']   # every c=="/x" in the dispatcher; the typo-suggester matches against this
 HELP="""commands — everything is optional, plain text just talks to the best brain.
  BRAIN   /auto /online /local · /ask <brain> <q> · /panel %s · /model <name> · /route <q> · /why · /metrics [reset]
  ANSWER  /short · /json <q> · /clear · /save · /mode
@@ -3140,14 +3296,14 @@ HELP="""commands — everything is optional, plain text just talks to the best b
  BG      /bg <question> · /bg do <cap> <input> · /bg !<shell cmd> · /bg  (list) · /bg <id>  — kaam peeche, baat chalu
  EXPERTS /agents · /agent auto <task>  (naam yaad na ho to khud chunta hai) · /agent <name> <task> · /group
  SYSTEM  /attach <file> · /run <cmd> · /explain · /serve [port] · /device · /net [off|on] · /canary · /embed <text> · /privacy [on|off|<text>]
- SELF    /version · /capabilities (ye install abhi kya kar sakta hai) · /update · /setup · /keys [NAME|rm NAME] · /attach <file|png|pdf> · ai daemon [--once]
+ SELF    /version · /capabilities (ye install abhi kya kar sakta hai) · /egress (har network call ka log: kahan, kab, kitna) · /update · /setup · /keys [NAME|rm NAME] · /attach <file|png|pdf> · ai daemon [--once]
  PAIR    ai pair [port] [--lan]  — QR se phone (iPhone bhi) is computer ke 'ai' se jud jaata hai; tera hardware, tera network
  COMMUNITY  ai telegram [--once]  (helper bot for your group: /install /faq /feedback — fail-closed allowlist)  ·  ai announce <text>
  EXIT    /quit
  the DO ladder never answers 'no': 1 provider -> 2 keyless builtin -> 3 recipe -> 4 brain -> 5 forge the tool."""
 def repl(st):
-    hist=[]; run=None
-    print(f"ai (termux) · mode={st['mode']} budget={st['budget']} ctx={' '.join(st['ctx']) or 'off'} vault={VAULT}")
+    hist=[]; run=None; _next=[]      # _next: a corrected command queued by the typo-suggester
+    print(f"ai ({EDITION}) · mode={st['mode']} budget={st['budget']} ctx={' '.join(st['ctx']) or 'off'} vault={VAULT}")
     try: device_adapt()          # new phone / more RAM / Shizuku just enabled -> re-tune, no reinstall
     except Exception: pass
     if not any(os.environ.get(pp["k"]) for pp in PROVIDERS if pp["k"]):
@@ -3170,12 +3326,15 @@ def repl(st):
         if _un: print(_un)
     except Exception: pass
     while True:
-        try: text=input("\n> ").strip()
+        try: text=_next.pop(0) if _next else input("\n> ").strip()
         except EOFError: print(); break
         except KeyboardInterrupt: print("\n[ai] /quit to exit"); continue
         if not text: continue
         if not text.startswith("/"):
-            if handle_self_intent(text): continue
+            if handle_self_intent(text):
+                _cc=chat_command(text)
+                if _cc: print(f"[ai] tune ye bhi kaha tha — wo maine abhi nahi chalaya:  {_cc[0]}")
+                continue
             cc=chat_command(text)
             if cc:
                 cmd,safe=cc; print(f"[ai] → {cmd}")
@@ -3193,6 +3352,7 @@ def repl(st):
                 break
             elif c=="/help": print(HELP % ",".join(st["panel"]))
             elif c=="/version": print(self_info())
+            elif c=="/egress": print(egress_report(int(a) if a.isdigit() else 20))
             elif c=="/capabilities": print(capabilities())
             elif c=="/update": run_self_cmd("update")
             elif c=="/setup": run_self_cmd("setup")
@@ -3425,7 +3585,11 @@ def repl(st):
                             except OSError as e: print("[ai] save failed: "+str(e))
             elif c=="/run": run=runcmd(a) if a else print("[ai] usage: /run <cmd>")
             elif c=="/explain": ask(st,hist,a or "Explain this output briefly; what to do next.",run) if run else print("[ai] /run first")
-            else: print("[ai] unknown "+c)
+            else:
+                import difflib
+                near=difflib.get_close_matches(c,KNOWN_CMDS,n=1,cutoff=0.6)
+                if near and _confirm(f"[ai] {c} naam ka koi command nahi. Shayad {near[0]}?"): _next.append(near[0]+(" "+a if a else ""))
+                else: print(f"[ai] {c} nahi hai — poori list: /help")
         except KeyboardInterrupt: print("\n[ai] interrupted — session alive")
         except Exception as e:
             print(f"[ai] {c} failed: {type(e).__name__}: {e}")
@@ -3493,16 +3657,27 @@ def _read_first(paths,fallback):
 def _panel_html(): return _read_first(["~/.ai-panel.html",REPO+"/panel.html",REPO+"/fold-node/termux/panel.html"],PANEL_FALLBACK)
 def _board_html(): return _read_first(["~/.ai-whiteboard.html",REPO+"/whiteboard.html",REPO+"/fold-node/akasha-whiteboard.html"],
     "<!doctype html><meta charset=utf-8><title>Board</title><body style=\"font:15px system-ui;background:#0b0e14;color:#e6edf6;padding:20px\"><h3>whiteboard not found</h3><p>copy fold-node/akasha-whiteboard.html to ~/.ai-whiteboard.html</p>")
+def _serve_token():
+    """The pairing token, read from ~/.ai-env on every request (a 1-line file): removing it there revokes
+    every paired phone immediately, even from a running server. Env var only as a fallback for tests."""
+    try:
+        for line in open(_env_file(),encoding="utf-8"):
+            line=line.strip()
+            if line.startswith("export "): line=line[7:]
+            if line.startswith("AI_SERVE_TOKEN="): return line.split("=",1)[1].strip().strip("'\"")
+        return "" if os.path.exists(_env_file()) and os.environ.get("AI_SERVE_TOKEN_FROM_ENV","0")!="1" else os.environ.get("AI_SERVE_TOKEN","")
+    except OSError: return os.environ.get("AI_SERVE_TOKEN","")
 def serve(port=8765):
     import http.server
     st=load(); hist=[]; ATTACH=[]
     try: device_adapt()          # server also re-tunes itself to whatever hardware it woke up on
     except Exception: pass
     host=os.environ.get("AI_SERVE_HOST","127.0.0.1")
-    if host not in ("127.0.0.1","localhost") and not os.environ.get("AI_SERVE_TOKEN"):
-        print(f"[ai] REFUSING to bind {host} without AI_SERVE_TOKEN — off loopback the token is the only lock.")
-        print("     setup-menu -> R  (Tailscale bridge) generates one, or:  export AI_SERVE_TOKEN=$(head -c18 /dev/urandom|base64)")
-        return
+    if not _serve_token():
+        # even 127.0.0.1 is reachable by any app on the same device (Android: any app with INTERNET) —
+        # so the panel is never open without a token; it is created once and kept in ~/.ai-env
+        import secrets; _t=secrets.token_urlsafe(18); _upsert_env("AI_SERVE_TOKEN",_t)
+        print("[ai] panel ke liye ek password bana ke ~/.ai-env me rakh diya (AI_SERVE_TOKEN) — bina iske /api band rehta hai.")
     def jbody(h):
         n=int(h.headers.get("Content-Length",0) or 0)
         try: return json.loads(h.rfile.read(n).decode() or "{}")
@@ -3519,7 +3694,7 @@ def serve(port=8765):
         def _authed(self,path):
             """If AI_SERVE_TOKEN is set, every /api/* and /v1/* call must carry it (Bearer or ?t=).
             Unset (default) = no auth, which is safe only because we bind 127.0.0.1."""
-            tok=os.environ.get("AI_SERVE_TOKEN","")
+            tok=_serve_token()
             if not tok or not (path.startswith("/api/") or path.startswith("/v1/")): return True
             got=(self.headers.get("Authorization","") or "").replace("Bearer ","").strip()
             if not got:
@@ -3567,7 +3742,7 @@ def serve(port=8765):
             ev({"done":True,"brain":who or "none","secs":round(time.time()-t0,1),"prompt_tok":toks(prompt),"raw_tok":raw,"kept_tok":kpt,"profile":LAST_ROUTE["profile"] if st["mode"]=="auto" else "-"})
         def do_GET(self):
             u=urllib.parse.urlparse(self.path); path=u.path
-            if path.startswith("/api/"):
+            if path.startswith(("/api/","/v1/")):
                 if not _host_ok(self.headers.get("Host","")):
                     return self._json({"error":"unexpected Host — DNS-rebinding guard"},403)
                 _o=self.headers.get("Origin")
@@ -3580,7 +3755,10 @@ def serve(port=8765):
                 return self._stream_ask(q)
             if path=="/": return self._send(200,_panel_html(),"text/html; charset=utf-8")
             if path=="/board": return self._send(200,_board_html(),"text/html; charset=utf-8")
-            if path=="/manifest.json": return self._json({"name":BRAND,"short_name":BRAND,"start_url":"/","display":"standalone","background_color":"#0b0e14","theme_color":"#0b0e14","icons":[]})
+            if path=="/manifest.json":
+                _t=urllib.parse.parse_qs(u.query).get("t",[""])[0]; _tok=_serve_token()
+                su="/?t="+urllib.parse.quote(_t) if (_tok and _t==_tok) else "/"
+                return self._json({"name":BRAND,"short_name":BRAND,"start_url":su,"display":"standalone","background_color":"#0b0e14","theme_color":"#0b0e14","icons":[]})
             if path=="/api/status": return self._json(status_dict(st))
             if path=="/api/metrics": return self._json(metrics())
             if path=="/api/tags": return self._json(tag_counts())
@@ -3600,7 +3778,7 @@ def serve(port=8765):
             # CSRF guard: a malicious page in the phone's browser can POST cross-site with
             # text/plain or form encodings, and a same-tailnet page can reach 100.x too.
             # Requiring JSON forces a preflight, and any cross-origin Origin is rejected.
-            if path.startswith("/api/"):
+            if path.startswith(("/api/","/v1/")):
                 ct=(self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
                 if ct and ct!="application/json":
                     return self._json({"error":"Content-Type must be application/json"},415)
@@ -3725,7 +3903,8 @@ def serve(port=8765):
                 voice_out(d.get("text","")); return self._json({"ok":True})
             return self._json({"error":"not found"},404)
     srv=http.server.ThreadingHTTPServer((host,port),H)   # allow_reuse_address -> restartable after a crash
-    print(f"[ai] panel: http://{host}:{port}   (Ctrl-C to stop; phone: open in browser)")
+    _t=_serve_token(); _h=host if host!="0.0.0.0" else (os.environ.get("AI_SERVE_HOSTS","").split(",")[0] or "127.0.0.1")
+    print(f"[ai] panel: http://{_h}:{port}/?t={_t}   (Ctrl-C to stop; ye poora link kholo — token ke bina 401)")
     try: srv.serve_forever()
     except KeyboardInterrupt: print("\n[ai] panel stopped")
     finally: srv.server_close()
@@ -3750,6 +3929,7 @@ def main():
         if sys.argv[1]=="pair": return pair(sys.argv[2:])
         if sys.argv[1]=="announce": return announce(" ".join(sys.argv[2:]))
         if sys.argv[1]=="capabilities": print(capabilities()); return
+        if sys.argv[1]=="egress": print(egress_report(int(sys.argv[2]) if len(sys.argv)>2 and sys.argv[2].isdigit() else 20)); return
         if sys.argv[1]=="keys": return keys_cmd(" ".join(sys.argv[2:]))
         if sys.argv[1]=="canary":            # cron/termux-job friendly: ai canary
             canary(); return
@@ -3766,7 +3946,12 @@ def main():
         piped=sys.stdin.read()[-4000:] if not sys.stdin.isatty() else None
         sys.exit(0 if ask(st,[]," ".join(sys.argv[1:]),piped) else 1)
     repl(st)
-if __name__=="__main__": main()
+if __name__=="__main__":
+    try: main()
+    except BrokenPipeError:            # `ai version | head -1` etc. — a closed pipe is not an error worth a traceback
+        try: sys.stdout=open(os.devnull,"w")
+        except OSError: pass
+        sys.exit(0)
 AIEOF
 chmod +x "$HOME/.local/bin/ai"
 # source ships a portable '#!/usr/bin/env python3'; on Termux pin the real interpreter (no termux-exec dependency)
@@ -3798,7 +3983,10 @@ have ollama && { (ollama serve >/dev/null 2>&1 &) ; sleep 3
   runv "pull nomic-embed-text (hybrid RAG + cache)" ollama pull nomic-embed-text || warn "baad me:  ollama pull nomic-embed-text"; }
 fi
 
-if stage_opt "Pentest toolkit" "nmap · hydra · nikto · sqlmap · ffuf/nuclei (recon tools)" "SIRF apne device / apne lab / CTF pe. Golang download bhaari (~1-2 min). Zaroorat na ho to skip."; then
+# The wizard's extras (~/.ai-setup-profile AI_WANT_*) decide optional stages: 0 = skip silently, 1 = do it, unset = ask.
+want(){ local v; v=$(grep -m1 "^AI_WANT_$1=" "$HOME/.ai-setup-profile" 2>/dev/null | cut -d= -f2); [ "${v:-1}" != 0 ]; }
+if ! want PENTEST; then skp "Pentest toolkit: wizard me OFF chuna tha — skip (baad me: setup-menu → 6)"; fi
+if want PENTEST && stage_opt "Pentest toolkit" "nmap · hydra · nikto · sqlmap · ffuf/nuclei (recon tools)" "SIRF apne device / apne lab / CTF pe. Golang download bhaari (~1-2 min). Zaroorat na ho to skip."; then
 PKGS="nmap hydra tcpdump netcat-openbsd ncat dnsutils whois curl wget nikto"
 runv "core pentest pkgs" pkg install -y $PKGS || warn "kuch pkg Termux repo me nahi"
 python -m pip install --user -q sqlmap-dev dirsearch wafw00f 2>/dev/null || pip install --user -q sqlmap 2>/dev/null || warn "pip tools: haath se dekh lo"
@@ -3922,6 +4110,7 @@ WB="$SELFDIR/whiteboard.html"; [ -f "$WB" ] || WB="$SELFDIR/../akasha-whiteboard
 [ -f "$WB" ] && install -m644 "$WB" "$HOME/.ai-whiteboard.html" && echo "  installed: whiteboard (ai serve -> /board)"
 TR="$SELFDIR/tools-routing.json"; [ -f "$TR" ] || TR="$SELFDIR/../tools-routing.json"
 [ -f "$TR" ] && install -m644 "$TR" "$HOME/.ai-tools.json" && echo "  installed: tool-router config (/do)"
+[ -f "$SELFDIR/VERSION" ] && install -m644 "$SELFDIR/VERSION" "$HOME/.local/bin/VERSION" && echo "  installed: VERSION beside ai ($(cat "$SELFDIR/VERSION")) — 'ai version' + update notice"
 [ -f "$SELFDIR/experts.json" ] && install -m644 "$SELFDIR/experts.json" "$HOME/.ai-experts.json" && echo "  installed: $(python3 -c 'import json,sys;print(len(json.load(open(sys.argv[1]))["experts"]))' "$SELFDIR/experts.json" 2>/dev/null || echo '') domain experts (/agents, /agent <name> <task>)"
 # expert PACKS (persona + KB per expert) -> ~/.ai-experts/<name>/ ; 'ai' falls back to the repo copy
 if [ -d "$SELFDIR/experts" ]; then np=0
@@ -3936,6 +4125,10 @@ for f in "$SELFDIR"/../research/*.md "$SELFDIR"/../BIG-PICTURE-ALIGNMENT.md "$SE
 done
 echo "  integrated $ic research/reference docs into vault ($VREF) — then:  ai  →  /kb build  (hybrid if ollama+nomic-embed up)"
 
+for w in VOICE:2 SCREEN:Shizuku FFMPEG:6 PANEL:R; do
+  k="${w%%:*}"; where="${w##*:}"
+  if grep -q "^AI_WANT_$k=1" "$HOME/.ai-setup-profile" 2>/dev/null; then info "wizard me '$k' ON tha — wo setup-menu → $where se lagta hai (ek command:  setup-menu)"; fi
+done
 substage "Is device pe kya-kya unlock hua"
 echo "  tier 0 core     : chat + vault + BM25/hybrid RAG + cloud router      -> always works"
 have termux-tts-speak && echo "  tier 1 sensors  : voice, notifications, sensors (Termux:API)      -> ON" || echo "  tier 1 sensors  : install the Termux:API app to unlock voice/sensors"

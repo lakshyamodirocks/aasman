@@ -123,7 +123,7 @@ menu_keys(){
   setkey CEREBRAS_API_KEY   "Cerebras key"
   setkey MISTRAL_API_KEY    "Mistral key"
   setkey NVIDIA_API_KEY     "NVIDIA NIM key"
-  echo; c 32 "Done. New shells load these automatically. This shell: run  source ~/.ai-env"
+  echo; c 32 "Done. 'ai' khud ~/.ai-env padhta hai — kuch source mat karo (source karne se keys har program ko dikhti hain)."
   c 90 "Test now:  ai   then type a question (auto-router picks a free brain)."
 }
 
@@ -197,7 +197,8 @@ menu_voice_offline(){
   pip install --quiet piper-tts 2>/dev/null && c 32 "  piper-tts installed" || c 33 "  pip piper-tts failed — grab the aarch64 binary from github.com/rhasspy/piper/releases"
   mkdir -p "$HOME/piper-voices"
   for v in hi_IN-pratham-medium hi_IN-priyamvada-medium; do
-    base="https://huggingface.co/rhasspy/piper-voices/resolve/main/hi/hi_IN/${v%%-*}/medium"
+    vn="${v#*-}"; vn="${vn%%-*}"        # hi_IN-pratham-medium → pratham
+    base="https://huggingface.co/rhasspy/piper-voices/resolve/main/hi/hi_IN/${vn}/medium"
     for ext in onnx onnx.json; do
       [ -f "$HOME/piper-voices/$v.$ext" ] || curl -fsSL "$base/$v.$ext" -o "$HOME/piper-voices/$v.$ext" 2>/dev/null
     done
@@ -441,10 +442,10 @@ menu_status(){
 menu_findtokens(){
   c 36 "== Token finder — kaun sa token kahan pada hai =="
   local FT=""
-  for p in "$HOME/akasha-src/akasha-fold/find-tokens.sh" "$(dirname "$0")/../../akasha-fold/find-tokens.sh"; do
+  for p in "$HOME/.local/share/aasmaan/app/find-tokens.sh" "$(dirname "$0")/find-tokens.sh" "$HOME/akasha-src/akasha-fold/find-tokens.sh" "$(dirname "$0")/../../akasha-fold/find-tokens.sh"; do
     [ -f "$p" ] && { FT="$p"; break; }
   done
-  [ -z "$FT" ] && { c 31 "  find-tokens.sh nahi mila — git -C ~/akasha-src pull"; return; }
+  [ -z "$FT" ] && { c 31 "  find-tokens.sh nahi mila — install.sh dobara chalao (bundle refresh)"; return; }
   bash "$FT" || true
   echo
   echo "  Value dekhni ho (screenshot mat lena):  bash $FT --reveal"
@@ -453,12 +454,12 @@ menu_findtokens(){
 menu_cleanup(){
   c 36 "== Cleanup — test/command ka malba hatao =="
   local CL=""
-  for p in "$HOME/akasha-src/akasha-fold/cleanup.sh" "$(dirname "$0")/../../akasha-fold/cleanup.sh"; do
+  for p in "$HOME/.local/share/aasmaan/app/cleanup.sh" "$(dirname "$0")/cleanup.sh" "$HOME/akasha-src/akasha-fold/cleanup.sh" "$(dirname "$0")/../../akasha-fold/cleanup.sh"; do
     [ -f "$p" ] && { CL="$p"; break; }
   done
   if [ -z "$CL" ]; then
     c 31 "  cleanup.sh nahi mila."
-    echo "  repo pull karo:  git -C ~/akasha-src pull"
+    echo "  install.sh dobara chalao (bundle refresh) — ya:  ai update"
     return
   fi
   echo "  Pehle DRY-RUN — kuch delete nahi hoga, sirf dikhega:"

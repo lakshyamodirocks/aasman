@@ -16,6 +16,8 @@ Read this in two minutes. Every claim below can be checked in `ai.py` by searchi
 
 Everything else — memory, KB index, chat state, cache, metrics, expert packs, keys — is a file in your home folder. Nothing syncs.
 
+**Every one of those calls is logged where you can read it.** `~/.ai-egress.log` gets one line per outbound call (time, local/CLOUD, method, host/path, bytes out); `/egress` shows it. Query strings and bodies are never written there.
+
 ## Never
 
 - **No server of ours.** There is nothing to host, so nothing to breach on our side.
@@ -34,6 +36,7 @@ grep -n "def redact" ai.py         # the scrub
 grep -n "AI_ATTENDED" ai.py        # the unattended gate
 /capabilities           # what this install can do right now (keyed brains, alive brains, vision)
 /why                    # which brain answered your last question, and why
+/egress                 # the runtime log: every network call this install ever made — when, local or CLOUD, host/path, bytes out (never the query or body)
 ```
 
 Airplane-mode test: turn networking off, run `ai`, ask something. The local brain answers; `/memory` and `/kb` work; nothing errors about a missing server, because there is none.

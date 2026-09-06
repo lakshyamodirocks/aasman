@@ -18,4 +18,4 @@ Every published version is a line in `VERSION` (`date sha repo`). Installed copi
 - `ai pair`: QR in the terminal (stdlib QR encoder, verified bit-for-bit against a reference), token-locked panel for any phone including iPhone, Tailscale preferred over LAN.
 - Fixes found by running, not reading: crisis phrasing routed to no expert (now → margdarshak); unknown RAM was treated as low RAM; Windows crashed on `os.uname()`; Ollama's 4k default context pinned to 16k.
 
-**Known gaps, stated:** Windows path verified only by CI, not on a physical machine yet; iOS is a thin-client path (see docs/ROADMAP.md); OS keychain for keys not yet used on PC; screen-read and floater are Android-only.
+**Known gaps, stated:** Windows path verified only by CI, not on a physical machine yet; iOS is a thin-client path (see docs/ROADMAP.md); OS keychain for keys not yet used on PC; screen-read is Android-only (Shizuku); the floating fact-checker bubble is planned, not built.
