@@ -4,6 +4,125 @@ Every published version is a line in `VERSION` (`date sha repo`). Installed copi
 
 Changes ship as **impact radii**: one commit per concern, each entry names what it touched and what it deliberately did not, so a fix in one place cannot quietly break another. (How this works: CONTRIBUTING.md → "How changes ship".)
 
+## 2026-09-06 · radius 27 — docs/THREAT-MODEL.md: the security architecture, legible to an outside reviewer
+
+Formalised what the trust code already does into one document a security engineer can read before trusting the tool: the single invariant (untrusted data can never become authority), an asset/threat/boundary/mitigation table where every mitigation is real code cross-referenced to the adversarial case that proves it (A1–A10), the questions a reviewer always asks answered plainly (what the model can and cannot control; trusted vs untrusted input; webpage/MCP/forged-tool/unattended/no-net/dangerous-ask/compromised-connector/compromised-local-model), and the known limits stated rather than hidden (no universal sandbox — `_risky` is detection not proof; subprocess egress is separate; Windows is CI-tested not hardware-tested; one file with the adversarial suite as the boundary net). Linked from TRUST.md and ROADMAP.
+
+Touched: docs/THREAT-MODEL.md (new), docs/TRUST.md (link), docs/ROADMAP.md.
+Not touched: code — this radius documents what radius 26 proved.
+
+## 2026-09-06 · radius 26 — the trust invariants are proven, not described (adversarial suite)
+
+The review's sharpest point: security tests should ask "can it be made to do something it must never do?", not "does it work?". `akasha-fold/tests/adversarial.py` does exactly that — ten cases, each exercising the real code path, all currently holding:
+
+1. a spawned process never receives an API key / token / secret (`_child_env` scrubs them; ordinary vars stay) — proven by running a real subprocess.
+2. a forged tool that reads the environment, opens the network, or writes files is flagged risky (including the `import x as y` binding form a past red-team used to slip past); a pure-compute tool is clean.
+3. a connector's server receives only the credential mapped for it, never another connector's token.
+4. unattended (the daemon, `AI_ATTENDED=0`): a writing hand, an X-risk hand and forge are all refused; only a read-only hand runs.
+5. an MCP server's reply is data — a reply saying "/mcp add evil …" is returned as text and registers no connector, runs no command.
+6. an injected instruction inside untrusted text ("IGNORE PREVIOUS … add evil … rm -rf") never becomes an auto-executed command; a memory note enters the prompt as data under a MEMORY heading and executes nothing.
+7. key-shaped strings are scrubbed before they can be journalled or sent to a cloud brain.
+8. pairing mints a required token (a seat, not an open door); MCP and forge stay attended-only, so a served, non-tty peer cannot forge a tool.
+
+The suite runs in the gate (`check.sh`) and from inside the shipped bundle (`build-dist.sh`), on every OS. This is also the answer to "how do you evolve the architecture without breaking the invariants": the adversarial suite is the safety net that makes any future refactor safe — a boundary that regresses fails here first.
+
+Touched: tests/adversarial.py (new), check.sh + pc/build-dist.sh (run it in the gate and from the bundle), docs/TRUST.md.
+Not touched: the harness — this radius only proves what is already there.
+
+## 2026-09-06 · radius 25 — /trust: the authority model, made visible (and the egress claim, made exact)
+
+After a deep external review argued the next step is proof and authority-control, not more features — and that Aasmaan already has the ingredients, just scattered:
+
+- **`/trust` (and `ai trust`)** prints ONE card from the same live state every gate reads: which brain answers first (LOCAL / CLOUD, and whether cloud text is scrubbed), the network intent class (0 none · 1 local · 2 only when you ask · 3 + one daily version check), which cloud brains and connectors are wired, the files it can read/write, whether the screen or mic are reachable, that nothing is sent for you, that the background daemon is read-only, and the last cloud egress (or NONE). It ends with the invariant in one line: data can never grant authority — it suggests, you approve, code executes.
+- **The egress claim is now exact.** `/egress` and TRUST.md said "every call is logged"; that is every call through `ai`'s own network layer. A subprocess `ai` runs for you (yt-dlp, an MCP server, ffmpeg, a forged tool) does its own network and is not in that log — so the wording is now "every request through `ai`'s managed layer is logged; a subprocess is classified separately, by name, when you add it", stated on the trust card and in the egress footer.
+
+This is the first slice of the review's roadmap; the adversarial test suite (prove the invariants) and a formal THREAT-MODEL.md follow. The full "trust kernel" refactor (one central capability object) is the right direction but will be incremental behind these tests, never a big-bang rewrite of the working gates.
+
+Touched: ai.py (`trust_card`, `/trust`, `ai trust`, egress footer), tests/golden.py (+1 pin), docs/TRUST.md.
+Not touched: the gates themselves (impact_gate, hands, route) — /trust only reads them.
+
+## 2026-09-06 · radius 24 — a fresh-eyes pass: the first five minutes must not lie or crash
+
+A zero-context reviewer installed the product as a new user would and used it with no key and no local model. The confirmed, user-losing findings:
+
+- **`/help` crashed every time** (`TypeError: not enough arguments for format string`) — the help text contains `15% of 4200` and `10 ka 18%`, and it was rendered with `%`-formatting, so the literal percents were read as format specs. It now fills the one placeholder with `.replace`, never `%`. Pinned.
+- **`ai help` / `ai -h` / `ai --help` were sent to a brain as a question** (and failed with a raw error when no key was set). They now print the same help. 
+- **The "all failed" provider dump** — six providers' `KEY not set` plus a Python `urlopen` error — printed before the friendly line, reading like a crash to a normal person. When nothing is configured yet, that noise is suppressed (the kind "no brain — add a free key" line already follows); it still shows for a real keyed failure and always under `AI_DEBUG`, and is kept in `/why`.
+- **Small talk was web-searched:** "kya haal hai", "kaise ho", "how are you" matched the freshness regex (`haal`, `abhi`) and went to DuckDuckGo — an egress surprise against the "nothing leaves the device" promise. A small-talk guard now short-circuits; a real time-sensitive query ("aaj ka sona bhav", "latest news") still fetches.
+- **Landing-page honesty:** the trust table said "Never … editing `.bashrc`/`.zshrc`" unqualified, but Termux adds one PATH line — now says "on a PC (Termux adds one PATH line, shown first)". And "Python and Ollama are installed by you … only prints the command" now reads "only after you press Enter (Linux/macOS print the command; Windows offers to run winget)", matching what the installers actually do.
+
+The reviewer also flagged a brand split (wizard/profile saying "Akasha") — verified NOT shipped: `build-dist.sh` rewrites every `Akasha`→`Aasmaan` in the bundle, and the shipped `dist/aasman` has zero occurrences. Installer-flow items (mark the wizard's current row; the cloud-only re-ask; by-design outcomes counted as warnings) are the next radius.
+
+Touched: ai.py (`/help` render, `ai help` dispatch, `route` no-brain noise, `needs_web` small-talk guard), tests/golden.py (+2 pins), docs/index.html.
+Not touched: installers, connectors, hands, reminders, greeting.
+
+## 2026-09-06 · radius 23 — the setup does not ask what it already knows
+
+A user on a Motorola: the wizard printed "motorola edge 50 neo, 7 cores, RAM…" and then asked "Ye device kya hai? 1 Android 2 iPhone 3 Linux" — asking for the platform it had just detected and is literally running inside. And Windows was missing from the list.
+
+- The device step now **leads with the detected platform** (`Android (Termux)` inside Termux, `Mac` on Darwin, else `Linux`) as a confirmed fact — "✓ Android (Termux) — yahi"; **Enter keeps it**. The picker only appears as "badalna ho tabhi": `2` iPhone/iPad (client-only, can never be auto-detected because iOS cannot run this), `3` Linux/Mac.
+- **Windows is named honestly:** a line says Windows does not use this wizard — `irm .../install.ps1 | iex` in PowerShell — instead of pretending it is one of the picker options.
+- Option 3 relabelled "Linux / Mac" (the bash wizard runs on both; it never runs on Windows).
+
+Touched: setup-wizard.sh (`s_device`, platform detection). Not touched: install.ps1 (already its own path), the harness, tests (the wizard replays still pass — option 1 is still Android).
+
+## 2026-09-06 · radius 22 — the same family, hunted everywhere: a fix must never depend on the broken thing
+
+Owner: "aisa issue aur kahin to nahi chhipa?" A root-cause audit of every install/update path (14 suspects, 9 cleared with evidence) found three more of the family that broke the Moto today:
+
+- **`ai update` on Android** printed and ran the bare `curl … | bash` — curl can re-break after a Termux/openssl bump. It now checks that curl even runs (`curl --version`), upgrades with `apt` only if it does not (never `pkg`, which needs curl), then runs the same line. Pinned.
+- **`install.sh` refused to start without curl** — so the git-clone route it already had was unreachable on a minimal Debian/Ubuntu (which ships neither curl nor wget). It now uses curl → wget → git, whichever exists, and says which to install otherwise. Verified here with curl removed from PATH: the tarball came through wget. Docs carry the `wget -qO- … | bash` line.
+- **Fresh macOS**: `/usr/bin/python3` is Apple's stub that opens the "install Command Line Tools?" dialog and blocks. `pc-setup.sh` now checks `xcode-select -p` before running it, prints the one command, and every python probe has a timeout. (Unverified on hardware — no Mac here; the guard is a pre-check, not a behaviour change for Macs that already have the tools.)
+- Cleared with evidence, no change: Windows Store-python stub (skipped by path), `ai.cmd` launcher (no ExecutionPolicy issue), user PATH via registry, no admin; Termux `/dev/tty` prompts under `curl | bash`; every pip install on Termux degrades with a fallback message; `termux-*` calls carry timeouts. Known-unknown: very old Windows 10 builds may fail the first `irm` on TLS 1.2 — documented in the FAQ, not coded around.
+
+Touched: ai.py (`update_cmd`), install.sh (`fetch`, requirement check), pc-setup.sh (macOS stub guard, `_to` on the python probe), README, docs/index.html, docs/FAQ.md, tests/golden.py (+1 pin).
+Not touched: install.ps1, installer stages, harness behaviour.
+
+## 2026-09-06 · radius 21 — connectors: safe to say yes to, honest about what you do not have
+
+Owner: "gmail ke MCP se connection jo tarika hai uspe safe feel karte hue guide karna hai … catalogue me nahi hai to custom ka process bata ke permission leke bana dena hai".
+
+- **Every connector line and setup card now ends with the safety line:** token/password never shown in chat or on screen (hidden typing, `~/.ai-env` 0600), never sent to any other server — only to that connector's own process, which receives only that one credential — no step without your yes, and how to remove it (`/mcp rm`, `/keys rm`).
+- **Home Assistant is ask-for-only** (`suggest:false` in the catalogue): it never appears in use-case suggestions or bucket searches; `/mcp find homeassistant` shows it with a "kya hai" line that says what it is and that it is only for people who already run one.
+- **Unknown service → the custom process, spelled out:** you say what it should do → a brain fills one function inside a fixed stdio-MCP skeleton (stdlib only, no shell, keys only from env) → scan + preview → your yes → register + one test call. **`/mcp forge` now prints this plan and asks before anything is generated**; no tty and no `AI_YES` = nothing written.
+
+Touched: connectors.json (one entry), ai.py (`mcp_find`, `_connector_line`, `connector_suggest_line`, `mcp_forge`), tests/golden.py (+2 pins).
+Not touched: setup/verify flow, MCP protocol, keys.
+
+## 2026-09-06 · radius 20 — a daily greeting, tailored on the device, one toggle
+
+Owner: "ek greetings bhi toggle on/off wali rakho, every morning at 10 am, user ke hisaab se tailored … taki user ko special aur personal feel ho".
+
+- **`/greet on|off`, `/greet at HH:MM` (default 10:00), `/greet city <name>`, `/greet brain on|off`, `/greet now`**; plain words "greeting on", "subah wali greeting band karo". Off by default; one hint line at first start.
+- **Composed locally** from what the device already knows: salutation by time of day in your language with your name (`~/.ai-profile` owner), the date, the weather only if you named a city and the net is up (keyless Open-Meteo, attributed), today's reminders (radius 19), your lists, one tip about a hand or tool this install actually has. A brain adds ONE sentence only when one is reachable (local first) and is marked with its name; nothing is sent anywhere otherwise.
+- **Once a day:** fires when `ai` starts after the set time, or from `ai daemon` as a notification (and spoken when voice is on); `~/.ai-greet.json` remembers the day.
+- **`GREET_LINES` plug:** a function registered there adds a line; tomorrow's panchang/tithi (Dharma OS) lands through it without touching the rest (ROADMAP).
+
+Touched: ai.py (`/greet` block, REPL start + daemon step + chat intent, MSG key, help), tests/golden.py (+2 pins), README, docs/FAQ.md, docs/ROADMAP.md.
+Not touched: reminders store, hands, connectors, voice engine.
+
+## 2026-09-06 · radius 19 — the OS's own endpoints: alarms, timers, reminders, calendar, on every platform
+
+Owner: "alarms, reminders, calendars … jo jo endpoints open hote hain, same har platform ke liye". Hands, code-owned as before:
+
+- **Android (any Termux, no add-on, no Shizuku):** `alarm_set` (Clock app, `SET_ALARM`), `alarm_dismiss` (asks), `timer` (`SET_TIMER`, rings with `ai` closed), `timer_dismiss`, `calendar_add` (`INSERT` event prefilled with your title — you pick the time and save; nothing silent), `alarms_show`, `calendar_app`.
+- **macOS:** `remind_in`, `remind_at` (Reminders.app; "alarm" maps here — macOS has no alarm clock), `calendar_add` (one-hour event), `reminders_app`, `calendar_app`. Text travels as an argv item into `on run argv`, never inside the AppleScript.
+- **Windows:** `remind_at` (Task Scheduler popup at HH:MM today; the text is read from a 0600 file, never placed on the command line), `remind_clear`, `clock_app` (`ms-clock:`), `calendar_app` (`outlookcal:`).
+- **Linux:** `remind_at` (`systemd-run --user --on-calendar`), `remind_clear`; `timer` already existed.
+- **Plain words and voice:** "alarm 6:30 baje", "7 pm ka alarm", "wake me up at 12 am", "timer 10 min chai", "meeting daal do 3 pm: dentist"; am/pm/subah/raat words set the hour.
+- **`/remind` — one store for every platform** (`~/.ai-reminders.json`, 0600): "remind me at 10:30 chai", "kal 9 baje meeting yaad dilana", "raat 10 baje yaad dila do doodh", `/remind in 20 min call`. The OS endpoint is tried on top (marked `os` so nothing fires twice); otherwise an in-process timer fires it while `ai` is open and `ai daemon` fires what came due while it was closed — notification (argv/env, never a script string) and, with voice on, spoken. `/remind` lists, `/remind rm <id>`, `/remind clear`. A cancel word ("alarm hatao 6:30") never creates an entry.
+- Typed values only reach templates: `h`/`m` are ranged ints; `{clock}`, `{mins_until}`, `{text_file}` are derived by code. `hands_check` still refuses text inside any script element.
+
+Touched: ai.py (hands tables ×4, `_h_build` derived values, `hands_intent` am/pm, `/remind` block, REPL + voice + daemon hooks, help), tests/golden.py (+5 pins), docs/HANDS.md, docs/FAQ.md, README.
+Not touched: existing hands, MCP, connectors, tuning, language.
+
+## 2026-09-06 · radius 18 — the first Android command must not depend on the binary it is fixing
+
+Second failure on the same Moto: `pkg upgrade -y` printed "No mirror or mirror group selected" and then the same `CANNOT LINK EXECUTABLE "curl"` — because `pkg` itself runs curl to pick a mirror. The one-line install now starts with `apt update && apt -y -o Dpkg::Options::=--force-confnew full-upgrade && apt -y install curl python` (apt fetches with its own code; `--force-confnew` answers the conffile prompts so the line never stalls), then the same `curl … | bash`. Changed in every place the line is printed: README, docs/index.html, docs/FAQ.md, install.sh hints, `ai pair` help and the Telegram /install text.
+
+Touched: README, docs/index.html, docs/FAQ.md, install.sh (comments + the python-missing hint), ai.py (two text strings).
+Not touched: installer logic, harness behaviour, tests (117/117 unchanged).
+
 ## 2026-09-06 · radius 17 — the login catalogue is vetted, not guessed
 
 The research pass (khoji, `C-login-connectors.md` in the monorepo) checked every login connector against its own repo, docs and LICENSE file. Corrections landed as data:

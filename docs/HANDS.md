@@ -38,9 +38,15 @@ awaaz 30               the same, by plain words — "pause", "next song", "batte
 | do-not-disturb | Shizuku (asks first) | — | opens the Settings page | — | — |
 | stay awake / wake lock | ✓ | `caffeinate` | — | — | — |
 | lock / sleep | — | sleep (asks first) | lock (asks first) | lock (asks first) | — |
-| remind me in N minutes | — (planned via job scheduler) | — | — | `systemd-run --user` | — |
+| alarm at HH:MM | ✓ Clock app via `am` (no add-on) | Reminders.app | opens the Clock app | `systemd-run --on-calendar` | — |
+| timer / remind me in N min | ✓ Clock app timer | Reminders.app | Task Scheduler popup (today) | `systemd-run --on-active` | — |
+| remind me at HH:MM | ✓ (alarm) | Reminders.app | Task Scheduler popup (today) | `systemd-run --on-calendar` | — |
+| calendar event | ✓ prefilled in the Calendar app, you save | Calendar.app (one hour) | opens the Calendar app | — | — |
+| open alarms / calendar | ✓ | ✓ | ✓ (`ms-clock:`, `outlookcal:`) | — | — |
 | find files by name | — | Spotlight | — (Search index planned) | — | — |
 | windows list / minimize all | — | — | ✓ | — | — |
+
+**`/remind` is the floor under all of these.** "remind me at 10:30 chai", "kal 9 baje meeting yaad dilana", "7 pm dawai" or `/remind in 20 min call` go into `~/.ai-reminders.json` on every platform. The OS endpoint is tried on top (an Android alarm, a Reminders.app entry, a Task Scheduler popup, a systemd timer) so it fires even when `ai` is closed; when none exists or it refuses, `ai` fires it while open (an in-process timer) and `ai daemon` fires whatever came due while it was closed — as a notification and, with voice on, spoken. `/remind` lists, `/remind rm <id>` removes. The text never enters a shell: Android and macOS get it as one argv item, Windows reads it from a 0600 file, notifications carry it as an argument or an environment variable.
 
 **Android tiers.** No add-on: links, deeplinks, wake lock. **Termux:API** (F-Droid, same signature as Termux — a mismatch makes every call hang, which is why the probe is a real call with a timeout): volume, TTS, notifications, clipboard, torch, battery, brightness. **Shizuku + rish** (no root): music control of *any* app, what is playing, do-not-disturb.
 

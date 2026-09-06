@@ -16,7 +16,9 @@ Read this in two minutes. Every claim below can be checked in `ai.py` by searchi
 
 Everything else — memory, KB index, chat state, cache, metrics, expert packs, keys — is a file in your home folder. Nothing syncs.
 
-**Every one of those calls is logged where you can read it.** `~/.ai-egress.log` gets one line per outbound call (time, local/CLOUD, method, host/path, bytes out); `/egress` shows it. Query strings and bodies are never written there.
+**Every call `ai` itself makes is logged where you can read it.** `~/.ai-egress.log` gets one line per outbound HTTP call `ai` initiates through its own network layer (time, local/CLOUD, method, host/path, bytes out); `/egress` shows it, and `/trust` summarises it. Query strings and bodies are never written there.
+
+**The honest boundary:** this covers `ai`'s own requests. A separate program `ai` runs *for* you — `yt-dlp` fetching a transcript, an MCP connector's server, `ffmpeg`, a tool you forged — does its own network, and those calls are not in `ai`'s log. `ai` names each such program when you install or add it, and a forged tool that touches the network is flagged and left unregistered until you read it. So the precise claim is: **every request through `ai`'s managed layer is logged; a subprocess is classified separately, by name, at the point you add it.** `/trust` states this boundary on its own card.
 
 ## Never
 
@@ -38,9 +40,14 @@ grep -n "urllib.request" ai.py     # every network call
 grep -n "def redact" ai.py         # the scrub
 grep -n "AI_ATTENDED" ai.py        # the unattended gate
 /capabilities           # what this install can do right now (keyed brains, alive brains, vision)
+/trust                  # one card: brain, network intent, files, screen/mic, connectors, background, last egress
 /why                    # which brain answered your last question, and why
 /egress                 # the runtime log: every network call this install ever made — when, local or CLOUD, host/path, bytes out (never the query or body)
 ```
+
+The full asset/threat/boundary/mitigation table, and the questions a security reviewer will ask, are in [docs/THREAT-MODEL.md](THREAT-MODEL.md).
+
+**These are not just claims — they are tested as attacks.** `akasha-fold/tests/adversarial.py` proves the invariants by trying to break them: a spawned process cannot read an API key, a forged tool that reads the environment or opens the network is flagged, a connector's server receives only its own credential, the unattended daemon refuses to write or forge, an MCP server's reply is treated as data (a reply saying "add a connector" registers nothing), an injected instruction inside untrusted text never auto-executes, a memory note is context not a command, key-shaped strings are scrubbed before a cloud brain or a log sees them, and the paired door needs a token while forge/MCP stay attended-only. The gate runs this suite on every change, on every OS. A trust boundary cannot regress silently.
 
 Airplane-mode test: turn networking off, run `ai`, ask something. The local brain answers; `/memory` and `/kb` work; nothing errors about a missing server, because there is none.
 
