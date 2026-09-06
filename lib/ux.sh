@@ -29,7 +29,7 @@ _ux_banner(){ # <title> <what>
   [ -n "${2:-}" ] && printf '  %s%s%s\n' "$_UXD" "$2" "$_UXX"; }
 
 _ux_stop(){ printf '\n  %sruk gaye. Jitna hua wo saved hai — dobara chalane pe wahin se aage%s\n' "$_UXG" "$_UXX"
-  printf '  %s(installer idempotent hai):%s  bash fold-node/termux/fold-all-setup.sh\n\n' "$_UXD" "$_UXX"; exit 0; }
+  printf '  %s(installer idempotent hai):%s  bash %s\n\n' "$_UXD" "$_UXX" "$0"; exit 0; }
 
 stage(){ _ux_banner "$1" "${2:-}"
   _ux_interactive || { printf '\n'; return 0; }
@@ -62,7 +62,8 @@ stage_opt(){ _ux_banner "$1" "${2:-}"
 
 substage(){ printf '\n  %s┈ %s%s\n' "$_UXC" "$1" "$_UXX"; }
 ok(){   printf '    %s✓%s %s\n' "$_UXG" "$_UXX" "$*"; }
-warn(){ printf '    %s⚠%s %s\n' "$_UXY" "$_UXX" "$*"; }
+UX_WARN=0
+warn(){ UX_WARN=$((UX_WARN+1)); printf '    %s⚠%s %s\n' "$_UXY" "$_UXX" "$*"; }
 skp(){  printf '    %s—%s %s%s%s\n' "$_UXD" "$_UXX" "$_UXD" "$*" "$_UXX"; }
 info(){ printf '    %s·%s %s%s%s\n' "$_UXD" "$_UXX" "$_UXD" "$*" "$_UXX"; }
 
@@ -73,6 +74,7 @@ runv(){ local label="$1"; shift
 
 ux_summary(){
   printf '\n%s╭%s╮%s\n' "$_UXG" "$_UXHR" "$_UXX"
-  printf '%s│%s  %s✅ Aasmaan ready%s\n' "$_UXG" "$_UXX" "$_UXB" "$_UXX"
+  if [ "${UX_WARN:-0}" -gt 0 ]; then printf '%s│%s  %s⚠ ${AI_BRAND:-Aasmaan}: %s cheez(ein) adhoori — upar ⚠ wali lines dekho%s\n' "$_UXY" "$_UXX" "$_UXB" "$UX_WARN" "$_UXX"
+  else printf '%s│%s  %s✅ ${AI_BRAND:-Aasmaan} ready%s\n' "$_UXG" "$_UXX" "$_UXB" "$_UXX"; fi
   printf '%s╰%s╯%s\n' "$_UXG" "$_UXHR" "$_UXX"
   local l; for l in "$@"; do printf '  %s\n' "$l"; done; printf '\n'; }

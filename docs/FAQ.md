@@ -1,5 +1,8 @@
 # FAQ
 
+**Termux kahan se lein?**
+Sirf F-Droid se: https://f-droid.org/packages/com.termux/ (F-Droid khud: https://f-droid.org/). Play Store wala purana aur toota hua hai. Add-ons bhi F-Droid se: Termux:API (mic/TTS), Termux:Boot (reboot pe chalu).
+
 **Kya ye bina kisi account / API key ke chalta hai?**
 Haan. Ollama + local model = zero account, zero key, zero net. Chat, 18 experts, memory, KB, sab. Net ho to keyless tools bhi (DuckDuckGo search, scrape, Pollinations images). Cloud key sirf tab jab tum khud daalo.
 

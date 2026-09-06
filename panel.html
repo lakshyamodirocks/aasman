@@ -174,9 +174,14 @@ a{color:var(--acc)}
 </div>
 <script>
 // pairing token: arrives once as ?t= (from the QR), lives in localStorage, rides on every API call, leaves the URL bar
-const T=(()=>{try{const u=new URL(location.href);const t=u.searchParams.get('t');if(t){localStorage.setItem('ai_t',t);u.searchParams.delete('t');history.replaceState(null,'',u.pathname+(u.search||'')+u.hash);}return localStorage.getItem('ai_t')||'';}catch(e){return ''}})();
+// The token STAYS in the URL on purpose: iOS "Add to Home Screen" captures the current URL and a standalone
+// web app has its own storage (WebKit 181849) — a stripped URL would open to 401 everywhere. localStorage is a
+// second copy for tabs opened without it. The manifest link carries it too so start_url keeps it.
+const T=(()=>{try{const u=new URL(location.href);const t=u.searchParams.get('t');if(t){localStorage.setItem('ai_t',t);}return t||localStorage.getItem('ai_t')||'';}catch(e){return ''}})();
+try{if(T){const m=document.querySelector('link[rel="manifest"]');if(m)m.href='/manifest.json?t='+encodeURIComponent(T);}}catch(e){}
 const _tq=u=>(T&&typeof u==='string'&&u.startsWith('/'))?u+(u.includes('?')?'&':'?')+'t='+encodeURIComponent(T):u;
-const _fetch=window.fetch.bind(window); window.fetch=(u,o)=>_fetch(_tq(u),o);
+function _unpaired(){if(document.getElementById('unpaired'))return;const d=document.createElement('div');d.id='unpaired';d.style.cssText='position:fixed;inset:0;background:#0b0e14;color:#e6edf6;padding:28px;font:16px/1.5 system-ui;z-index:9999';d.innerHTML='<h2 style="margin:0 0 10px">Ye phone pair nahi hai</h2><p>Is computer ka <code>ai</code> tumhe pehchanta nahi (koi token nahi, ya token badal gaya).</p><p>Computer pe <code>ai pair</code> chalao aur QR <b>dobara</b> scan karo. Home-screen icon purana ho to hata ke naya banao.</p><p style="opacity:.7">Keys ka isse koi lena-dena nahi.</p>';document.body.appendChild(d);}
+const _fetch=window.fetch.bind(window); window.fetch=(u,o)=>_fetch(_tq(u),o).then(r=>{if(r.status===401)_unpaired();return r;});
 const $=s=>document.querySelector(s), j=(u,o)=>fetch(u,o).then(r=>r.json());
 let SPEAK=false, CTX=[];
 // nav

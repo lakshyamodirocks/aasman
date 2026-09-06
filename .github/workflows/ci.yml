@@ -35,8 +35,10 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
-      - name: shell syntax
-        run: for f in *.sh lib/*.sh; do bash -n "$f"; done
+      - name: shell syntax + install.sh reaches its first check
+        run: |
+          for f in *.sh lib/*.sh; do bash -n "$f"; done
+          PATH=/nonexistent /bin/bash install.sh 2>&1 | grep -qE 'nahi mila|chahiye' 
       - name: scripted install into a fresh HOME
         env: { AI_YES: "1" }
         run: |
@@ -60,7 +62,7 @@ jobs:
         shell: pwsh
         env: { AI_YES: "1" }
         run: |
-          .\install.ps1 | Tee-Object -FilePath install.log
+          .\install.ps1 *>&1 | Tee-Object -FilePath install.log
           if (-not (Select-String -Path install.log -Pattern '18/18 expert packs load' -Quiet)) { throw "packs did not load" }
       - name: ai version · daemon --once · uninstall
         shell: pwsh

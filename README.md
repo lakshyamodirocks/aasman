@@ -1,53 +1,18 @@
 # Aasmaan (आसमान)
 
-[![ci](https://github.com/lakshyamodirocks/aasman/actions/workflows/ci.yml/badge.svg)](https://github.com/lakshyamodirocks/aasman/actions/workflows/ci.yml) · [Site](https://REPO_OWNER.github.io/REPO_NAME/) · [How it works](docs/ARCHITECTURE.md) · [Trust](docs/TRUST.md) · [FAQ](docs/FAQ.md) · [Roadmap](docs/ROADMAP.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md)
+[![ci](https://github.com/lakshyamodirocks/aasman/actions/workflows/ci.yml/badge.svg)](https://github.com/lakshyamodirocks/aasman/actions/workflows/ci.yml) · [Site](https://lakshyamodirocks.github.io/aasman/) · [How it works](docs/ARCHITECTURE.md) · [Trust](docs/TRUST.md) · [FAQ](docs/FAQ.md) · [Roadmap](docs/ROADMAP.md) · [Every switch](docs/FLAGS.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md)
 
 **Free AI on your own device — phone or PC. One program, one file. No account needed. Your data stays with you.**
 
-Aasmaan is one Python program (`ai.py`, ~3,000 lines, stdlib only, read it in any editor) plus 18 expert "packs" (plain Markdown), a small web panel, and the installers. It runs a local model through Ollama and, only if *you* add a key, free cloud tiers. No telemetry. No server. Nothing phones home. The **same `ai`** runs on Android (Termux), Linux, macOS and Windows; the installer adapts to the device instead of asking the device to adapt to it.
-
-## Why this exists
-
-Free AI keeps shrinking: free tiers get cut, logins get killed, projects relicense — we watched it happen more than once while building this. Meanwhile a huge number of people carry a genuinely capable phone and nothing beyond a chatbot's daily limit. Aasmaan is free AI for the phone you already own: not a lighter version of something bigger, the real thing — local where it can be, reaching free-tier clouds only when you choose to add a key.
-
-Trust is the pitch, not a feature bolted on. The fear we heard most was "they'll steal my key." So nothing phones home, every network call is in one readable file, keys stay in a file only you can read, and the install adapts to your hardware instead of the other way around: a ₹8,000 phone gets a smaller brain, not a smaller product. It is built and actively maintained by one person in Jaipur who thinks across finance, NLP, coaching and tech, with a real feedback loop — when something goes stale, it gets fixed, not abandoned. Longer version: [docs/WHY.md](docs/WHY.md).
-
-## Honest status (2026-09-06)
-
-- **Runs and is gated on Linux** by a 50-check gate (syntax, pinned behaviours, scripted installs from the bundle, uninstall). CI repeats golden + install on Linux, macOS and Windows.
-- **Android/Termux**: the install path is replayed in tests from this exact bundle; Ollama + local models ran on the maintainer's phone in earlier sessions. whisper.cpp / Piper voice are offered by `setup-menu` and are being verified device by device.
-- **Windows**: verified by CI only; no physical Windows machine yet. Your first run is a real test — please report.
-- **Shipped**: the one-file harness, provider ladder, privacy scrub, 18/18 expert packs, memory + KB, `/do` ladder with tool forge and safety scan, `/attach` with vision, chat-to-command, `/capabilities`, self-update, daemon, Telegram helper bot.
-- **Planned, not built**: fact-checker floater, family profiles, key lock/unlock in the hardware keystore, speaker recognition, using your own ChatGPT/Claude subscription through the vendor's CLI (researched; Anthropic's terms block it, OpenAI's are grey), iOS thin client.
-- Beta means worked on in the open. If a line here reads stale, that is the feedback loop's job: say so.
-
-## What we built
-
-- **One-file harness** — stdlib-only, the same program on four platforms; small enough to audit in an evening.
-- **Provider ladder with cooldowns** — local Ollama → free tiers you keyed → keyless builtins (DuckDuckGo, scrape, Pollinations images) → a recipe for this device → the brain in text → forge a tool. A rate-limit is a cooldown, not a death; "no" is never the last answer.
-- **Privacy router** — text bound for any cloud brain is scrubbed first: emails, phones, PAN/UPI/IFSC/account/Aadhaar-shaped numbers, API keys, private IPs, your home path, names you list. The local brain sees raw text and it never leaves.
-- **18 experts in six groups** — CREATE (image prompts, music, video edit), PUBLISH (Instagram, YouTube, final checks), GROW (marketing, SEO, analytics), THINK (research-verify, writing, planning), BUILD (coding, UI/UX, voice), CARE (finance explain-only, coaching with a crisis protocol, self-OSINT). Each has a persona, refusals, honest weak spots on a small model, five Hinglish exemplars and a knowledge base with dated sources. `/agent auto <task>` picks; crisis phrasing always reaches the helpline protocol.
-- **Memory on plain files** — `~/ai-vault`, keyword (BM25) search, hybrid if Ollama has an embedding model. Delete the folder, the memory is gone.
-- **Voice on Android** — Termux:API mic/TTS today; whisper.cpp (speech-to-text) and Piper (Hindi text-to-speech) via `setup-menu`, native C/C++ so they survive where Python ML stacks cannot; speaker recognition planned.
-- **`/attach` with vision, `/capabilities`, chat-to-command, self-update, daemon** — described below.
-- **A test gate** — 59 pinned behaviours (scrub shapes, prompt fences, risky-code scanner, routing, packs, intents, vision refusal, unattended gate, daemon, Telegram bot) + scripted installs, on every change, in CI on three OSes.
-- **Trust invariants in code** — keys never exported to child processes; no telemetry; unattended = no action; nothing runs without a visible yes.
-
-## About the name
-
-आसमान (Aasmaan) is the everyday Hindi and Urdu word for sky — the word a child and a grandparent both already know, tied to no religion or region. आकाश (Akasha) is the same sky in its older Sanskrit register. One word, two registers: Aasmaan is the plain, universal name for now; if this grows into a personal, sovereign AI, the natural step is not a rebrand but a name-elevation. Working name; domain and trademark not yet checked.
-
-## Community
-
-[Telegram group](https://t.me/+iF1WcRNqpAk0ODQ1) · [Discord](https://discord.gg/j8njkbbNY) — humans, questions, show-and-tell. Bugs and feedback go to GitHub issues so nothing is lost. The Telegram helper bot runs on the maintainer's own device (no server) and answers `/install`, `/faq`, `/version`, forwards `/feedback`; free-text answers are off by default. See [docs/COMMUNITY.md](docs/COMMUNITY.md).
+Aasmaan is one Python program (`ai.py`, ~3,700 lines, stdlib only, read it in any editor) plus 18 expert "packs" (plain Markdown), a small web panel, and the installers. It runs a local model through Ollama and, only if *you* add a key, free cloud tiers. No telemetry. No server. Nothing phones home. The **same `ai`** runs on Android (Termux), Linux, macOS and Windows; the installer adapts to the device instead of asking the device to adapt to it.
 
 ## Install — one command per device
 
-**Android (Termux)** — install **Termux from F-Droid** (the Play Store build is old and broken), open it, then:
+**Android (Termux)** — install **Termux from F-Droid** ([f-droid.org/packages/com.termux](https://f-droid.org/packages/com.termux/) — the Play Store build is old and broken; F-Droid is a free store for open-source apps, install it from [f-droid.org](https://f-droid.org/)), open Termux, then:
 ```bash
 pkg install -y curl python && curl -fsSL https://raw.githubusercontent.com/lakshyamodirocks/aasman/main/install.sh | bash
 ```
-You get: setup wizard (you pick RAM/battery/model, with a fit-check, back-navigation, nothing forced) → 7-stage phone installer → `setup-menu` (press **G**) for free keys, voice, tools. Optional add-ons from the same F-Droid source unlock more: **Termux:API** (mic, TTS, notifications), **Termux:Float** (floating bubble), **Shizuku** (screen-read, no root). Each is asked for, never assumed.
+You get: setup wizard (you pick RAM/battery/model, with a fit-check, back-navigation, nothing forced) → 7-stage phone installer → `setup-menu` (press **G**) for free keys, voice, tools. Optional add-ons from the same F-Droid source unlock more: [**Termux:API**](https://f-droid.org/packages/com.termux.api/) (mic, TTS, notifications), [**Termux:Boot**](https://f-droid.org/packages/com.termux.boot/) (start on reboot), [**Termux:Float**](https://f-droid.org/packages/com.termux.window/) (floating window; the fact-checker bubble is planned), [**Shizuku**](https://shizuku.rikka.app/) (screen-read, no root). Each is asked for, never assumed.
 
 **Linux / macOS / WSL2** (needs `python3` and `curl`):
 ```bash
@@ -68,7 +33,8 @@ Every installer is **staged**: it shows your device first (RAM, GPU, Python, Oll
 | `ai` chat, 18 experts, memory, `/do` tools, keyless web | ✓ | ✓ | ✓ |
 | local model (Ollama) | ✓ RAM-tiered, wizard picks | ✓ hardware-tiered | ✓ hardware-tiered |
 | voice in/out | ✓ Termux:API; whisper.cpp + Piper via `setup-menu` (being verified) | `say` on macOS, espeak on Linux | via PowerShell TTS (recipe) |
-| floating bubble, screen-read | ✓ Termux:Float, Shizuku | — | — |
+| screen-read (Shizuku, no root) | ✓ via `setup-menu` | — | — |
+| floating fact-checker bubble | planned (Termux:Float) | — | — |
 | daemon (awareness only) | `ai daemon` in tmux / Termux:Boot | systemd --user / LaunchAgent (opt-in) | Task Scheduler (opt-in) |
 | uninstall | `cleanup.sh` (dry-run first) | `pc-setup.sh --uninstall` (manifest) | `$env:AI_UNINSTALL=1; irm … \| iex` |
 
@@ -80,7 +46,7 @@ Most people with an iPhone also have a Mac or a PC. Run this on the computer:
 ```
 ai pair
 ```
-It prints a QR code in the terminal. Scan it with the phone's camera: the phone opens the web panel of **that** computer's `ai` — its local model, its memory, its experts — over your own Wi-Fi or Tailscale. No server of ours, no account, nothing leaves your two devices. On iPhone: Safari → Share → **Add to Home Screen** and it behaves like an app. The QR carries a one-time-generated token (kept in `~/.ai-env`, revoke with `ai keys rm AI_SERVE_TOKEN`); the panel refuses every call without it. Plain Wi-Fi http is unencrypted, so for use outside your home install Tailscale on both devices and `ai pair` will prefer it automatically. Mac: `caffeinate -i ai pair` keeps it awake with the lid closed.
+It prints a QR code in the terminal. Scan it with the phone's camera: the phone opens the web panel of **that** computer's `ai` — its local model, its memory, its experts — over your own Wi-Fi or Tailscale. No server of ours, no account, nothing leaves your two devices. On iPhone: Safari → Share → **Add to Home Screen** and it behaves like an app (the icon keeps the pairing token). On Android: Chrome → ⋮ → **Add to Home screen** (a shortcut; plain http cannot "install" a PWA). The QR carries a one-time-generated token (kept in `~/.ai-env`, revoke with `ai keys rm AI_SERVE_TOKEN`); the panel refuses every call without it. Plain Wi-Fi http is unencrypted, so for use outside your home install Tailscale on both devices and `ai pair` will prefer it automatically. Mac: `caffeinate -i ai pair` keeps it awake with the lid closed.
 
 ## What it touches — the full list
 
@@ -93,7 +59,9 @@ It prints a QR code in the terminal. Scan it with the phone's camera: the phone 
 | memory | `~/ai-vault/` | your notes and recall, plain files |
 | PATH | Windows: one folder in **user** PATH, only if you press Enter · Linux/macOS: **never edited** — the line is shown, you add it · Termux: `~/.bashrc` gets the PATH line only | so `ai` runs by name |
 
-**Never:** `sudo`/admin · `pip install` · editing `.bashrc`/`.zshrc` on a PC · touching your existing Ollama models · background services of its own without asking · analytics of any kind.
+**Never on a PC:** `sudo`/admin · `pip install` · editing `.bashrc`/`.zshrc` · touching your existing Ollama models · background services of its own without asking · analytics of any kind (anywhere).
+
+**On Android, the phone installer asks stage by stage and writes more:** Termux packages via `pkg` and a few Python packages via `pip` (inside Termux only; your phone's photos and apps are untouched), a PATH line in Termux's `~/.bashrc`, an optional wake-lock and boot autostart (so `ai` survives Android's background killer), and an **optional** security-tools stage (nmap, nikto, sqlmap and friends, ~600 MB, for the OSINT expert) that you can skip with `s`. Undo everything with `cleanup.sh --uninstall`, or uninstall the Termux app.
 
 Everything installed is listed in a manifest. **Uninstall removes exactly that list** (and asks about runtime files); your keys file and your vault are deliberately left for you:
 ```powershell
@@ -101,12 +69,12 @@ $env:AI_UNINSTALL=1; irm https://raw.githubusercontent.com/lakshyamodirocks/aasm
 ```
 ```bash
 bash ~/.local/share/aasmaan/app/pc-setup.sh --uninstall      # Linux / macOS
-bash ~/.local/share/aasmaan/app/cleanup.sh                   # Android / Termux — dry-run first, --yes to apply
+bash ~/.local/share/aasmaan/app/cleanup.sh --uninstall       # Android / Termux (keys, memory, backup stay)
 ```
 
 ## Local model — adapts to your hardware, never depends on it
 
-The installer picks a **coding model** for what you have (all Apache-2.0; sizes are the download):
+The installer picks a **coding model** for what you have (sizes are the download; licences: Apache-2.0 except `qwen2.5-coder:3b`, which is under the Qwen Research licence — fine for personal use, check it before commercial use):
 
 | Your machine | Model | Download |
 |---|---|---|
@@ -127,8 +95,43 @@ Low RAM and no GPU? The install still completes: you get memory, knowledge base,
 
 - **Good on a 7B–14B local model:** write a function, fix a traceback, explain an algorithm, write a test, small scripts, "which is faster".
 - **Not this tool:** whole-repo refactors, multi-file agentic edits. That is Claude Code / Codex territory; Aasmaan is a single file that hosts brains, it does not pretend to be one.
-- **On a phone:** a 4B model on 8 GB RAM is a helper, not a coder. The phone edition shines at voice, quick answers, memory, and tools; heavier code goes to a free cloud brain if you keyed one.
+- **On a phone:** a 4B model on 8 GB RAM is a helper, not a coder. The phone edition shines at voice, quick answers, memory, and tools; heavier code goes to a free cloud brain if you keyed one — or pair the phone with your computer and use its brain.
 - **Never fakes results.** If a test did not run, it says so. Generated tools are scanned for destructive commands before they run, and anything flagged asks you first.
+
+## Why this exists
+
+Free AI keeps shrinking: free tiers get cut, logins get killed, projects relicense — we watched it happen more than once while building this. Meanwhile a huge number of people carry a genuinely capable phone, or have a laptop at home, and nothing beyond a chatbot's daily limit. Aasmaan is free AI for the device you already own — phone, laptop, or both paired together: not a lighter version of something bigger, the real thing — local where it can be, reaching free-tier clouds only when you choose to add a key.
+
+Trust is the pitch, not a feature bolted on. The fear we heard most was "they'll steal my key." So nothing phones home, every network call is logged where you can read it, keys stay in a file only you can read, and the install adapts to your hardware instead of the other way around: a ₹8,000 phone or an old laptop gets a smaller brain, not a smaller product. It is built and actively maintained by one person in Jaipur who thinks across finance, NLP, coaching and tech, with a real feedback loop — when something goes stale, it gets fixed, not abandoned. Longer version: [docs/WHY.md](docs/WHY.md).
+
+## Honest status (2026-09-06)
+
+- **Runs and is gated on Linux**: a gate of scripted installs from this exact bundle, uninstall, and a golden set of pinned behaviours (`tests/golden.py`). CI repeats golden + install on Linux, macOS and Windows; the badge at the top is the live answer.
+- **Android/Termux**: the install path is replayed in tests from this exact bundle; Ollama + local models ran on the maintainer's phone in earlier sessions. whisper.cpp / Piper voice are offered by `setup-menu` and are being verified device by device.
+- **Windows**: verified by CI only; no physical Windows machine yet. Your first run is a real test — please report.
+- **Shipped**: the one-file harness, provider ladder, privacy scrub, 18/18 expert packs, memory + KB, `/do` ladder with tool forge and safety scan, `/attach` with vision, chat-to-command, `/capabilities`, self-update, daemon, Telegram helper bot.
+- **Planned, not built**: fact-checker floater, family profiles, key lock/unlock in the hardware keystore, speaker recognition, using your own ChatGPT/Claude subscription through the vendor's CLI (researched; Anthropic's terms block it, OpenAI's are grey), iOS thin client.
+- Beta means worked on in the open. If a line here reads stale, that is the feedback loop's job: say so.
+
+## What we built
+
+- **One-file harness** — stdlib-only, the same program on four platforms; small enough to audit in an evening.
+- **Provider ladder with cooldowns** — local Ollama → free tiers you keyed → keyless builtins (DuckDuckGo, scrape, Pollinations images) → a recipe for this device → the brain in text → forge a tool. A rate-limit is a cooldown, not a death; "no" is never the last answer.
+- **Privacy router** — text bound for any cloud brain is scrubbed first: emails, phones, PAN/UPI/IFSC/account/Aadhaar-shaped numbers, API keys, private IPs, your home path, names you list. The local brain sees raw text and it never leaves.
+- **18 experts in six groups** — CREATE (image prompts, music, video edit), PUBLISH (Instagram, YouTube, final checks), GROW (marketing, SEO, analytics), THINK (research-verify, writing, planning), BUILD (coding, UI/UX, voice), CARE (finance explain-only, coaching with a crisis protocol, self-OSINT). Each has a persona, refusals, honest weak spots on a small model, five Hinglish exemplars and a knowledge base with dated sources. `/agent auto <task>` picks; crisis phrasing always reaches the helpline protocol.
+- **Memory on plain files** — `~/ai-vault`, keyword (BM25) search, hybrid if Ollama has an embedding model. Delete the folder, the memory is gone.
+- **Voice** — Android: Termux:API mic/TTS today, whisper.cpp (speech-to-text) and Piper (Hindi text-to-speech) via `setup-menu`, native C/C++ so they survive where Python ML stacks cannot. macOS: `say` built in. Linux: `espeak-ng`. Windows: a PowerShell recipe. Speaker recognition planned.
+- **`/attach` with vision, `/capabilities`, chat-to-command, self-update, daemon** — described below.
+- **A test gate** — a golden set of pinned behaviours (scrub shapes, prompt fences, risky-code scanner, routing, packs, intents, vision refusal, unattended gate, daemon, Telegram bot, egress log) + scripted installs, on every change, in CI on three OSes.
+- **Trust invariants in code** — keys never exported to child processes; no telemetry; unattended = no action; nothing runs without a visible yes.
+
+## About the name
+
+आसमान (Aasmaan) is the everyday Hindi and Urdu word for sky — the word a child and a grandparent both already know, tied to no religion or region. आकाश (Akasha) is the same sky in its older Sanskrit register. One word, two registers: Aasmaan is the plain, universal name for now; if this grows into a personal, sovereign AI, the natural step is not a rebrand but a name-elevation. Working name; domain and trademark not yet checked.
+
+## Community
+
+[Telegram group](https://t.me/+iF1WcRNqpAk0ODQ1) · [Discord](https://discord.gg/j8njkbbNY) — humans, questions, show-and-tell. Bugs and feedback go to GitHub issues so nothing is lost. The Telegram helper bot runs on the maintainer's own device (no server) and answers `/install`, `/faq`, `/version`, forwards `/feedback`; free-text answers are off by default. See [docs/COMMUNITY.md](docs/COMMUNITY.md).
 
 ## First 5 minutes
 
@@ -145,7 +148,7 @@ ai version                            # edition, python, sha256 of ai.py, update
 
 ## Updates — you always press the button
 
-When we publish a new version, `ai` notices (it fetches this repo's 60-byte `VERSION` file at most once a day, 3-second cap, opt out with `AI_UPDATE_CHECK=0`) and prints one line under its banner:
+When we publish a new version, `ai` notices (it fetches this repo's tiny `VERSION` file at most once a day, 3-second cap, opt out with `AI_UPDATE_CHECK=0`) and prints one line under its banner:
 
 ```
 [ai] update available: 2026-09-10 a1b2c3d  (tera: 2026-09-06 54fb95a)

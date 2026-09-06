@@ -170,7 +170,7 @@ case("update_check: remote newer → new=True · same → False · fetch down �
 def t_upsert():
     ai._upsert_env("ZZ_TEST_API_KEY","s3cr3t v"); ai._upsert_env("ZZ_TEST_API_KEY","second")
     txt=open(ai._env_file()).read(); mode=oct(os.stat(ai._env_file()).st_mode)[-3:]
-    ok=txt.count("ZZ_TEST_API_KEY")==1 and "second" in txt and os.environ.get("ZZ_TEST_API_KEY")=="second" and mode=="600"
+    ok=txt.count("ZZ_TEST_API_KEY")==1 and "second" in txt and os.environ.get("ZZ_TEST_API_KEY")=="second" and (mode=="600" or os.name=="nt")   # Windows has no POSIX mode bits
     ai._upsert_env("ZZ_TEST_API_KEY",""); gone="ZZ_TEST_API_KEY" not in open(ai._env_file()).read() and "ZZ_TEST_API_KEY" not in os.environ
     return ok and gone, f"{txt!r} mode={mode} gone={gone}"
 case("keys: _upsert_env replaces in place, 0600, live in env; rm removes", t_upsert)
@@ -252,6 +252,62 @@ case("qr: 272 bytes → ValueError (v10-L cap)", t_qr_too_long)
 case("qr: text render uses half-blocks, square-ish, quiet zone", lambda:(all(ch in " ▀▄█" for ch in ai.qr_text("hi").replace("\n","")) and ai.qr_text("hi").count("\n")>=12, "render"))
 case("pair: url carries host, port and token", lambda:(ai.pair_url("10.0.0.5",8765,"tok")=="http://10.0.0.5:8765/?t=tok", ai.pair_url("10.0.0.5",8765,"tok")))
 case("pair: _lan_ip is a dotted quad or empty (never crashes)", lambda:(ai._lan_ip()=="" or ai._lan_ip().count(".")==3, ai._lan_ip()))
+
+
+# ── "mere iphone me setup karo" → pair intent; device detection; unspecified phone → asks
+case("intent: 'mere iphone me setup karo' → pair / iphone", lambda:(ai.self_intent("mere iphone me setup karo")=="pair" and ai._phone_kind("mere iphone me setup karo")=="iphone", str(ai.self_intent("mere iphone me setup karo"))))
+case("intent: 'set up my android phone' → pair / android", lambda:(ai.self_intent("set up my android phone")=="pair" and ai._phone_kind("set up my android phone")=="android", "x"))
+case("intent: 'mere phone me setup kar do' → pair, phone kind unknown (will ask)", lambda:(ai.self_intent("mere phone me setup kar do")=="pair" and ai._phone_kind("mere phone me setup kar do")=="", "x"))
+case("intent: 'phone number validate karne ka function likho' is NOT pair", lambda:(ai.self_intent("phone number validate karne ka function likho") is None, str(ai.self_intent("phone number validate karne ka function likho"))))
+case("pair help: iphone text mentions Add to Home Screen; android text offers both routes", lambda:("Add to Home Screen" in ai._pair_help("iphone") and "Termux" in ai._pair_help("android") and "pair" in ai._pair_help("android"), "x"))
+
+
+# ── keys never reach a child process (trust invariant; found by the live-verification ledger) ──
+def t_child_env():
+    import subprocess
+    os.environ["ZZ_TEST_API_KEY"]="s"; os.environ["ZZ_TEST_TOKEN"]="s"; os.environ["ZZ_PLAIN"]="p"
+    try:
+        out=subprocess.run([sys.executable,"-c","import os;print(sorted(k for k in os.environ if k.startswith('ZZ_')))"],capture_output=True,text=True).stdout.strip()
+        cap=subprocess.check_output([sys.executable,"-c","import os;print('ZZ_TEST_API_KEY' in os.environ)"],text=True).strip()
+    finally:
+        for k in ("ZZ_TEST_API_KEY","ZZ_TEST_TOKEN","ZZ_PLAIN"): os.environ.pop(k,None)
+    return (out=="['ZZ_PLAIN']" and cap=="False"), f"{out} {cap}"
+case("children: *_API_KEY/*_TOKEN never inherited by subprocess.run/check_output; plain vars pass", t_child_env)
+case("children: explicit env= is respected (caller's choice wins)", lambda:(__import__("subprocess").run([sys.executable,"-c","import os;print(os.environ.get('Q'))"],capture_output=True,text=True,env={"Q":"1","PATH":os.environ.get("PATH","")}).stdout.strip()=="1", "env= overridden"))
+
+
+# ── egress log: every outbound call lands as host/path, never the query (tokens) or body ──────
+def t_egress():
+    l=ai._egress_line("https://api.groq.com/openai/v1/chat?t=SECRET&x=1","POST",123); l2=ai._egress_line("http://127.0.0.1:11434/api/chat","POST",5)
+    ok=("CLOUD" in l and "api.groq.com/openai/v1/chat" in l and "SECRET" not in l and "out=123B" in l and "local" in l2)
+    import urllib.request
+    try: urllib.request.urlopen("http://127.0.0.1:9/x?t=NOPE",timeout=0.2)
+    except Exception: pass
+    log=open(ai.EGRESS_LOG,encoding="utf-8").read() if os.path.exists(ai.EGRESS_LOG) else ""
+    return ok and "127.0.0.1/x" in log and "NOPE" not in log, f"{l} | {log[-80:]}"
+case("egress: urlopen is logged (host/path, bytes), query string never", t_egress)
+case("chat_command: 'kya bheja network pe' → /egress", lambda:(ai.chat_command("kya bheja network pe")==("/egress",True), str(ai.chat_command("kya bheja network pe"))))
+
+
+# ── raksha vet: offline is a wall; journal/corpus never keep a key; serve token is live ──
+def t_offline_wall():
+    os.environ["GROQ_API_KEY"]="fake"
+    try:
+        import io,contextlib; err=io.StringIO()
+        with contextlib.redirect_stderr(err): a,who=ai.route("hi",["groq"],None,None)
+    finally: del os.environ["GROQ_API_KEY"]
+    return (a is None and who is None and "offline mode" in err.getvalue()), err.getvalue()[:80]
+case("offline: AI_FORCE_OFFLINE=1 → cloud brains are never dialled (route drops them, says so)", t_offline_wall)
+def t_journal_scrub():
+    k1="sk-"+"abcdefghij"*4; k2="gsk_"+"ABCDEFGHIJ"*3        # built at runtime: the bundle scan must never see a literal key shape in this file
+    ai.journal("user",f"meri key {k1} hai aur token {k2}")
+    import glob as _g; f=sorted(_g.glob(os.path.join(ai.VAULT,"journal","*.md")))[-1]; txt=open(f).read(); mode=oct(os.stat(f).st_mode)[-3:]
+    return (k1 not in txt and k2 not in txt and txt.count("<KEY-REDACTED>")>=2 and (mode=="600" or os.name=="nt")), f"{txt[-80:]} mode={mode}"
+case("journal: key-shaped strings are redacted before they hit disk; file is 0600", t_journal_scrub)
+def t_token_live():
+    ai._upsert_env("AI_SERVE_TOKEN","tok1"); a=ai._serve_token(); ai._upsert_env("AI_SERVE_TOKEN",""); b=ai._serve_token()
+    return a=="tok1" and b=="", f"{a} {b}"
+case("serve: token is read live from ~/.ai-env (revocation works on a running server)", t_token_live)
 
 bad=[n for n,ok,_ in R if not ok]; xp=[n for n,ok in XF if ok]
 print(f"\nGOLDEN: {len(R)-len(bad)}/{len(R)} pass, {len(XF)} known-gap" + (f", {len(xp)} XPASS" if xp else "") + (f"  — FAILING: {', '.join(bad)}" if bad else ""))

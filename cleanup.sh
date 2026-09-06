@@ -31,6 +31,24 @@ elif [ -r /etc/debian_version ] && [ "$(id -un 2>/dev/null)" = droid ]; then WHE
 fi
 
 # ---- NEVER touch: ye paths aur inke andar ka sab kuch -----------------------
+# --uninstall: hata do jo installer ne likha (keys ~/.ai-env, memory ~/ai-vault, akasha-backup REHTE hain). Termux app
+# uninstall = sab kuch gaya; ye sirf 'ai' ko hataata hai aur Termux ko waise chhod deta hai jaise pehle tha.
+if [ "${1:-}" = "--uninstall" ]; then
+  echo "ye hatega (keys, memory, backup NAHI):"
+  RM=( "$HOME/.local/bin/ai" "$HOME/.local/bin/VERSION" "$HOME/.local/bin/setup-menu" "$HOME/.local/bin/screen-dump" "$HOME/.local/bin/vault-backup"
+       "$HOME/.local/bin/vedit" "$HOME/.local/bin/say" "$HOME/.local/bin/listen" "$HOME/.local/bin/talk" "$HOME/.local/bin/whisper-stt" "$HOME/.local/bin/__pycache__"
+       "$HOME/.ai-experts.json" "$HOME/.ai-experts" "$HOME/.ai-tools.json" "$HOME/.ai-panel.html" "$HOME/.ai-whiteboard.html" "$HOME/.ai-setup-profile" "$HOME/.ai-profile"
+       "$HOME/.ai-device.json" "$HOME/.ai-chat.json" "$HOME/.ai-cache.jsonl" "$HOME/.ai-metrics.json" "$HOME/.ai-kb.jsonl" "$HOME/.ai-brains.json" "$HOME/.ai-daemon.json" "$HOME/.ai-update.json" "$HOME/.ai-egress.log" "$HOME/.ai-first-cloud" "$HOME/.ai-telegram.json"
+       "$HOME/.termux/boot/akasha-boot.sh" "$HOME/wd.sh" "$HOME/.local/share/aasmaan" "$HOME/ai-vault/reference" )
+  for f in "${RM[@]}"; do [ -e "$f" ] && echo "  $f"; done
+  echo "  + ~/.bashrc se PATH wali line · phantom-process settings wapas default (rish ho to)"
+  if [ "${AI_YES:-0}" != 1 ]; then printf '[Enter] hatao   [q] rehne do  '; read -r r </dev/tty || r=q; [ "$r" = q ] && exit 0; fi
+  for f in "${RM[@]}"; do [ -e "$f" ] && rm -rf "$f" && echo "  - $f"; done
+  sed -i '/export PATH=.*\.local\/bin.*go\/bin/d' "$HOME/.bashrc" 2>/dev/null || true
+  command -v termux-wake-unlock >/dev/null 2>&1 && termux-wake-unlock 2>/dev/null || true
+  [ -x "$HOME/rish" ] && "$HOME/rish" -c "settings delete global settings_enable_monitor_phantom_procs; device_config delete activity_manager max_phantom_processes" >/dev/null 2>&1 || true
+  echo "done. Bache: ~/.ai-env (keys), ~/ai-vault (memory), ~/akasha-backup. Poora Termux hataana ho to app uninstall."; exit 0
+fi
 KEEP=( "$HOME/.ai-env" "$HOME/akasha-backup" "$HOME/ai-vault" "$HOME/.ai-setup-profile"
        "$HOME/.ai-experts.json" "$HOME/.ai-experts" "$HOME/.ai-tools.json" "$HOME/.ai-private-names"
        "$HOME/.termux/boot/akasha-boot.sh" "$HOME/akasha-src" "$HOME/.ssh" "$HOME/.gitconfig" )

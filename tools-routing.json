@@ -1,0 +1,343 @@
+{
+ "_note": "TOOL router (separate from the brain/LLM router). Capability -> ordered provider preference. Manual override ALWAYS wins: in `ai` do  /do <capability> use=<provider> <input>. Grounded by fold-node/research/capability-providers-routing-2026.md (cited). `ai` reads ~/.ai-tools.json first, then this repo copy. invoke:manual = not script-wired yet (prints how-to); invoke:<cmd> = runs that local command. | NO-DEAD-END LADDER: 1 provider -> 2 builtin (keyless) -> 3 manual recipe -> 4 brain (text form) -> 5 forge (/do <cap> use=forge writes the tool, registers it in ~/.ai-tools.json, runs it). A capability is never answered with 'no'.",
+ "capabilities": {
+  "tts": [
+   "kokoro_local",
+   "piper_local",
+   "termux_tts",
+   "google_tts",
+   "elevenlabs",
+   "tts_builtin"
+  ],
+  "stt": [
+   "whisper_local",
+   "termux_stt",
+   "deepgram"
+  ],
+  "video_edit": [
+   "ffmpeg_local"
+  ],
+  "video_generation": [
+   "fal",
+   "kling",
+   "replicate"
+  ],
+  "image_generation": [
+   "together",
+   "fal",
+   "stability",
+   "replicate",
+   "pollinations_builtin"
+  ],
+  "video_overview": [
+   "notebooklm"
+  ],
+  "audio_overview": [
+   "elevenlabs",
+   "notebooklm"
+  ],
+  "research": [
+   "tavily",
+   "exa",
+   "ai_router",
+   "perplexity",
+   "ddg_builtin"
+  ],
+  "scrape": [
+   "jina_reader",
+   "firecrawl",
+   "trafilatura_local",
+   "webget_builtin"
+  ],
+  "screen": [
+   "uiauto"
+  ],
+  "audio_overlay": [
+   "ffmpeg_local"
+  ]
+ },
+ "providers": {
+  "piper_local": {
+   "cap": [
+    "tts"
+   ],
+   "connect": "local",
+   "invoke": "say",
+   "offline": true,
+   "note": "offline Hindi/Eng TTS (setup-menu -> Voice). Default."
+  },
+  "termux_tts": {
+   "cap": [
+    "tts"
+   ],
+   "connect": "local",
+   "invoke": "termux-tts-speak",
+   "offline": false,
+   "note": "Termux:API TTS"
+  },
+  "google_tts": {
+   "cap": [
+    "tts"
+   ],
+   "connect": "api",
+   "key": "GOOGLE_TTS_KEY",
+   "invoke": "manual",
+   "offline": false,
+   "note": "Google Cloud TTS: 4M free chars/mo. Cloud fallback only if local falls short."
+  },
+  "whisper_local": {
+   "cap": [
+    "stt"
+   ],
+   "connect": "local",
+   "invoke": "whisper-stt",
+   "offline": true,
+   "note": "offline STT, whisper.cpp small (setup-menu -> Voice). Default."
+  },
+  "termux_stt": {
+   "cap": [
+    "stt"
+   ],
+   "connect": "local",
+   "invoke": "listen",
+   "offline": false,
+   "note": "Termux:API STT (Google-backed)"
+  },
+  "deepgram": {
+   "cap": [
+    "stt"
+   ],
+   "connect": "api",
+   "key": "DEEPGRAM_API_KEY",
+   "invoke": "manual",
+   "offline": false,
+   "note": "$200 no-expiry credit; cloud STT fallback"
+  },
+  "ffmpeg_local": {
+   "cap": [
+    "video_edit",
+    "audio_overlay"
+   ],
+   "connect": "local",
+   "invoke": "vedit",
+   "key": null,
+   "note": "vedit = ffmpeg recipes vetted in research/toolkit-vetting-2026.md §4: vertical/subs/thumb/join/duck/loud/desilence + cut/mp3/shrink/gif. `vedit` alone prints usage.",
+   "offline": true
+  },
+  "fal": {
+   "cap": [
+    "video_generation",
+    "image_generation"
+   ],
+   "connect": "api",
+   "key": "FAL_KEY",
+   "invoke": "vgen",
+   "offline": false,
+   "note": "cheapest clean video API (Wan 2.5 ~$0.05/s)"
+  },
+  "kling": {
+   "cap": [
+    "video_generation"
+   ],
+   "connect": "api",
+   "key": "KLING_API_KEY",
+   "invoke": "manual",
+   "offline": false,
+   "note": "Kling 3.0 ~$0.075/s, best quality/price. Chinese vendor -> privacy flag."
+  },
+  "replicate": {
+   "cap": [
+    "video_generation",
+    "image_generation"
+   ],
+   "connect": "api",
+   "key": "REPLICATE_API_TOKEN",
+   "invoke": "vgen",
+   "offline": false,
+   "note": "cloud video/image, broad model catalog"
+  },
+  "together": {
+   "cap": [
+    "image_generation"
+   ],
+   "connect": "api",
+   "key": "TOGETHER_API_KEY",
+   "invoke": "manual",
+   "offline": false,
+   "note": "cheapest image (FLUX.1 schnell ~$0.002-0.003/img)"
+  },
+  "stability": {
+   "cap": [
+    "image_generation"
+   ],
+   "connect": "api",
+   "key": "STABILITY_API_KEY",
+   "invoke": "manual",
+   "offline": false,
+   "note": "SD-native control"
+  },
+  "notebooklm": {
+   "cap": [
+    "video_overview",
+    "audio_overview"
+   ],
+   "connect": "browser",
+   "invoke": "manual",
+   "offline": false,
+   "url": "https://notebooklm.google.com",
+   "note": "NO public API at ANY tier (confirmed, 2 Google docs) -> manual/browser only: upload sources -> Studio -> Video/Audio Overview."
+  },
+  "elevenlabs": {
+   "cap": [
+    "audio_overview",
+    "tts"
+   ],
+   "connect": "api",
+   "key": "ELEVENLABS_API_KEY",
+   "invoke": "manual",
+   "offline": false,
+   "note": "GenFM POST /v1/studio/podcasts = real API-first podcast/overview. Paid plan only (no free API)."
+  },
+  "tavily": {
+   "cap": [
+    "research"
+   ],
+   "connect": "api",
+   "key": "TAVILY_API_KEY",
+   "invoke": "manual",
+   "offline": false,
+   "note": "renewing free tier, no card. Good default for web research."
+  },
+  "exa": {
+   "cap": [
+    "research"
+   ],
+   "connect": "api",
+   "key": "EXA_API_KEY",
+   "invoke": "manual",
+   "offline": false,
+   "note": "renewing free tier, no card; semantic search"
+  },
+  "perplexity": {
+   "cap": [
+    "research"
+   ],
+   "connect": "api",
+   "key": "PERPLEXITY_API_KEY",
+   "invoke": "manual",
+   "offline": false,
+   "note": "Sonar API — NO ongoing free tier (paid). Use tavily/exa first."
+  },
+  "ai_router": {
+   "cap": [
+    "research"
+   ],
+   "connect": "local",
+   "invoke": "ai",
+   "offline": true,
+   "note": "the brain router itself answers (free tiers)"
+  },
+  "jina_reader": {
+   "cap": [
+    "scrape"
+   ],
+   "connect": "api",
+   "key": "JINA_API_KEY",
+   "invoke": "manual",
+   "offline": false,
+   "url": "https://r.jina.ai",
+   "note": "prefix a URL with https://r.jina.ai/ -> clean text. Keyless ~20 RPM; a FREE key raises it to ~500 RPM."
+  },
+  "firecrawl": {
+   "cap": [
+    "scrape"
+   ],
+   "connect": "api",
+   "key": "FIRECRAWL_API_KEY",
+   "invoke": "manual",
+   "offline": false,
+   "note": "1000 free credits ONCE (not monthly). Self-host core is AGPL-3.0 -> flag."
+  },
+  "trafilatura_local": {
+   "cap": [
+    "scrape"
+   ],
+   "connect": "local",
+   "invoke": "trafilatura",
+   "offline": true,
+   "note": "pip install 'trafilatura>=1.8.0'; local clean-text extraction, near-zero RAM"
+  },
+  "uiauto": {
+   "cap": [
+    "screen"
+   ],
+   "connect": "local",
+   "invoke": "screen-dump",
+   "offline": true,
+   "note": "reads current Android screen's visible text via uiautomator over the rish hand (setup installs screen-dump)"
+  },
+  "webget_builtin": {
+   "cap": [
+    "scrape"
+   ],
+   "connect": "builtin",
+   "invoke": "webget",
+   "key": null,
+   "note": "stdlib fetch + tag-strip. No key, no pip, works on ANY android. Never a dead end.",
+   "net": true
+  },
+  "ddg_builtin": {
+   "cap": [
+    "research"
+   ],
+   "connect": "builtin",
+   "invoke": "websearch",
+   "key": null,
+   "note": "keyless web search (DuckDuckGo html). Floor under tavily/exa.",
+   "net": true
+  },
+  "pollinations_builtin": {
+   "cap": [
+    "image_generation"
+   ],
+   "connect": "builtin",
+   "invoke": "imagegen",
+   "key": null,
+   "note": "keyless image gen -> ~/ai-out/. Floor under together/fal/stability.",
+   "net": true
+  },
+  "tts_builtin": {
+   "cap": [
+    "tts"
+   ],
+   "connect": "builtin",
+   "invoke": "speak",
+   "key": null,
+   "note": "termux-tts-speak -> espeak -> plain text. Degrades, never fails."
+  },
+  "kokoro_local": {
+   "cap": [
+    "tts"
+   ],
+   "connect": "local",
+   "invoke": "kokoro-tts",
+   "key": null,
+   "note": "Kokoro 82M Apache-2.0, better Hindi than piper, Termux ONNX ports exist. setup-menu -> 2 (optional, non-fatal if it won't build)."
+  }
+ },
+ "mcp_servers": {
+  "_note": "Official MCP servers found (tools, NOT chat brains). Wire into an MCP client, not the brain-router. RAKSHA: each needs an install-script security scan BEFORE wiring — not done yet. fal.ai + NotebookLM have NO official MCP; their community MCPs hijack a Google session cookie -> do NOT wire without explicit sign-off.",
+  "needs_raksha_scan": true,
+  "official": [
+   "firecrawl",
+   "exa",
+   "tavily",
+   "elevenlabs",
+   "perplexity",
+   "replicate",
+   "jina",
+   "deepgram",
+   "browserless"
+  ]
+ }
+}

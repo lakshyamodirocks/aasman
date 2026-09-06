@@ -27,8 +27,10 @@ else
   [ -f "$ROOT/akasha-fold/lib/probe.sh" ] && PROBE="$ROOT/akasha-fold/lib/probe.sh"
 fi
 . "$SRC_LIB/ux.sh"; . "${PROBE:-$SRC_LIB/probe.sh}"
-STAGE_TOTAL=7
+STAGE_TOTAL=7; export AI_BRAND="${AI_BRAND:-Aasmaan}"
 BIN="${AI_BIN_DIR:-$HOME/.local/bin}"
+# macOS has no `timeout` (coreutils' is `gtimeout`); never let a proof step hang, never fail for lack of the tool
+_to(){ if command -v timeout >/dev/null 2>&1; then timeout "$@"; elif command -v gtimeout >/dev/null 2>&1; then gtimeout "$@"; else shift; "$@"; fi; }
 MANIFEST="$HOME/.ai-pc-manifest"           # har install ki gayi file/dir ki list — uninstall isi se
 
 # ── manifest: jo bhi likho, likh ke batao ───────────────────────────────────
@@ -51,7 +53,7 @@ if [ "${1:-}" = "--uninstall" ]; then
   done < "$MANIFEST"
   rm -f "$MANIFEST"
   # runtime files jo 'ai' ne chalte-chalte banayi (manifest me nahi — install ne nahi likhi thi). Dikhao, poochho.
-  RT=""; for f in .ai-daemon.json .ai-update.json .ai-chat.json .ai-cache.jsonl .ai-device.json .ai-metrics.json .ai-kb.jsonl .ai-brains.json .ai-jobs.json .ai-tasks.json .ai-traces.jsonl .ai-wishes.jsonl .ai-feedback.jsonl .ai-corpus.jsonl .ai-profile .ai-private-names; do [ -e "$HOME/$f" ] && RT="$RT $HOME/$f"; done
+  RT=""; for f in .ai-daemon.json .ai-update.json .ai-egress.log .ai-first-cloud .ai-telegram.json .ai-chat.json .ai-cache.jsonl .ai-device.json .ai-metrics.json .ai-kb.jsonl .ai-brains.json .ai-jobs.json .ai-tasks.json .ai-traces.jsonl .ai-wishes.jsonl .ai-feedback.jsonl .ai-corpus.jsonl .ai-profile .ai-private-names; do [ -e "$HOME/$f" ] && RT="$RT $HOME/$f"; done
   if [ -n "$RT" ]; then
     echo "  'ai' ki runtime files (chat state, cache, metrics — koi key/memory nahi):"; for f in $RT; do echo "    $f"; done
     r=""; if _ux_interactive; then printf '  [Enter] ye bhi hatao   [k] rakho  '; IFS= read -r r <"$UX_TTY" || r=k; fi
@@ -93,7 +95,9 @@ printf '  %-10s %s MB free in HOME\n' "Disk:" "${DISK:-?}"
 printf '  %-10s %s%s\n' "GPU:" "$GPU" "${VRAM:+ · $VRAM MB}"
 printf '  %-10s %s\n' "Python:" "${PYV} ${PY:+($PY)}"
 printf '  %-10s %s\n' "Ollama:" "$( [ -n "$OLL" ] && echo "installed$( [ $OLL_UP = 1 ] && echo ', running · models: '"${OLL_MODELS:-(none yet)}" )" || echo 'not installed (optional — cloud free rungs bina iske bhi chalte hain)')"
-case "$PYV" in none|2.*|3.[0-7]) warn "Python 3.8+ chahiye. Ye script Python install NAHI karta (tera package manager tera hai): apt/dnf/brew/winget se python3 lo, phir dobara."; exit 1;; esac
+case "$PYV" in none|2.*|3.[0-7])
+  if [ "$OS" = Darwin ]; then warn "Python 3.8+ chahiye. Mac pe sabse aasan:  xcode-select --install   (Apple ka apna, ~2 min)  ya python.org/downloads se installer. Phir ye script dobara."
+  else warn "Python 3.8+ chahiye. Ye script Python install NAHI karta (tera package manager tera hai): apt/dnf/pacman se python3 lo, phir dobara."; fi; exit 1;; esac
 [ "$OS" = Linux ] || [ "$OS" = Darwin ] || { warn "Sirf Linux/macOS/WSL2 — Windows native ke liye WSL2 kholo aur wahi se chalao."; exit 1; }
 
 # ── stage 2: local brain — tera Ollama, ya official command (tu chalayega) ──
@@ -101,7 +105,7 @@ case "$PYV" in none|2.*|3.[0-7]) warn "Python 3.8+ chahiye. Ye script Python ins
 # Hardware ADAPT karne ke liye hai, DEPEND karne ke liye nahi: kam RAM = chhota model ya sirf cloud, install phir bhi hota hai.
 pick_model(){ local v="${VRAM:-0}" r="${RAM:-0}"; v=$(num_or "$v" 0); r=$(num_or "$r" 0)
   if   [ "$OS" = Darwin ] && [ "$ARCH" = arm64 ]; then
-       if [ "$r" -ge 30000 ]; then echo "qwen3-coder:30b"; elif [ "$r" -ge 14000 ]; then echo "qwen2.5-coder:7b"; else echo "qwen2.5-coder:3b"; fi
+       if [ "$r" -ge 30000 ]; then echo "qwen3-coder:30b"; elif [ "$r" -ge 17000 ]; then echo "qwen2.5-coder:14b"; elif [ "$r" -ge 14000 ]; then echo "qwen2.5-coder:7b"; else echo "qwen2.5-coder:3b"; fi
   elif [ "$v" -ge 15000 ]; then echo "qwen2.5-coder:32b"     # 16-24 GB VRAM · 20 GB
   elif [ "$v" -ge 11000 ]; then echo "qwen2.5-coder:14b"     # 12 GB VRAM · 9 GB
   elif [ "$v" -ge 5500  ]; then echo "qwen2.5-coder:7b"      # 6-8 GB VRAM · 4.7 GB
@@ -116,7 +120,8 @@ if stage_opt "Local brain (Ollama)" "Offline code-model tere hardware ke hisaab 
   if [ -z "$OLL" ]; then
     echo "  Official install (ollama.com/download) — ye TU chalayega, main nahi:"
     case "$OS" in
-      Darwin) echo "     brew install ollama        # ya: https://ollama.com/download/mac";;
+      Darwin) echo "     https://ollama.com/download/mac   → Ollama.app (menu-bar icon; pehli baar 'ollama' command install karne ka dialog aayega — Allow)"
+              echo "     (developer ho to:  brew install ollama)";;
       Linux)  echo "     curl -fsSL https://ollama.com/install.sh | sh    # sudo + systemd service + 'ollama' user banata hai; padh lo: github.com/ollama/ollama/blob/main/docs/linux.mdx"
               echo "     (bina root / bina boot-service: tarball \$HOME me nikaal ke  'ollama serve'  haath se — docs/linux.mdx 'Manual install')";;
     esac
@@ -137,7 +142,7 @@ fi
 stage "'ai' install" "ek Python file → $BIN/ai · 18 experts + packs → ~/.ai-experts* · tool router → ~/.ai-tools.json" \
   "Zero dependencies: stdlib Python. Koi pip nahi, koi venv nahi, koi sudo nahi. Har file manifest me — --uninstall se wahi hategi."
 mkdir -p "$BIN"
-{ echo '#!/usr/bin/env python3'; sed '1{/^#!/d}' "$SRC_AI"; } > "$BIN/ai.tmp" && chmod 755 "$BIN/ai.tmp" && mv "$BIN/ai.tmp" "$BIN/ai" && mf "$BIN/ai" && ok "$BIN/ai ($(wc -l < "$BIN/ai") lines, one file — padh lo, sab dikhta hai)"
+{ echo '#!/usr/bin/env python3'; if head -1 "$SRC_AI" | grep -q '^#!'; then tail -n +2 "$SRC_AI"; else cat "$SRC_AI"; fi; } > "$BIN/ai.tmp" && chmod 755 "$BIN/ai.tmp" && mv "$BIN/ai.tmp" "$BIN/ai" && mf "$BIN/ai" && ok "$BIN/ai ($(wc -l < "$BIN/ai") lines, one file — padh lo, sab dikhta hai)"
 put "$SRC_EXPERTS" "$HOME/.ai-experts.json" && ok "18 experts (~/.ai-experts.json)"
 np=0; for d in "$SRC_PACKS"/*/; do e=$(basename "$d"); [ -f "$d/PERSONA.md" ] || continue
   for f in "$d"/*.md; do put "$f" "$HOME/.ai-experts/$e/$(basename "$f")"; done; np=$((np+1)); done
@@ -172,7 +177,7 @@ stage "PATH (tera faisla)" "Main ~/.bashrc / ~/.zshrc NAHI chhedta" \
 case ":$PATH:" in *":$BIN:"*) ok "$BIN pehle se PATH me hai — 'ai' seedha chalega";;
   *) warn "$BIN PATH me nahi. Do raaste:"
      echo "     1) abhi ke liye:        $BIN/ai"
-     echo "     2) hamesha ke liye, apni rc file me KHUD ye line daalo:"
+     echo "     2) hamesha ke liye, apni shell file me KHUD ye line daalo ($( [ "$OS" = Darwin ] && echo '~/.zshrc' || echo '~/.bashrc, zsh ho to ~/.zshrc' )):"
      echo "          export PATH=\"$BIN:\$PATH\"";;
 esac
 
@@ -181,22 +186,24 @@ if stage_opt "Daemon (optional)" "har 30 min: update-check · brains ping · pen
    "Unattended = koi forge/shell/vendor-CLI nahi (code me gate hai). Linux: systemd --user unit (tere user ke andar, sudo nahi). macOS: LaunchAgent plist. Dono manifest me, --uninstall hata deta hai. Skip karo to  'ai daemon'  haath se bhi chalta hai."; then
   if [ "$OS" = Linux ] && command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; then
     U="$HOME/.config/systemd/user/aasmaan-daemon.service"; mkdir -p "$(dirname "$U")"
-    printf '[Unit]\nDescription=Aasmaan daemon (awareness only, unattended-safe)\n[Service]\nExecStart=%s daemon --interval=30\nEnvironment=AI_ATTENDED=0\nRestart=on-failure\nNice=10\n[Install]\nWantedBy=default.target\n' "$BIN/ai" > "$U"; mf "$U"
+    printf '[Unit]\nDescription=Aasmaan daemon (awareness only, unattended-safe)\n[Service]\nExecStart=%s %s daemon --interval=30\nEnvironment=AI_ATTENDED=0\nEnvironment=PATH=%s:/usr/local/bin:/usr/bin:/bin\nRestart=on-failure\nRestartSec=30\nNice=10\n[Install]\nWantedBy=default.target\n' "$PY" "$BIN/ai" "$(dirname "$PY")" > "$U"; mf "$U"
     systemctl --user daemon-reload && systemctl --user enable --now aasmaan-daemon.service >/dev/null 2>&1 && ok "systemd --user: aasmaan-daemon enabled (status: systemctl --user status aasmaan-daemon)" || warn "unit likha, enable fail — 'systemctl --user enable --now aasmaan-daemon' khud chalao"
   elif [ "$OS" = Darwin ]; then
     PL="$HOME/Library/LaunchAgents/com.aasmaan.daemon.plist"; mkdir -p "$(dirname "$PL")"
-    printf '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict>\n<key>Label</key><string>com.aasmaan.daemon</string>\n<key>ProgramArguments</key><array><string>%s</string><string>daemon</string><string>--interval=30</string></array>\n<key>EnvironmentVariables</key><dict><key>AI_ATTENDED</key><string>0</string></dict>\n<key>RunAtLoad</key><true/><key>KeepAlive</key><true/>\n</dict></plist>\n' "$BIN/ai" > "$PL"; mf "$PL"
-    launchctl unload "$PL" >/dev/null 2>&1; launchctl load "$PL" >/dev/null 2>&1 && ok "LaunchAgent loaded (com.aasmaan.daemon)" || warn "plist likha, load fail — 'launchctl load $PL' khud chalao"
+    printf '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict>\n<key>Label</key><string>com.aasmaan.daemon</string>\n<key>ProgramArguments</key><array><string>%s</string><string>%s</string><string>daemon</string><string>--interval=30</string></array>\n<key>EnvironmentVariables</key><dict><key>AI_ATTENDED</key><string>0</string><key>PATH</key><string>%s:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string></dict>\n<key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>ThrottleInterval</key><integer>60</integer>\n<key>StandardErrorPath</key><string>%s/.ai-daemon.err</string>\n</dict></plist>\n' "$PY" "$BIN/ai" "$(dirname "$PY")" "$HOME" > "$PL"; mf "$PL"
+    launchctl unload "$PL" >/dev/null 2>&1; launchctl load "$PL" >/dev/null 2>&1
+    if launchctl list 2>/dev/null | grep -q com.aasmaan.daemon; then ok "LaunchAgent loaded (com.aasmaan.daemon) · log: ~/.ai-daemon.err"; else warn "plist likha, load nahi hua — 'launchctl load $PL' khud chalao"; fi
   else warn "is system pe user-service nahi mila — haath se:  $BIN/ai daemon"; fi
 fi
 
 # ── stage 7: proof — chala ke dikhao, maan ke nahi ───────────────────────────
 stage "Proof" "ai version · agents list · daemon ek tick" "Install 'ho gaya' tab hai jab chal ke dikhe."
-runv "ai compiles on this Python ($PYV)" "$PY" -m py_compile "$BIN/ai"
+runv "ai compiles on this Python ($PYV)" "$PY" -m py_compile "$BIN/ai"; rm -rf "$BIN/__pycache__"
+case "$SELFDIR" in "$HOME"/.local/share/aasmaan*) mf "$HOME/.local/share/aasmaan";; esac    # the downloaded bundle is ours to remove too
 AI_FORCE_OFFLINE=1 "$BIN/ai" version 2>/dev/null | sed 's/^/    /' | head -4
-n=$(printf '/agents\n/quit\n' | AI_FORCE_OFFLINE=1 "$BIN/ai" 2>/dev/null | grep 'agents:' | grep -o '[a-z]*\*' | wc -l)
+n=$(printf '/agents\n/quit\n' | AI_FORCE_OFFLINE=1 _to 60 "$BIN/ai" 2>/dev/null | grep 'agents:' | grep -o '[a-z]*\*' | wc -l)
 [ "$n" -ge 18 ] && ok "$n/18 expert packs load hote hain (offline, bina brain ke)" || warn "packs load nahi hue ($n/18) — 'ai' ke andar /agents chala ke dekho"
-AI_FORCE_OFFLINE=1 timeout 60 "$BIN/ai" daemon --once >/dev/null 2>&1 && [ -f "$HOME/.ai-daemon.json" ] && ok "daemon: one tick ran, state written (~/.ai-daemon.json)" || warn "daemon tick failed — 'ai daemon --once' chala ke dekho"
+AI_FORCE_OFFLINE=1 _to 60 "$BIN/ai" daemon --once >/dev/null 2>&1 && [ -f "$HOME/.ai-daemon.json" ] && ok "daemon: one tick ran, state written (~/.ai-daemon.json)" || warn "daemon tick failed — 'ai daemon --once' chala ke dekho"
 ux_summary \
   "chalao:  $BIN/ai        (offline bhi: /memory /kb /agent rachaka <code sawaal>)" \
   "code:    /agent rachaka <paste traceback>   ·  /do forge <tool naam>  ·  /ctx <file>" \

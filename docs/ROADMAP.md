@@ -12,13 +12,14 @@ Plain list, newest thinking first. "Done" means run and verified, not written. I
 - [x] Chat-to-command rules; `/capabilities`; self-update with a notice, never automatic
 - [x] Daemon (opt-in), awareness only, unattended gate
 - [x] CI on Linux, macOS, Windows: golden set + scripted install
+- [x] Egress log, key-scrubbed child processes, `ai pair` (QR), `/capabilities`, Telegram helper bot
 
 ## Next
 
 - [ ] **First physical Windows run** by a real user; fix whatever CI could not see
 - [ ] **Keys in the OS keychain** (macOS `security`, Linux secret-service, Windows Credential Manager) instead of a `0600` file; on Android, `termux-keystore` wrapping with an auto-relock timer and a manual lock/unlock
 - [ ] **Family profiles** on shared phones: a picker at start, per-profile memory, consent-based sharing between devices
-- [ ] **Telegram gateway** (stdlib long-poll, owner allowlist, never spawns a shell unattended)
+- [x] **Telegram helper bot** (stdlib long-poll, fail-closed allowlist, never spawns a shell unattended) — shipped 2026-09-06
 - [ ] **Fact-checker floater** on Android (Termux:Float + user-initiated OCR with pinned model files)
 - [ ] `format_check.py` for publishing experts (deterministic caption/limit validator)
 - [ ] Devanagari-script onboarding; screen-reader pass; localisation beyond Hindi

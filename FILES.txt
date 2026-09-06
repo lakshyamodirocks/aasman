@@ -16,6 +16,7 @@ disk-doctor.sh
 docs/ARCHITECTURE.md
 docs/COMMUNITY.md
 docs/FAQ.md
+docs/FLAGS.md
 docs/ROADMAP.md
 docs/TRUST.md
 docs/WHY.md
