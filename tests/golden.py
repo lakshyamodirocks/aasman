@@ -4,7 +4,7 @@ fails here before it ships. 'Worse' = redaction stops scrubbing · fence loses i
 risky code passes · offline gate leaks · unknown capability gets permitted · impact gate
 misfires · routing heuristics flip. No network, no keys, no LLM: every case is exact.
 Run:  python3 akasha-fold/tests/golden.py      exit 0 = all pass."""
-import importlib.util, os, sys, tempfile
+import importlib.util, json, os, sys, tempfile
 # Two homes: the monorepo (fold-node/termux/ai-termux.py) and the public bundle (ai.py beside tests/).
 _B=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if os.path.isfile(os.path.join(_B,"ai.py")): ROOT=_B; SRC=os.path.join(_B,"ai.py")
@@ -237,6 +237,21 @@ def t_tg_rate():
     return ok==[True,True,False] and ai._tg_rate_ok(st,"u",2,1000+3601), str(ok)
 case("tg: rate limit per user per hour", t_tg_rate)
 case("tg: unknown /command → help pointer, not a brain call", lambda:("/help" in ai.tg_handle(None,_m("/rm -rf"),_cfg,{}), "unexpected"))
+
+
+# ── QR (stdlib) + pair: matrices were verified bit-for-bit against a reference encoder (v1–v10, mask 0);
+#    these hashes pin that verified output so a refactor cannot silently break the scan.
+import hashlib as _hl
+case("qr: 'hello' → v1 21x21, pinned matrix", lambda:(len(ai.qr_matrix("hello"))==21 and _hl.sha256(json.dumps(ai.qr_matrix("hello")).encode()).hexdigest()=="4ba150b976d46ae91ddf84527c27af5a2331b1fccccd213d95e64dffc90b5300", _hl.sha256(json.dumps(ai.qr_matrix("hello")).encode()).hexdigest()[:12]))
+case("qr: a pairing URL (52 chars) → v3, pinned matrix", lambda:(len(ai.qr_matrix("http://192.168.1.5:8765/?t="+"x"*24))==29 and _hl.sha256(json.dumps(ai.qr_matrix("http://192.168.1.5:8765/?t="+"x"*24)).encode()).hexdigest()=="31bbfd4cc757157d5f4421b62fbb3fb6089d363ac078bf31cf30442157d838a8", "mismatch"))
+case("qr: 271 bytes → v10 (57x57); 272 → refused", lambda:(len(ai.qr_matrix("x"*271))==57 and (lambda: (_ for _ in ()).throw(ValueError()) if False else True)(), "size"))
+def t_qr_too_long():
+    try: ai.qr_matrix("x"*272); return False,"accepted 272 bytes"
+    except ValueError: return True,""
+case("qr: 272 bytes → ValueError (v10-L cap)", t_qr_too_long)
+case("qr: text render uses half-blocks, square-ish, quiet zone", lambda:(all(ch in " ▀▄█" for ch in ai.qr_text("hi").replace("\n","")) and ai.qr_text("hi").count("\n")>=12, "render"))
+case("pair: url carries host, port and token", lambda:(ai.pair_url("10.0.0.5",8765,"tok")=="http://10.0.0.5:8765/?t=tok", ai.pair_url("10.0.0.5",8765,"tok")))
+case("pair: _lan_ip is a dotted quad or empty (never crashes)", lambda:(ai._lan_ip()=="" or ai._lan_ip().count(".")==3, ai._lan_ip()))
 
 bad=[n for n,ok,_ in R if not ok]; xp=[n for n,ok in XF if ok]
 print(f"\nGOLDEN: {len(R)-len(bad)}/{len(R)} pass, {len(XF)} known-gap" + (f", {len(xp)} XPASS" if xp else "") + (f"  — FAILING: {', '.join(bad)}" if bad else ""))

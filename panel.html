@@ -173,6 +173,10 @@ a{color:var(--acc)}
   <div class="shrow"><button class="go" id="fbsend">bhejo</button><span class="dim" id="fbmsg"></span></div>
 </div>
 <script>
+// pairing token: arrives once as ?t= (from the QR), lives in localStorage, rides on every API call, leaves the URL bar
+const T=(()=>{try{const u=new URL(location.href);const t=u.searchParams.get('t');if(t){localStorage.setItem('ai_t',t);u.searchParams.delete('t');history.replaceState(null,'',u.pathname+(u.search||'')+u.hash);}return localStorage.getItem('ai_t')||'';}catch(e){return ''}})();
+const _tq=u=>(T&&typeof u==='string'&&u.startsWith('/'))?u+(u.includes('?')?'&':'?')+'t='+encodeURIComponent(T):u;
+const _fetch=window.fetch.bind(window); window.fetch=(u,o)=>_fetch(_tq(u),o);
 const $=s=>document.querySelector(s), j=(u,o)=>fetch(u,o).then(r=>r.json());
 let SPEAK=false, CTX=[];
 // nav
@@ -188,7 +192,7 @@ function meta(o){$('#ansmeta').textContent=`${o.brain} · ${o.profile} · ${o.se
 function ask(){
  const q=$('#q').value.trim(); if(!q)return;
  $('#ans').textContent=''; $('#ansmeta').textContent='…'; let acc='';
- let es; try{ es=new EventSource('/api/ask-stream?q='+encodeURIComponent(q)); }catch(e){ return askPost(q); }
+ let es; try{ es=new EventSource(_tq('/api/ask-stream?q='+encodeURIComponent(q))); }catch(e){ return askPost(q); }
  es.onmessage=ev=>{ let o; try{o=JSON.parse(ev.data)}catch(_){return;}
   if(o.t){ acc+=o.t; $('#ans').textContent=acc; }
   if(o.done){ es.close(); $('#ans').textContent=acc||'(no brain answered — check keys in setup-menu)'; meta(o);

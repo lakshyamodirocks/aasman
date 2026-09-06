@@ -31,7 +31,7 @@ Windows: `$env:AI_UNINSTALL=1; irm …/install.ps1 | iex`. Linux/macOS: `pc-setu
 CI (GitHub Actions) Windows pe install + `ai version` + daemon chalata hai — badge dekho. Physical Windows machine pe abhi tak first-hand nahi. Toota to issue kholo; `ai version` ka output saath me.
 
 **iOS?**
-Abhi thin-client raasta hai (a-Shell jaise app me `ai.py`, brain tumhare apne PC ke Ollama ya cloud key se). Hamara koi hosted server nahi hoga, iOS ke liye bhi nahi. [ROADMAP.md](ROADMAP.md).
+Do raaste, dono bina hamare server ke. (1) **Sabse aasan:** apne Mac/PC pe `ai pair` chalao, iPhone se QR scan karo — iPhone us computer ke `ai` ka panel kholta hai (Safari → Add to Home Screen = app jaisa). Apna Wi-Fi ya Tailscale. (2) a-Shell jaise terminal app me `ai.py` (stdlib hai, chal jaata hai), brain phir bhi tumhare PC ka Ollama ya tumhari key — kyunki iOS pe koi app on-device model ko HTTP pe nahi deta. [ROADMAP.md](ROADMAP.md).
 
 **Naam ka matlab?**
 Aasmaan = आसमान = sky. Har Hindi/Urdu bolne wale ka roz ka shabd. Sanskrit me wahi "Akasha" hai.

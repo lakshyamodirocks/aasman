@@ -29,7 +29,7 @@ Plain list, newest thinking first. "Done" means run and verified, not written. I
 - **Brain:** no iOS app today exposes a local model over HTTP that a script can call (PocketPal's local-server request is an open, unimplemented issue; Enchanted is a client). So on iOS "local only" honestly means **your own PC or Mac's Ollama** over your own network (LAN / Tailscale) — your hardware, not ours — or a free cloud key you own.
 - **What will not work there:** the `/do` tool layer, voice, forge and anything that spawns a subprocess (17 call sites need Linux binaries a-Shell does not have). Core chat, memory, KB, experts: yes. No floater, no daemon, no screen-read.
 - **Store rules:** Apple guideline 2.5.2 (downloaded code) — a-Shell and iSH survived 2020 takedown notices on appeal and remain listed; precedent, not a written carve-out. We will not ship an App Store app of our own until that is worth the risk.
-- **Smallest useful iOS deliverable:** a documented 5-step path (install a-Shell → `curl` `ai.py` + experts → point `OLLAMA_HOST` at your PC → `python ai.py`). Not yet written; will be tested on a real iPhone before it is published here.
+- **Shipped instead (2026-09-06):** `ai pair` — the Mac/PC prints a QR, the iPhone scans it and gets that computer's full `ai` panel over Wi-Fi/Tailscale, token-locked. Your hardware, your network. The a-Shell path stays documented for people without a computer; both await a real-iPhone test.
 
 ## Never
 

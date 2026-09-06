@@ -15,6 +15,7 @@ Every published version is a line in `VERSION` (`date sha repo`). Installed copi
 - Daemon (opt-in): awareness only, `AI_ATTENDED=0` blocks forging and shell.
 - Telegram helper bot (`ai telegram`): fail-closed allowlist, fixed commands, `/feedback` to a local file, free-text off by default; `ai announce` posts to Telegram + a Discord webhook.
 - Repo face: CI on three OSes, issue/feedback templates, SECURITY, docs site, WHY, COMMUNITY.
+- `ai pair`: QR in the terminal (stdlib QR encoder, verified bit-for-bit against a reference), token-locked panel for any phone including iPhone, Tailscale preferred over LAN.
 - Fixes found by running, not reading: crisis phrasing routed to no expert (now → margdarshak); unknown RAM was treated as low RAM; Windows crashed on `os.uname()`; Ollama's 4k default context pinned to 16k.
 
 **Known gaps, stated:** Windows path verified only by CI, not on a physical machine yet; iOS is a thin-client path (see docs/ROADMAP.md); OS keychain for keys not yet used on PC; screen-read and floater are Android-only.
