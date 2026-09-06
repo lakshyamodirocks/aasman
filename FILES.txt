@@ -12,6 +12,7 @@ SECURITY.md
 VERSION
 ai.py
 cleanup.sh
+connectors.json
 disk-doctor.sh
 docs/ARCHITECTURE.md
 docs/COMMUNITY.md

@@ -4,6 +4,39 @@ Every published version is a line in `VERSION` (`date sha repo`). Installed copi
 
 Changes ship as **impact radii**: one commit per concern, each entry names what it touched and what it deliberately did not, so a fix in one place cannot quietly break another. (How this works: CONTRIBUTING.md → "How changes ship".)
 
+## 2026-09-06 · radius 14 — the gate must be true on Windows too
+
+CI run #4 on the live repo: every install job green (the pipefail root cause was real), `golden · ubuntu/macos` green, `golden · windows` red. The test file, not the product, used POSIX-only pieces: `sleep`, `echo`, `cat` as process stand-ins, `os.kill(pid, 0)` as a liveness probe (on Windows that call would terminate the process), and a console that cannot print ✓/✗ in cp1252. Every pin now spawns the running Python interpreter instead, checks `poll()`, and stdout is forced to UTF-8. Behaviours pinned are unchanged (116/116). If `golden · windows` is still red after this, the failure is real and the step's last lines are the next thing to read.
+
+Touched: tests/golden.py only.
+
+## 2026-09-06 · radius 13 — connectors: found, suggested, added, or forged
+
+- **`connectors.json`** ships a vetted catalogue (research: 25 candidates, 12 kept — official reference servers, single-purpose permissive-licence servers, and three "real account" ones with warnings). No OAuth-only service is listed: this client has no browser flow, so `locked` carries the honest local alternative for Notion, Canva, Google Calendar/Photos, WhatsApp, Todoist instead of a dead end.
+- **`/mcp find <service|use-case>`** and plain words ("pdf ka connector chahiye", "connect my email", "github wala jodo") resolve offline by keyword bucket; output = what leaves the device, licence, install line for this platform, tier, warning, and the exact `/mcp add` line. The installer's use-case (`AI_USE`) orders suggestions and `ai` names the fitting keyless ones once at start.
+- **`/mcp add <catalogue name> [TOKEN=…]`** fills template tokens once at add time (a folder root must exist and may never be your whole home; a host must look like a host), prints the install hint (you run it), writes a code-owned argv provider, and picks the server's tool by hint when it is reachable.
+- **`/mcp forge <what it should do>`**: a brain fills one function inside a fixed stdio-MCP skeleton; the file is scanned, previewed, and registered only if clean; attended only.
+- **Lists**: `/list`, "shopping list me doodh" — built because no trustworthy server exists for the family bucket.
+- **Audit fixes (research/connectors/B-tuning-knobs.md):** the `exemplars` knob is now consumed by the persona trimmer; `plan` is a registered impact action, so `/plan`'s gate is real, not a silent no-op.
+
+Touched: ai.py (`connectors_cfg`, `connector_intent`, `mcp_find`, `mcp_add_catalogue`, `mcp_forge`, `lists_cmd`, chat routing, startup suggestion, `/list`, `capabilities()`), connectors.json (new), pc-setup.sh / install.ps1 / fold-all-setup.sh (copy the catalogue), build-dist.sh, tests/golden.py (+5 pins), README, docs/FAQ.md, docs/ARCHITECTURE.md.
+Not touched: the MCP client itself, keys, hands, voice, language, experts.
+Owner calls still open: app-password email for client mail; whether Home Assistant exists; local-only PDFs for client documents (the catalogue's `pdf` pick is local).
+
+## 2026-09-06 · radius 12 — the tuning layer: the harness is what is tuned
+
+The owner's framing, made concrete: whatever the model, the harness around it carries the tuning — in numbers, not in weights.
+
+- **Per-tier knobs** (`TUNING`, `/tuning`): tiny ≤2.5B · small · mid · large · cloud, read off the brain that answers first. Applied where it matters: persona budget, KB budget, answer cap (`ask`, `run_agent`), brain demotion thresholds, short/deep thresholds, plan depth. A 1.7B phone brain now gets ~1.4k chars of persona and one exemplar; a cloud brain gets the full pack — same code.
+- **`~/.ai-tuning.json`** overrides numbers only; strings, templates, argv and unknown keys are ignored and named at start (golden-pinned). This is the door for research to retune shipped installs without a code change.
+- **`/usage [days]`**: real token counts from the brains themselves (Ollama eval counts, OpenAI `usage`, Gemini `usageMetadata`) per brain per day, in/out ratio, and a plain signal when the local brain was enough. The answer footer shows real in/out tokens when known instead of an estimate.
+- **`/plan <goal>`**: rung-0 tools, hands and self-intents resolve without a brain; otherwise a strict JSON plan (≤ the tier's `plan_steps`) whose steps may only be `expert` / `do` / `hand` / `ask` / `tool0` with real names; shown, impact-gated, confirmed, then run step by step with the previous output passed as data. A `shell` step or an unknown expert is rejected.
+- **Found by the smaller budgets, fixed for every budget:** six packs write their exemplars under `### 1 — title` headings, so the persona trimmer's "exemplar #1 always survives" promise held only at 4,500 chars — below that it kept the bare heading. The trimmer now merges a heading with its Q/A, shrinks prose repeatedly instead of once, and never lets the final cut land on the exemplars (pinned at tiny/small/mid).
+- **`AI_USE`**: the installers' one question ("mostly for?") on all three platforms; `/agents` and `/capabilities` show the suggestion order; nothing is locked. Streaming to a local custom endpoint is no longer redacted (consistency with radius 11).
+
+Touched: ai.py (`TUNING`/`tuning_load`/`model_tier`/`tier_now`/`knob`, `usage_note`/`usage_text`, `plan_cmd`/`_plan_parse`, `USE_MAP`/`use_suggest`, knob hooks in `agent_persona`/`expert_kb`/`ask`/`run_agent`/`brain_order`/`classify`, footer, `stream_call`, `/tuning /usage /plan`), pc-setup.sh, setup-wizard.sh, install.ps1, tests/golden.py (+5 pins), README, docs/FLAGS.md, docs/FAQ.md, docs/ARCHITECTURE.md.
+Not touched: prompt templates (still code), keys, hands, voice, language, experts' content, serve/pair.
+
 ## 2026-09-06 · radius 11 — models and connectors attach by discovery
 
 Answering the owner's question "jo bhi model user download kare — voice, image, chat — ya koi MCP connector — harness se attach hota hai?" with code instead of a promise.

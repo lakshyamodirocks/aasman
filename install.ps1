@@ -39,6 +39,13 @@ if (-not $Lang -and -not $Auto) {
   $Lang = switch ($r) { "2" { "hinglish" } "3" { if ($env:WT_SESSION) { "hi" } else { "en" } } default { "en" } }
 }
 if (-not $Lang) { $Lang = "en" }; $env:AI_LANG = $Lang
+$Use = if ($env:AI_USE) { $env:AI_USE.ToLower() } else { "" }
+if (-not $Use -and (Test-Path $prof0)) { $m = Get-Content $prof0 | Where-Object { $_ -match '^AI_USE=' } | Select-Object -First 1; if ($m) { $Use = ($m -split '=',2)[1].Trim().ToLower() } }
+if (-not $Use -and -not $Auto) {
+  $r = Read-Host "  Mostly for?   [1] chat & thinking  [2] coding  [3] content  [4] study/research  [5] business/office  [6] family/home  [7] private/offline      Enter = chat  (only orders suggestions)"
+  $Use = switch ($r) { "2" { "code" } "3" { "content" } "4" { "study" } "5" { "business" } "6" { "family" } "7" { "private" } default { "chat" } }
+}
+if (-not $Use) { $Use = "chat" }; $env:AI_USE = $Use
 $En = ($Lang -eq "en")
 function T([string]$k) { switch ($k) {
   "go"      { if ($En) { "  [Enter] go   [?] why   [q] stop" } else { "  [Enter] karo   [?] kyun   [q] ruk ja" } }
@@ -200,9 +207,10 @@ else {
   }
 }
 Copy-Item (Join-Path $srcDir "ai.py") (Join-Path $App "ai.py") -Force; Mf (Join-Path $App "ai.py")
-foreach ($f in @("experts.json","tools-routing.json","panel.html","whiteboard.html","VERSION","README.md","LICENSE","install.ps1")) { $s = Join-Path $srcDir $f; if (Test-Path $s) { Copy-Item $s (Join-Path $App $f) -Force; Mf (Join-Path $App $f) } }
+foreach ($f in @("experts.json","tools-routing.json","connectors.json","panel.html","whiteboard.html","VERSION","README.md","LICENSE","install.ps1")) { $s = Join-Path $srcDir $f; if (Test-Path $s) { Copy-Item $s (Join-Path $App $f) -Force; Mf (Join-Path $App $f) } }
 Copy-Item (Join-Path $srcDir "experts.json") (Join-Path $Home_ ".ai-experts.json") -Force; Mf (Join-Path $Home_ ".ai-experts.json")
 if (Test-Path (Join-Path $srcDir "tools-routing.json")) { Copy-Item (Join-Path $srcDir "tools-routing.json") (Join-Path $Home_ ".ai-tools.json") -Force; Mf (Join-Path $Home_ ".ai-tools.json") }
+if (Test-Path (Join-Path $srcDir "connectors.json")) { Copy-Item (Join-Path $srcDir "connectors.json") (Join-Path $Home_ ".ai-connectors.json") -Force; Mf (Join-Path $Home_ ".ai-connectors.json") }
 if (Test-Path (Join-Path $srcDir "panel.html")) { Copy-Item (Join-Path $srcDir "panel.html") (Join-Path $Home_ ".ai-panel.html") -Force; Mf (Join-Path $Home_ ".ai-panel.html") }
 $packs = 0; $pk = Join-Path $Home_ ".ai-experts"
 foreach ($d in @("experts","lib","docs")) { $sd = Join-Path $srcDir $d; if (Test-Path $sd) { Copy-Item $sd (Join-Path $App $d) -Recurse -Force; Mf (Join-Path $App $d) } }
@@ -214,8 +222,8 @@ $prof = Join-Path $Home_ ".ai-setup-profile"
 if ($model -and -not (Test-Path $prof)) { Set-Content -Path $prof -Value "AI_TIER=PC`nAI_LOCAL_MODEL=$model`nAI_LOCAL_CTX=16384" -Encoding ASCII; Mf $prof }
 # /setup inside 'ai' re-runs this installer from the app copy; /update re-fetches from the repo
 $setupCmd = "AI_SETUP_CMD=powershell -NoProfile -ExecutionPolicy Bypass -File `"$App\install.ps1`""
-$keep = @(); if (Test-Path $prof) { $keep = Get-Content $prof | Where-Object { $_ -notmatch '^AI_SETUP_CMD=' -and $_ -notmatch '^AI_LANG=' } }
-Set-Content -Path $prof -Value ($keep + $setupCmd + "AI_LANG=$Lang") -Encoding ASCII; Mf $prof
+$keep = @(); if (Test-Path $prof) { $keep = Get-Content $prof | Where-Object { $_ -notmatch '^AI_SETUP_CMD=' -and $_ -notmatch '^AI_LANG=' -and $_ -notmatch '^AI_USE=' } }
+Set-Content -Path $prof -Value ($keep + $setupCmd + "AI_LANG=$Lang" + "AI_USE=$Use") -Encoding ASCII; Mf $prof
 Ok "ai.py ($((Get-Content (Join-Path $App 'ai.py')).Count) lines, one file — Notepad me khol ke poora padh sakte ho)"
 Ok "19 experts · $packs packs (persona + KB)"
 
