@@ -1,0 +1,293 @@
+<!doctype html><html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b0e14"><title>Akasha Flowchart</title>
+<style>
+:root{--bg:#0b0e14;--card:#151a24;--line:#232a38;--ink:#e6edf6;--dim:#8b97a8;--acc:#6ea8fe;
+ --done:#3fb950;--wip:#d29922;--plan:#8b97a8;--crown:#c9a227;--edge:#5b6f95}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden}
+header{position:absolute;top:0;left:0;right:0;z-index:6;background:#0b0e14e6;backdrop-filter:blur(6px);border-bottom:1px solid var(--line);padding:8px 12px}
+.h1{display:flex;align-items:center;gap:8px}.h1 b{font-size:15px;letter-spacing:.4px}
+.h1 .sub{color:var(--dim);font-size:11px;margin-left:auto;text-align:right}
+.legend{display:flex;gap:10px;margin-top:6px;font-size:11px;color:var(--dim);flex-wrap:wrap}
+.legend i{width:9px;height:9px;border-radius:2px;display:inline-block;margin-right:4px;vertical-align:middle}
+.filters{display:flex;gap:6px;margin-top:7px;overflow-x:auto}
+.filters button{flex:0 0 auto;background:var(--card);color:var(--dim);border:1px solid var(--line);border-radius:15px;padding:4px 10px;font-size:12px}
+.filters button.on{color:#fff;border-color:var(--acc);background:#16233b}
+#wrap{position:absolute;inset:0;touch-action:none}
+svg{width:100%;height:100%;display:block;background:
+ radial-gradient(circle at 1px 1px,#141a26 1px,transparent 0) 0 0/26px 26px,var(--bg)}
+.znband{fill:#0e1420;opacity:.55}
+.zntext{fill:#5c6a80;font-size:11px;letter-spacing:1.4px;text-transform:uppercase;font-weight:600}
+.edge{fill:none;stroke:var(--edge);stroke-width:1.7;opacity:.85}
+.edge.hot{stroke:var(--acc);stroke-width:2.4;opacity:1}
+.node rect{fill:#141b27;stroke:var(--plan);stroke-width:1.6;rx:9}
+.node.done rect{stroke:var(--done)} .node.wip rect{stroke:var(--wip)} .node.plan rect{stroke:var(--plan)}
+.node.crown rect{stroke:var(--crown);stroke-width:2.2}
+.node text{fill:var(--ink);font-size:11.5px;font-weight:500}
+.node .st{font-size:9px}
+.node.dim{opacity:.28} .node.sel rect{stroke-width:3;filter:drop-shadow(0 0 6px #6ea8fe88)}
+.ctrl{position:absolute;right:12px;bottom:16px;z-index:6;display:flex;flex-direction:column;gap:6px}
+.ctrl button{width:42px;height:42px;border-radius:11px;background:#151a24e6;border:1px solid var(--line);color:var(--ink);font-size:18px}
+.hint{position:absolute;left:12px;bottom:16px;z-index:6;color:var(--dim);font-size:11px;background:#0b0e14aa;padding:4px 8px;border-radius:8px}
+/* drawer */
+.scrim{position:fixed;inset:0;background:#000a;z-index:8;display:none}.scrim.on{display:block}
+.draw{position:fixed;left:0;right:0;bottom:0;max-height:82vh;overflow:auto;background:#0f141d;border-top:1px solid var(--line);border-radius:16px 16px 0 0;z-index:9;transform:translateY(100%);transition:.22s;padding:16px}
+.draw.on{transform:none}.draw .x{position:absolute;right:14px;top:12px;color:var(--dim);font-size:22px;background:none;border:none}
+.draw h3{margin:0 30px 2px 0;font-size:18px}.draw .meta{color:var(--dim);font-size:12px;margin-bottom:12px}
+.field{margin:0 0 12px}.field .k{font-size:11px;color:var(--acc);text-transform:uppercase;letter-spacing:.6px;margin-bottom:3px}
+.field .v{font-size:13.5px;line-height:1.5}.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{background:#0d121b;border:1px solid var(--line);border-radius:14px;padding:4px 9px;font-size:12px}
+.arrow{color:var(--dim);font-size:11px;margin:0 4px}
+.stwrap{display:flex;gap:6px;margin:4px 0 12px}.stwrap button{flex:1;background:#0d121b;border:1px solid var(--line);color:var(--dim);border-radius:9px;padding:8px;font-size:12px}
+.stwrap button.on.done{border-color:var(--done);color:#b8f0c0}.stwrap button.on.wip{border-color:var(--wip);color:#f0dca0}.stwrap button.on.plan{border-color:var(--plan);color:#fff}
+textarea{width:100%;background:#0d121b;color:var(--ink);border:1px solid var(--line);border-radius:9px;padding:9px;font:inherit;min-height:52px}
+small.hint2{color:var(--dim)}
+</style></head><body>
+<header>
+ <div class="h1"><b>🗺 Akasha Flowchart</b><span class="sub" id="sub">…</span></div>
+ <div class="legend">
+  <span><i style="background:var(--done)"></i>Done</span><span><i style="background:var(--wip)"></i>WIP</span>
+  <span><i style="background:var(--plan)"></i>Planned</span><span><i style="background:var(--crown)"></i>Crown</span>
+  <span>→ flow / connection · tap box = detail</span>
+ </div>
+ <div class="filters" id="filters">
+  <button data-f="all" class="on">All</button><button data-f="done">✅ Done</button>
+  <button data-f="wip">🟡 WIP</button><button data-f="plan">⚪ Planned</button><button data-f="crown">👑 Crown</button>
+ </div>
+</header>
+<div id="wrap"><svg id="svg" xmlns="http://www.w3.org/2000/svg">
+ <defs>
+  <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#5b6f95"/></marker>
+  <marker id="arh" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#6ea8fe"/></marker>
+ </defs>
+ <g id="bands"></g><g id="edges"></g><g id="nodes"></g>
+</svg></div>
+<div class="ctrl"><button id="zin">+</button><button id="zout">−</button><button id="zfit">⤢</button></div>
+<div class="hint" id="hint">drag = pan · pinch/⤢ = zoom · box tap = detail</div>
+<div class="scrim" id="scrim"></div><div class="draw" id="draw"></div>
+<script>
+const Z=[
+ {id:"device",name:"DEVICE — hardware & survival",desc:"Jis pe sab chalta hai. Fold native Termux = primary; Debian VM = backup."},
+ {id:"control",name:"CONTROL — sanctioned channels",desc:"Bahar se Fold ko safely chalane ke raste. Koi backdoor nahi."},
+ {id:"brains",name:"ROUTER + BRAINS — the mind",desc:"Ek terminal AI jo kai brains me se sahi chun-ta hai, kam token jada accuracy."},
+ {id:"interface",name:"INTERFACE — how you talk to it",desc:"Terminal, voice, GUI panel, file attach, tool-forge."},
+ {id:"tools",name:"TOOLS — capability providers & tool-router",desc:"Brain-router (kaunsa LLM jawab de) se ALAG. Ye capability -> sahi TOOL chunta hai: video/voice/scrape/overview. Tu naam bole to wahi tool (override)."},
+ {id:"memory",name:"MEMORY — persistent & consistent",desc:"Obsidian vault + hashtags + RAG. Context kabhi nahi bhoolta."},
+ {id:"agents",name:"AGENTS — the org",desc:"30-agent team, offline via router. Specialists, generic fallback nahi."},
+ {id:"lab",name:"LAB — research & the edge",desc:"Sweeps, benchmarks, cited research. Crown-jewel DIRECTION proven (extractive > truncation); magnitude n=10 pilot, sweep30 on deployed model pending."},
+];
+const E=[
+ // DEVICE
+ {z:"device",id:"fold",n:"Android phone node",st:"done",purpose:"Sovereign compute jeb me — sab kaam yahin, cloud pe nahi.",use:"Termux + Debian VM chalta hai; tu doosre phone se chat karta hai, ye node hai.",ways:"aarch64, 8 core, 7.6GB RAM, CPU-only, charger pe, wake-lock ON. Device-locked kuch nahi — koi bhi Android, bina root.",to:["termux","vm","watchdog","adapt"]},
+ {z:"agents",id:"experts",n:"18 domain experts",st:"done",purpose:"Har element ISOLATE karke master — ek domain, ek expert, apni embedded learnings ke saath.",use:"/agents · /agent <name> <task> · /agent auto <task>",ways:"experts.json (repo clone ki zarurat NAHI). Fine-tune nahi kar sakte, isliye 'embedded learnings' = tight persona + checklist + exact tools + missing-tool fallback. Lakshya ki list ke 12 the; concept ke hisaab se 6 aur jode: anveshak(verify) lekhak(likhna) ankak(numbers) arthik(MFD, SEBI boundary code me) margdarshak(coaching/NLP) vyuh(planning).",to:["expertroute","ai","toolrouter"]},
+ {z:"agents",id:"expertroute",n:"Expert auto-router",st:"done",purpose:"18 naam yaad rakhna wahi bojh tha jo hashtags ka — isliye khud chunta hai.",use:"/agent auto <task> — Hinglish me bol do.",ways:"zero-token heuristic (hint-word overlap), koi model call nahi. TESTED 10/10 Hinglish tasks sahi expert pe gaye.",to:["experts"]},
+ {z:"tools",id:"vedit",n:"vedit (ffmpeg recipes)",st:"done",purpose:"Short-form ka asli kaam — reels/shorts ke liye ffmpeg, guess kiye flags se nahi.",use:"/do video_edit ... · /do audio_overlay ... · ya seedha  vedit  (usage khud print karta hai)",ways:"vertical(9:16) · subs(SRT burn, colon-escape) · thumb(fast seek) · join(codec alag ho to re-encode) · duck(sidechain) · loud(2-pass -16 LUFS, -ar pinned) · desilence(2-stage). Har recipe fake-ffmpeg se command-line verify ki.",to:["toolrouter","ladder"]},
+ {z:"interface",id:"httpguard",n:"HTTP guard (no shell)",st:"done",purpose:"Panel ka background endpoint galti se shell chala raha tha — PROJECT-VET ka likha hua rule maine hi toda tha.",use:"apne aap; shell ab sirf terminal me (/bg !cmd).",ways:"POST /api/bg me !cmd -> 403 (curl se prove kiya: file bani hi nahi) · /do over HTTP band jab tak AI_SERVE_TOOLS=1 · CSRF: Content-Type json zaroori + cross-origin refuse.",to:["panel","bgjobs","floater"]},
+ {z:"brains",id:"impact",n:"IMPACT RADIUS",st:"done",purpose:"Lakshya ka core rule: koi bhi kaam kisi na kisi cheez ko chhoota hai — us asar ko pehchano, izzat karo, aur tay karo ki sambhalna PEHLE hai, BEECH me hai ya BAAD me. Tabhi cheezein tootengi nahi.",use:"/impact <action> [target] — kaam se pehle radius dekh lo. Khud bhi chalta hai /remember, /kb build, forge pe.",ways:"RESOURCES table (env/tools/experts/cache/kbindex/metrics/device/vault/bin/wishes/serve) + har ek ke DOWNSTREAM readers. ACTIONS table me har kaam ke before/during/after + risk + reversible. impact_gate() kaam se PEHLE (irreversible ho to radius print, concurrency conflict ho to ROK deta hai), impact_settle() BAAD me (cache clear, kb stale flag). Har bg job batata hai wo kya chhoo raha hai. VERIFIED: vault likhne wala job chal raha ho to /kb build ruk jata hai, job khatam hote hi gate khud khul jata hai.",to:["ai","bgjobs","memory-kb","forge","ladder"]},
+ {z:"brains",id:"netgate",n:"NET-gate (2-mode)",st:"done",purpose:"Ek hi sach: link UP hai ya DOWN. Pehle router har prompt pe 6 cloud call fail karke pata karta tha.",use:"apne aap; dekhne/test ko  /net  ·  /net off  (force offline)  ·  /net on",ways:"net_up() = sasta TCP probe (1.1.1.1/8.8.8.8/9.9.9.9), 45s cache + asli call ke result se net_mark(). Offline: brain_order -> sirf local; /do keyed tools aur net-builtins skip. MEASURED: offline ask 0.0s (pehle 6 failing calls).",to:["router","brains7","toolrouter","wishq"]},
+ {z:"brains",id:"privacy",n:"Privacy router",st:"done",purpose:"Cloud brain ko kabhi identifying data na jaye. Local brain ko raw — wo phone se bahar jata hi nahi.",use:"apne aap har cloud call pe;  /privacy  ·  /privacy off  ·  /privacy <text> (test)",ways:"email · phone(+91) · PAN · aadhaar · api-key · private/tailscale IP · long token · home path · owner naam -> placeholder. Verified: 10-digit order-id nahi khaata (precision).",to:["router","brains7"]},
+ {z:"brains",id:"maxctx",n:"Max-context local brain",st:"done",purpose:"Local 4B ko utni hi window mile jitni RAM de sakti hai — warna crown-jewel retrieval bekaar.",use:"apne aap; pin karna ho to AI_LOCAL_CTX",ways:"BUG tha: local /v1 shim pe tha jo num_ctx set hi nahi kar sakta -> Ollama default window. Ab native /api/chat + options.num_ctx, RAM-tiered 4k/8k/16k/32k. Bonus: Ollama ka asli `format` (sachcha structured output).",to:["local3b","crown"]},
+ {z:"tools",id:"wishq",n:"Wish-queue",st:"done",purpose:"Offline me jo capability nahi mili wo KHOYI nahi — yaad rahegi, brain/net aate hi ban jayegi. 'Abhi nahi' != 'kabhi nahi'.",use:"apne aap queue hoti hai;  /wish  ·  /wish run  ·  ai wish run  (cron)",ways:"~/.ai-wishes.jsonl (open/granted/failed) + startup nudge. Verified: offline queue -> brain wapas -> forge -> chala -> granted.",to:["ladder","forge","netgate"]},
+ {z:"interface",id:"bgjobs",n:"Background jobs",st:"done",purpose:"Kaam peeche chale, baat/voice na ruke — Lakshya ki shart.",use:"/bg <sawal> · /bg do <cap> <input> · /bg !<shell> · /bg (list) · /bg <id>. Panel: /api/bg + /api/jobs.",ways:"daemon threads (sab I/O-bound: brain HTTP ya subprocess — GIL problem nahi). MEASURED: dispatch 0.00s jab 3s job + link-ingest saath chal rahe the.",to:["ai","floater","panel"]},
+ {z:"interface",id:"floater",n:"Floater + sub-floater",st:"done",purpose:"AssistiveTouch jaisa button — chat aur voice hamesha ek tap door; kaam chal raha ho to uske upar sub-floater.",use:"panel kholo -> neeche gol button. Drag karo (edge pe chipakta hai), tap -> chat sheet. Job chale to badge + bubble.",ways:"pointer-events drag + edge-snap + localStorage position; idle pe halka, busy pe pulse. Sub-floater 3s pe /api/jobs poll karta hai. BUG mila: purana #fab ka JS zinda tha -> TypeError se pura script marta tha.",to:["panel","bgjobs","feedback","voice"]},
+ {z:"interface",id:"feedback",n:"Feedback capture",st:"done",purpose:"User ka feedback wahin, bina kaam roke — aur wo phone se bahar nahi jata.",use:"floater -> ☺ feedback -> 👍/😐/👎 + ek line.",ways:"POST /api/feedback -> ~/.ai-feedback.jsonl + journal. Local-only, kahin bheja nahi jata. Verified: disk pe likha.",to:["floater","panel"]},
+ {z:"memory",id:"linkkb",n:"Link -> KB",st:"done",purpose:"Link paste karo, uska context vault me. YouTube / GitHub / reel / koi bhi page.",use:"/kb link <url>  (background job banta hai) -> vault/links/*.md -> /kb build",ways:"yt-dlp captions (dedup) -> raw README main/master -> og:/meta -> saaf text. Instagram: sirf PUBLIC metadata, login-walla data scope se bahar. BUG mila: block page GitHub path ko maar deta tha -> ab special path PEHLE. Research: yt auto-sub bhi 429 kha sakta hai.",to:["memory-kb","bgjobs","crown"]},
+ {z:"control",id:"onecmd",n:"One-command install",st:"done",purpose:"Generic user ek command daale aur pura system aa jaye — demo ke liye.",use:"bash akasha-fold/install.sh   (public hone pe: curl ... | bash)",ways:"clone/pull -> ROOM REPORT -> confirm -> setup -> guided. Private repo pe exact token steps deta hai. Path logic sandbox me verified.",to:["roomreport","runner"]},
+ {z:"control",id:"roomreport",n:"Room report",st:"done",purpose:"Install se PEHLE pata chale kitni jagah hai aur kya-kya aayega — beech me disk full na ho.",use:"fold-all-setup.sh ke shuru me apne aap; AI_YES=1 se skip.",ways:"RAM total/free + df free + per-component size table (fits/NO ROOM) + total + bacha kitna + confirm. Kam disk -> local brain skip, cloud+keyless chalu. BUG mila: c() helper sirf setup-menu me tha.",to:["onecmd"]},
+ {z:"device",id:"adapt",n:"Hardware self-adapt",st:"done",purpose:"Phone badle, RAM badle, Shizuku aaye/jaaye — system khud adjust kare, dobara install nahi.",use:"apne aap: har 'ai' aur 'ai serve' startup pe. Dekhne ko /device.",ways:"device_fingerprint() vs ~/.ai-device.json diff -> local brain RAM-tier se re-pick + journal. Kuch na badle to CHUP. Verified: 3.8GB→16GB + Shizuku loss -> qwen3:8b→qwen3:14b khud switch hua.",to:["fold","brains7","canary"]},
+ {z:"device",id:"canary",n:"Brain canary (weekly)",st:"done",purpose:"Free tier CHUPCHAP marta hai (GitHub Models 2026-07-30, Cerebras card-only 2026-08-17) — pata pehle chale, kaam ke waqt nahi.",use:"/canary · ai canary (termux-job) · 7 din purana ho to startup nudge.",ways:"har brain ko 4-token ping -> ~/.ai-brains.json: alive / no-key / DEAD (HTTP fault) / unreachable (offline). Verified: fake key -> DEAD 403, offline local -> unreachable (alag alag).",to:["brains7","adapt"]},
+ {z:"device",id:"termux",n:"Termux (PRIMARY)",st:"done",purpose:"Native Linux, no crosvm tax — stable interactive layer.",use:"'ai', pentest, voice sab yahin. VM se tez aur stable.",ways:"pkg install; ~/.local/bin me ai/setup-menu; wake-lock se Android kill na kare.",to:["ai","fold","panel"]},
+ {z:"device",id:"vm",n:"Debian VM (backup)",st:"wip",purpose:"Runner + local ollama backup; heavy experiments.",use:"GitHub Actions self-hosted runner isi me. ~1-2h me girta hai.",ways:"crosvm; hand-open = 5.3 tok/s, shell-launch = 0.3 (18x slow, M13 open).",to:["runner","watchdog"]},
+ {z:"device",id:"shizuku",n:"Shizuku + rish",st:"wip",purpose:"Android ke 'haath' — VM/phone ko command se chalana.",use:"watchdog rish se VM relaunch karta hai.",ways:"uid=2000 shell; reboot pe zinda nahi rehta (weakest link).",to:["watchdog","vm"]},
+ {z:"device",id:"watchdog",n:"VM watchdog",st:"wip",purpose:"VM gir jaye to khud relaunch kare.",use:"nohup ~/wd.sh; pidof crosvm; down->monkey launch.",ways:"rish chahiye; relaunch se slow-VM banti hai (redesign pending).",to:["shizuku","vm"]},
+ // CONTROL
+ {z:"control",id:"runner",n:"GitHub Actions runner",st:"done",purpose:"Push se allowlisted task VM me chalana — safe remote control.",use:"trigger.txt = task+nonce; fold-lab.yml allowlist.",ways:"self-hosted runner VM me; sirf allowlist tasks.",to:["vm","mailbox"]},
+ {z:"control",id:"mailbox",n:"Git mailbox (async)",st:"done",purpose:"Weekly limit bachane ko heavy kaam batch karna.",use:"ask.sh 'task' -> inbox file -> loop uthata hai -> outbox me jawab.",ways:"fold-node/mailbox/{inbox,outbox,done}; har loop cycle process.",to:["runner"]},
+ // BRAINS
+ {z:"brains",id:"ai",n:"ai (terminal AI)",st:"done",purpose:"Ek self-contained CLI dimag — stdlib only, no deps.",use:"'ai' = REPL; ai \"q\" = one-shot; cmd | ai = piped context.",ways:"~/.local/bin/ai; vault + router + KB + agents ek file me.",to:["router","brains7","panel","voice","toolforge"]},
+ {z:"brains",id:"router",n:"Brain-router policy",st:"done",crown:false,purpose:"Konsi query kaun sa LLM sambhale — kam token, jada accuracy. (TOOLS alag: /do)",use:"/route auto|code|plan|fast|private; /why reason batata.",ways:"heuristic classify (no AI call): code->70B, plan->gemini, fast->cerebras, private->local.",to:["brains7","ai","metrics","toolrouter"]},
+ {z:"brains",id:"brains7",n:"7 free brains",st:"done",purpose:"Bahut sारे free dimag — koi bhi jawab de, weekly limit ko haath na lage.",use:"gemini, groq, openrouter, cerebras, mistral, github, local(qwen3B).",ways:"free tiers; keys ~/.ai-env; no-excuse fallback across all.",to:["router","keys"]},
+ {z:"brains",id:"metrics",n:"Answer-rate meter",st:"done",purpose:"Kaunsa brain kitna reliable + fast — asli log se, fake nahi.",use:"panel me bars; ~/.ai-metrics.json.",ways:"route() har call pe ok/fail + latency record karta.",to:["router","panel"]},
+ {z:"brains",id:"local3b",n:"Local qwen3:4b",st:"wip",purpose:"Poora offline, private jawab; tool-trained + structured output.",use:"/local ya private-route; ollama Termux, keep-alive warm.",ways:"qwen3:4b; response_format JSON; KV-prefix reuse; tuning cloud-only.",to:["brains7","crown"]},
+ // INTERFACE
+ {z:"interface",id:"panel",n:"Control panel (ai serve)",st:"done",purpose:"Visual GUI — floating button, ek tap me sab.",use:"ai serve -> browser; chat, upload, status, tasks, tags, logs.",ways:"stdlib http.server; panel.html; endpoints tested.",to:["ai","voice","tasks","metrics","board"]},
+ {z:"interface",id:"voice",n:"Voice (Hindi/Eng)",st:"wip",purpose:"Bol ke baat, sun ke jawab — offline.",use:"talk / say / listen; panel ka 🎤🔊.",ways:"offline: whisper.cpp small + piper hi_IN; quick: Termux:API.",to:["panel","ai"]},
+ {z:"interface",id:"attach",n:"/attach files",st:"done",purpose:"File ko context bana dena agli baaton ke liye.",use:"/attach ~/file.md; panel me upload button.",ways:"text file -> ATTACHED context; BM25 se compress.",to:["ai","memory-kb"]},
+ {z:"interface",id:"toolforge",n:"Tool-forge (/tool)",st:"done",purpose:"Jo cheez script ban sakti hai, bol ke banwa lo.",use:"/tool <naam> <kya kare> -> ~/.local/bin me ready script.",ways:"router se codegen -> fence strip -> chmod +x.",to:["ai","teach"]},
+ {z:"interface",id:"board",n:"This flowchart",st:"done",purpose:"Poora plan visually — big picture se har element tak.",use:"ai serve -> /board; ya file offline kholo.",ways:"single-file SVG; status+notes localStorage me.",to:["panel"]},
+ {z:"interface",id:"streaming",n:"Streaming + /v1",st:"done",purpose:"Live tokens (5-7 tok/s pe '...' nahi) + OpenAI backend.",use:"panel SSE; /v1/chat/completions drop-in (Open WebUI).",ways:"EventSource; respond() shim; sentence TTS.",to:["panel","ai"]},
+ // MEMORY
+ {z:"memory",id:"vault",n:"Obsidian vault",st:"done",purpose:"Persistent, consistent memory — sessions ke beech.",use:"~/ai-vault; journal har din; /remember se facts.",ways:"markdown files; MEMORY har prompt me inject.",to:["hashtags","memory-kb","attach"]},
+ {z:"memory",id:"hashtags",n:"#hashtags",st:"done",purpose:"Notes ko tag se jodna; yaad rakhna aasan.",use:"/ctx #tag focus; panel me tap-chips.",ways:"#tag regex; notes_for(tags) pulls matching.",to:["vault","panel"]},
+ {z:"memory",id:"memory-kb",n:"KB (hybrid RAG)",st:"done",purpose:"Poore repo se relevant tukda — recall behtar.",use:"/kb build; /kb on; auto-retrieve.",ways:"HYBRID BM25+dense (RRF) via nomic-embed; BM25-only fallback agar embedder down.",to:["crown","vault","cache"]},
+ {z:"memory",id:"cache",n:"Semantic cache",st:"done",purpose:"Repeat/paraphrase sawaal -> 0 brain call.",use:"auto (ai + panel); /cache on|off|clear.",ways:"query embed, cos>=0.92; ~/.ai-cache.jsonl.",to:["memory-kb","ai"]},
+ // AGENTS
+ {z:"agents",id:"org",n:"30-agent org",st:"done",purpose:"Har kaam ka specialist — generic fallback nahi.",use:"/agent <naam> <q>; /group [a,b,c:] <q>.",ways:"repo/.claude/agents/*.md persona; offline via router.",to:["shodh","gates","ai"]},
+ {z:"agents",id:"shodh",n:"shodh / khoji (research)",st:"done",purpose:"Deep cited research + tool vetting.",use:"cloud se fan-out; offline personas via router.",ways:"shodh=domain research; khoji=library vetting.",to:["org","research"]},
+ {z:"agents",id:"gates",n:"Quality gates",st:"wip",purpose:"Kaam ship se pehle vet — raksha/nyaya/parakh.",use:"security, compliance, deliverable-vet.",ways:"named agents; hard-gates ORG.md.",to:["org"]},
+ // LAB
+ {z:"lab",id:"crown",n:"BM25 extractive (CROWN)",st:"done",crown:true,purpose:"Extractive BM25 context compression. Direction (extractive > truncation) solid + BenchPress-supported; MAGNITUDE is n=10 pilot on qwen2.5:3b — NOT yet measured on the deployed qwen3:4b (sweep30 runbook pending).",use:"har context (memory/notes/KB/attach) BM25 se compress.",ways:"budget kept-fraction; 2026 BenchPress paper independently validates.",to:["memory-kb","local3b","router"]},
+ {z:"lab",id:"sweeps",n:"Context-lab sweeps",st:"wip",purpose:"Compressors ko measure karna — guess nahi.",use:"run_sweep.py; agg_results.py; n=30 table.",ways:"cloud+local sweep; LLMLingua-2 test pending.",to:["crown"]},
+ {z:"lab",id:"research",n:"Cited research files",st:"done",purpose:"Offline capabilities + tools ka evidence, URL ke saath.",use:"fold-node/research/*.md.",ways:"offline-small-model-capabilities + offline-tools-vetting.",to:["sweeps"]},
+ {z:"lab",id:"teach",n:"Scripting-101 (teach)",st:"wip",purpose:"Tujhe scripted-tools coding sikhana — KB me daal ke.",use:"SCRIPTING-101.md; ai isse padha ke samjhata.",ways:"KB-indexed; /tool ke sath dekh-ke-seekho.",to:["toolforge","memory-kb"]},
+ // TOOLS zone — capability providers + tool-router (separate from brain-router)
+ {z:"tools",id:"toolrouter",n:"Tool-router (/do)",st:"done",purpose:"Capability se sahi TOOL chunna. Brain-router se alag.",use:"/do <capability> <input>; /do list. e.g. /do video_edit …, /do tts …",ways:"tools-routing.json: capability->provider list; pehla READY provider chalta. Agar koi ready nahi -> LADDER neeche girta hai, 'no' kabhi nahi.",to:["notebooklm","cloudgen","researchapi","voice","attach","override","mcp","ladder"]},
+ {z:"tools",id:"ladder",n:"NO-DEAD-END ladder (5 rung)",st:"done",purpose:"Lakshya ka standing order: koi bhi task me 'no' nahi. Har capability ke neeche 5 rung.",use:"/do <cap> <input> khud utarta hai. Force: /do <cap> use=forge <input>.",ways:"1 provider (key/binary) -> 2 BUILTIN keyless (webget/websearch/imagegen/speak) -> 3 recipe (is device ka exact unlock cmd) -> 4 brain (text-shaped part) -> 5 FORGE (tool likho, chmod, register, chalao). Unknown capability bhi refuse nahi — forge ho jati hai.",to:["builtins","forge","toolrouter"]},
+ {z:"tools",id:"builtins",n:"Keyless builtins (rung 2)",st:"done",purpose:"Zero key, zero pip, kisi bhi Android pe — capability degrade ho, mare nahi.",use:"apne aap chalte hain: /do scrape · /do research · /do image · /do tts.",ways:"webget (stdlib fetch+tag-strip) · websearch (ddg-html→ddg-lite→ddg-api→wikipedia CHAIN) · imagegen (pollinations, keyless, 47KB image verified) · speak (termux-tts→espeak→text).",to:["ladder"]},
+ {z:"tools",id:"forge",n:"Auto-forge (rung 5)",st:"done",purpose:"Jab kuch bhi na ho — tab CODE kar do. Ye 'varna code kar de' ka jawab hai.",use:"apne aap; ya /do <cap> use=forge <input>.",ways:"gen_tool -> ~/.local/bin/ai-<cap> -> chmod -> ~/.ai-tools.json me register -> chalao. Agli baar wahi RUNG 1. Risk-gate: rm -rf/su/pkg/pipe-to-shell/rish wala code likha to jata hai par auto-run NAHI hota (preview + y/N).",to:["ladder","toolforge"]},
+ {z:"tools",id:"override",n:"Override (use=)",st:"done",purpose:"Tu naam bole to wahi tool — teri exception.",use:"/do <cap> use=<provider> <input> -> auto-pick ko override.",ways:"forced provider hamesha jeetta (brain /route jaisा).",to:["toolrouter"]},
+ {z:"tools",id:"notebooklm",n:"NotebookLM (video/audio)",st:"plan",purpose:"Documents se explainer VIDEO + podcast overview.",use:"/do video_overview -> steps deta; khud kholke banao.",ways:"CONFIRMED: koi API kisi tier pe nahi (2 Google docs) -> manual/browser only. Audio ka API-alt: ElevenLabs GenFM.",to:["toolrouter"]},
+ {z:"tools",id:"cloudgen",n:"Cloud gen APIs",st:"plan",purpose:"Video/image/audio jo Fold CPU pe ban hi nahi sakte.",use:"/do video_generation | image_generation | audio_overview <prompt>.",ways:"fal (video ~$0.05/s) · Together (image ~$0.002/img) · ElevenLabs GenFM (audio). Sab paid/cloud, key chahiye.",to:["toolrouter"]},
+ {z:"tools",id:"researchapi",n:"Research/scrape APIs",st:"plan",purpose:"Web research + saaf scrape, jab local kaafi na ho.",use:"/do research | scrape <query/url>.",ways:"Tavily/Exa free tier (no card) · Jina Reader (light use, no key) · local trafilatura.",to:["toolrouter"]},
+ {z:"tools",id:"screensight",n:"Screen sight (/do screen)",st:"done",purpose:"Akasha ki AANKH — current screen ka text.",use:"/do screen; screen-dump.",ways:"uiautomator dump over rish (sanctioned hand).",to:["toolrouter","shizuku"]},
+ {z:"tools",id:"mcp",n:"MCP tools",st:"plan",purpose:"Bahari services ko TOOL ki tarah jodna — brain nahi.",use:"MCP client se; ek capability provider ban jaata.",ways:"9 official MCP (Firecrawl/Exa/Tavily/ElevenLabs/Replicate/Jina/Deepgram/Browserless/Perplexity). Raksha scan baaki. NotebookLM community MCP = cookie-hijack, mat wire.",to:["toolrouter","cloudgen","researchapi"]},
+ // cross-cutting keys node
+ {z:"brains",id:"keys",n:"Brain keys (~/.ai-env)",st:"wip",purpose:"Free brains ko chालू karne ki chaabiyan.",use:"setup-menu -> option 1; .bashrc auto-load.",ways:"printf %q se save; kabhi commit nahi.",to:["brains7"]},
+ {z:"interface",id:"tasks",n:"Pending tasks",st:"done",purpose:"Kya baaki hai — panel me track.",use:"panel Tasks tab; add/done.",ways:"~/.ai-tasks.json.",to:["panel"]},
+];
+const LB={done:"✅ Done",wip:"🟡 WIP",plan:"⚪ Planned"};
+const KEY="akasha-board-v1";
+let store={};try{store=JSON.parse(localStorage.getItem(KEY)||"{}")}catch(e){}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(store))}catch(e){}}
+const stOf=e=>(store[e.id]&&store[e.id].st)||e.st;
+const noteOf=e=>(store[e.id]&&store[e.id].note)||"";
+const cls=s=>s==="done"?"done":s==="wip"?"wip":"plan";
+const byId=id=>E.find(x=>x.id===id);
+const SVGNS="http://www.w3.org/2000/svg";
+// ---- layout: one column per zone (flow left->right), rows stacked ----
+const COLW=200,ROWH=70,NW=150,NH=48,PADX=40,PADT=40,BANDTOP=8;
+const layerOf={};Z.forEach((z,i)=>layerOf[z.id]=i);
+const pos={};
+(function layout(){
+ const rows={};
+ E.forEach(e=>{const L=layerOf[e.z];rows[L]=rows[L]||0;
+  const x=PADX+L*COLW, y=PADT+BANDTOP+rows[L]*ROWH;
+  pos[e.id]={x,y,w:NW,h:NH,cx:x+NW/2,cy:y+NH/2};rows[L]++;});
+ window.__rows=rows;
+})();
+const maxRows=Math.max(...Object.values(window.__rows));
+const CONTENT_W=PADX*2+ (Z.length-1)*COLW + NW;
+const CONTENT_H=PADT+BANDTOP+maxRows*ROWH+40;
+const svg=document.getElementById("svg");
+// zone bands + labels
+const bands=document.getElementById("bands");
+Z.forEach((z,i)=>{
+ const x=PADX+i*COLW-16;
+ const r=document.createElementNS(SVGNS,"rect");
+ r.setAttribute("class","znband");r.setAttribute("x",x);r.setAttribute("y",2);
+ r.setAttribute("width",NW+32);r.setAttribute("height",CONTENT_H-4);r.setAttribute("rx",14);
+ bands.appendChild(r);
+ const t=document.createElementNS(SVGNS,"text");t.setAttribute("class","zntext");
+ t.setAttribute("x",x+ (NW+32)/2);t.setAttribute("y",22);t.setAttribute("text-anchor","middle");
+ t.textContent=z.name.split(" — ")[0];bands.appendChild(t);
+});
+// edges
+const eg=document.getElementById("edges");const edgeEls=[];
+function epath(s,t){const right=t.cx>=s.cx;
+ const sx=right?s.x+s.w:s.x, tx=right?t.x:t.x+t.w, sy=s.cy, ty=t.cy;
+ const k=Math.max(26,Math.abs(tx-sx)*0.4);
+ return `M${sx},${sy} C${sx+(right?k:-k)},${sy} ${tx+(right?-k:k)},${ty} ${tx},${ty}`;}
+E.forEach(e=>{(e.to||[]).forEach(tid=>{const t=byId(tid);if(!t||!pos[tid])return;
+ const p=document.createElementNS(SVGNS,"path");p.setAttribute("class","edge");
+ p.setAttribute("d",epath(pos[e.id],pos[tid]));p.setAttribute("marker-end","url(#ar)");
+ p.dataset.a=e.id;p.dataset.b=tid;eg.appendChild(p);edgeEls.push(p);});});
+// nodes
+const ng=document.getElementById("nodes");
+function wrap(s){ // up to 2 lines
+ if(s.length<=16)return [s];
+ const w=s.split(" ");let a="",b="";
+ for(const x of w){ if((a+" "+x).trim().length<=16 && !b) a=(a+" "+x).trim(); else b=(b+" "+x).trim(); }
+ return b?[a,b]:[a];}
+function drawNodes(){ng.innerHTML="";
+ E.forEach(e=>{const P=pos[e.id];const s=stOf(e);
+  const g=document.createElementNS(SVGNS,"g");g.setAttribute("class","node "+cls(s)+(e.crown?" crown":""));
+  g.setAttribute("transform",`translate(${P.x},${P.y})`);g.dataset.id=e.id;
+  const r=document.createElementNS(SVGNS,"rect");r.setAttribute("width",NW);r.setAttribute("height",NH);r.setAttribute("rx",9);g.appendChild(r);
+  const lines=wrap((e.crown?"👑 ":"")+e.n);
+  lines.forEach((ln,i)=>{const tx=document.createElementNS(SVGNS,"text");
+   tx.setAttribute("x",10);tx.setAttribute("y",(lines.length===1?20:15)+i*14);tx.textContent=ln;g.appendChild(tx);});
+  const stt=document.createElementNS(SVGNS,"text");stt.setAttribute("class","st");stt.setAttribute("x",10);stt.setAttribute("y",NH-8);
+  stt.setAttribute("fill","var(--dim)");stt.textContent=LB[s];g.appendChild(stt);
+  ng.appendChild(g);
+ });
+}
+drawNodes();
+// ---- viewBox pan/zoom ----
+let vb={x:0,y:0,w:CONTENT_W,h:CONTENT_H};
+function apply(){svg.setAttribute("viewBox",`${vb.x} ${vb.y} ${vb.w} ${vb.h}`);}
+function fit(){const R=svg.getBoundingClientRect();const ar=R.width/R.height;
+ let w=CONTENT_W,h=CONTENT_H; if(w/h>ar)h=w/ar; else w=h*ar;
+ const hdr=(document.querySelector("header")||{}).getBoundingClientRect?document.querySelector("header").getBoundingClientRect().height:90;
+ vb={x:-(w-CONTENT_W)/2, y:-(hdr/R.height)*h-12, w, h};apply();}
+svg.setAttribute("preserveAspectRatio","xMidYMid meet");fit();
+function zoom(f,cx,cy){const R=svg.getBoundingClientRect();
+ cx=cx==null?R.width/2:cx; cy=cy==null?R.height/2:cy;
+ const px=vb.x+(cx-R.left)/R.width*vb.w, py=vb.y+(cy-R.top)/R.height*vb.h;
+ vb.w*=f;vb.h*=f;vb.x=px-(cx-R.left)/R.width*vb.w;vb.y=py-(cy-R.top)/R.height*vb.h;apply();}
+document.getElementById("zin").onclick=()=>zoom(0.8);
+document.getElementById("zout").onclick=()=>zoom(1.25);
+document.getElementById("zfit").onclick=fit;
+// pointer pan + pinch, tap detect
+let pts=new Map(),moved=false,startVB=null,pd0=0;
+const wrapEl=document.getElementById("wrap");
+wrapEl.addEventListener("pointerdown",ev=>{wrapEl.setPointerCapture(ev.pointerId);
+ pts.set(ev.pointerId,{x:ev.clientX,y:ev.clientY});moved=false;startVB={...vb};
+ if(pts.size===2){const a=[...pts.values()];pd0=Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y);}});
+wrapEl.addEventListener("pointermove",ev=>{if(!pts.has(ev.pointerId))return;
+ const R=svg.getBoundingClientRect();
+ if(pts.size===1){const p=pts.get(ev.pointerId);const dx=(ev.clientX-p.x)*vb.w/R.width,dy=(ev.clientY-p.y)*vb.h/R.height;
+  if(Math.abs(ev.clientX-p.x)+Math.abs(ev.clientY-p.y)>5)moved=true;
+  vb.x=startVB.x-dx;vb.y=startVB.y-dy;apply();}
+ else if(pts.size===2){pts.set(ev.pointerId,{x:ev.clientX,y:ev.clientY});const a=[...pts.values()];
+  const d=Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y);if(pd0){zoom(pd0/d,(a[0].x+a[1].x)/2,(a[0].y+a[1].y)/2);}pd0=d;moved=true;return;}
+ pts.set(ev.pointerId,{x:ev.clientX,y:ev.clientY});});
+function up(ev){pts.delete(ev.pointerId);if(pts.size<2)pd0=0;}
+wrapEl.addEventListener("pointerup",up);wrapEl.addEventListener("pointercancel",up);
+wrapEl.addEventListener("wheel",ev=>{ev.preventDefault();zoom(ev.deltaY>0?1.12:0.9,ev.clientX,ev.clientY);},{passive:false});
+// tap node
+ng.addEventListener("click",ev=>{if(moved)return;const g=ev.target.closest(".node");if(g)open_(byId(g.dataset.id));});
+// filter = dim non-matching
+let filter="all";
+function applyFilter(){document.querySelectorAll(".node").forEach(g=>{const e=byId(g.dataset.id);
+ const match=filter==="all"|| (filter==="crown"?e.crown:stOf(e)===filter);
+ g.classList.toggle("dim",!match);});}
+document.querySelectorAll("#filters button").forEach(b=>b.onclick=()=>{
+ document.querySelectorAll("#filters button").forEach(x=>x.classList.remove("on"));b.classList.add("on");filter=b.dataset.f;applyFilter();});
+// highlight connected edges + neighbours
+function highlight(id){edgeEls.forEach(p=>{const on=p.dataset.a===id||p.dataset.b===id;
+  p.classList.toggle("hot",on);p.setAttribute("marker-end",on?"url(#arh)":"url(#ar)");});
+ document.querySelectorAll(".node").forEach(g=>g.classList.toggle("sel",g.dataset.id===id));}
+function clearHi(){edgeEls.forEach(p=>{p.classList.remove("hot");p.setAttribute("marker-end","url(#ar)");});
+ document.querySelectorAll(".node").forEach(g=>g.classList.remove("sel"));}
+// progress
+function prog(){let d=0,w=0,p=0;E.forEach(e=>{const s=stOf(e);if(s==="done")d++;else if(s==="wip")w++;else p++;});
+ document.getElementById("sub").innerHTML=`${E.length} · <span style="color:var(--done)">${d}✅</span> <span style="color:var(--wip)">${w}🟡</span> <span style="color:var(--dim)">${p}⚪</span>`;}
+prog();
+// drawer
+function open_(e){const s=stOf(e);highlight(e.id);
+ const conns=(e.to||[]).map(id=>{const t=byId(id);return t?`<span class="chip" onclick="jump('${id}')">${t.n}</span>`:"";}).join("");
+ const back=E.filter(x=>(x.to||[]).includes(e.id)).map(x=>`<span class="chip" onclick="jump('${x.id}')">${x.n}</span>`).join("");
+ const zn=(Z.find(z=>z.id===e.z)||{}).name||e.z;
+ const dr=document.getElementById("draw");
+ dr.innerHTML=`<button class="x" onclick="close_()">✕</button>
+  <h3>${e.crown?"👑 ":""}${e.n}</h3><div class="meta">${zn}</div>
+  <div class="field"><div class="k">Purpose — kyun hai</div><div class="v">${e.purpose}</div></div>
+  <div class="field"><div class="k">Use — kaise</div><div class="v">${e.use}</div></div>
+  <div class="field"><div class="k">Ways — tarika</div><div class="v">${e.ways}</div></div>
+  <div class="field"><div class="k">Aage jaata hai → (connected)</div><div class="chips">${conns||'<small class="hint2">—</small>'}</div></div>
+  ${back?`<div class="field"><div class="k">← Isse aata hai</div><div class="chips">${back}</div></div>`:""}
+  <div class="field"><div class="k">Status</div><div class="stwrap">
+   <button class="${s==='plan'?'on plan':''}" onclick="setSt('${e.id}','plan')">⚪ Planned</button>
+   <button class="${s==='wip'?'on wip':''}" onclick="setSt('${e.id}','wip')">🟡 WIP</button>
+   <button class="${s==='done'?'on done':''}" onclick="setSt('${e.id}','done')">✅ Done</button></div></div>
+  <div class="field"><div class="k">Tere notes</div><textarea id="note" placeholder="is element pe kaam…">${noteOf(e).replace(/</g,'&lt;')}</textarea></div>`;
+ dr.querySelector("#note").oninput=ev=>{store[e.id]=store[e.id]||{};store[e.id].note=ev.target.value;save();};
+ document.getElementById("scrim").classList.add("on");dr.classList.add("on");}
+window.jump=id=>{const e=byId(id);if(e){open_(e);}};
+window.setSt=(id,s)=>{store[id]=store[id]||{};store[id].st=s;save();drawNodes();applyFilter();prog();open_(byId(id));};
+window.close_=()=>{document.getElementById("scrim").classList.remove("on");document.getElementById("draw").classList.remove("on");clearHi();};
+document.getElementById("scrim").onclick=close_;
+setTimeout(()=>{const h=document.getElementById("hint");if(h)h.style.opacity=".5";},4000);
+</script></body></html>
