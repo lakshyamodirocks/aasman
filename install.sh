@@ -9,7 +9,7 @@
 #                        voice · floater · Shizuku · local brain · experts) → setup-menu (keys, guided)
 #    · Linux/macOS/WSL → pc-setup.sh (7 stages, manifest uninstall, kabhi sudo/pip/rc-file nahi)
 #  Dono har stage pe poochhte hain. git zaroori nahi (tarball → git → raw fallback). Python 3.8+ chahiye.
-#  Termux: pehle  apt update && apt -y -o Dpkg::Options::=--force-confnew full-upgrade && apt -y install curl python
+#  Termux: README ki ek line — mirror khud set (packages-cf fallback), apt full-upgrade, curl+python, phir ye script
 #  (F-Droid wala Termux; fresh curl upgrade se pehle toota hota hai, aur `pkg` khud curl se mirror chunta hai — isliye apt).
 # ═══════════════════════════════════════════════════════════════
 set -u

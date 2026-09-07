@@ -4,6 +4,71 @@ Every published version is a line in `VERSION` (`date sha repo`). Installed copi
 
 Changes ship as **impact radii**: one commit per concern, each entry names what it touched and what it deliberately did not, so a fix in one place cannot quietly break another. (How this works: CONTRIBUTING.md → "How changes ship".)
 
+## 2026-09-07 · radius 40 — the look is asked, not hidden
+
+Owner, Moto: "font theme kuch change nahi hui." Correct — radius 33's four palettes existed only behind `/theme`; no installer, wizard or card ever mentioned them, so a first-time user saw the terminal's default and nothing else.
+
+- **Stage 8 is now "Look + shortcut (your call)"** on all three installers: `[Enter] aasmaan · 2 dark · 3 light · 4 nerd · n keep` → `ai theme <name> save` (Termux: `colors.properties` + reload, visible immediately; Windows Terminal: scheme + default; GNOME/Terminal.app via their hands; elsewhere the session layer and an honest line), one backup first, `ai theme undo` restores. Then the shortcut question, separately.
+- **Font stays honest:** Termux owns its font (size = pinch, family = `~/.termux/font.ttf`); we do not ship or overwrite one. The stage says so instead of implying a font change.
+- The first-start card's line 3 now names `/theme` next to `ai tour`.
+
+Touched: fold-all-setup.sh, pc-setup.sh, install.ps1 (stage 8), ai.py (card line). Not touched: the palettes, the theme hands, stage count (8).
+
+## 2026-09-07 · radius 39 — first launch talks: what this install has, for what you said you wanted
+
+Owner, first run on the Moto after a clean install: typed `hello`, got "kisi brain ne jawab nahi diya — key nahi lagi"; and "onboarding me MCP, skills, agents, mere use case, API logins — kuch nahi bataya gaya." Both true. The wizard asked "what do you want?"; the product never answered with what it had.
+
+- **A first-start card**, once: (1) an honest **brain status, measured** — local reachable / cloud key / none, and when none *why*: "wizard chose qwen3:4b but Ollama is not installed → setup-menu → brain", or "Ollama installed but not running → ollama serve &"; plus the 2-minute free-key path; (2) **for your use-case**: the experts (`code → rachaka, alankar, vyuh`), the keyless connectors (`/mcp add`), and the **login connectors through the guided path** (`/mcp setup github` — the key stays with that connector only); (3) `ai tour` and what works with no brain at all. Afterwards only the brain line, and only while there is no brain.
+- **"hello" with no brain gets a human line by rule** — a salutation in your language, "no brain attached yet", the fix — never the provider failure dump. A real question still goes the normal way.
+- Pinned: the card for `AI_USE=code` names `rachaka`, `github`, `/mcp setup`, `qwen3:4b`, `Ollama install nahi hua`, `ai tour`; shown once; English mirrors it; small talk without a brain never prints the dump.
+
+Touched: ai.py (`brain_status`, `first_run_text`, `nobrain_smalltalk`, REPL start, chat loop), tests/golden.py (+2 pins → 146), docs/FAQ.md, README.
+Not touched: the installer, the wizard, routing, hands.
+
+## 2026-09-07 · radius 38 — the Shizuku stage is for the people who asked for it
+
+Owner, Moto first run: stage 5 "Android ke haath (Shizuku)" appeared as a required stage for a user who never chose Shizuku, and its text ("rish NOT working — open the Shizuku app and Start it, then re-run") read like an error.
+
+- Stage 5 now runs **only when the wizard's "phone controls (Shizuku)" was chosen**, and even then it is **optional** (`[s] skip`); everyone else sees one grey line ("wizard me OFF tha — skip; baad me setup-menu → S"). Without Shizuku it says calmly that nothing changes and how to add it later.
+- The two plain helper scripts that lived there (`screen-dump`, `vault-backup` — files, no permissions) moved to the assets stage, so skipping Shizuku loses nothing.
+- Same gate pattern as the pentest stage (`want SCREEN`): the wizard's answer decides, not the installer.
+
+Touched: fold-all-setup.sh (stage 5 + assets stage). Not touched: stage count (8), the hands themselves, ai.py.
+
+## 2026-09-07 · radius 37 — a required stage says so, and answers "no"
+
+Owner, first run on the Moto: "isme no ka option nahi hai, ya hai to dikh nahi raha." Stage 1 (python · git · openssl) genuinely cannot be skipped — nothing after it runs without it — but the prompt showed only `[Enter] karo [?] kyun [q] ruk ja` and swallowed any other key in silence.
+
+- Required stages now print **(zaroori — skip nahi)** / **(required — no skip)** on the prompt line; typing `n`, `s`, `no` or `skip` gets the reason ("aage ka sab isi pe chalta hai · Enter = karo · q = poora roko, aadha kuch nahi hota") instead of nothing; any other key gets "Enter, ? ya q".
+- The **wake-lock is now its own question** inside stage 1 (`[Enter] on [n] nahi`), because that one *is* your call; without the Termux:API app it says so and moves on.
+- Same `lib/ux.sh` serves the PC installer, so Linux/macOS required stages get the same line.
+
+Touched: lib/ux.sh (`stage()`), fold-all-setup.sh (stage 1). Not touched: optional stages (`[s] skip` unchanged), stage count (8/8), ai.py.
+
+## 2026-09-07 · radius 36 — the landing page passes a launch checklist it was never written for
+
+Owner handed over a 20-item "vibecoded website launch checklist" (colour contrast, alt text, privacy, T&Cs, cookies, tracking, embeds, fake reviews, unsupported claims, real business details, accessibility…). Audited literally, item by item, measured not eyeballed (`fold-node/research/reviews/R9`): 5 pass, 7 honestly N/A (no forms, cookies, images, payments exist), 8 to fix — all fixed here:
+
+- **Contrast:** the light-theme advisory banner was 3.8:1 (fails AA); now 14:1 (`--warn-fg`), dark unchanged at 10:1.
+- **Unsupported claim removed:** "on 1 GB/month" had no evidence anywhere (R6 A4 had flagged it; still live). Deleted rather than replaced with an invented number.
+- **Accessibility:** visible focus ring on links, a skip-to-content link, `<main id>`.
+- **Real details + reach:** the footer names the maintainer with a link and two ways to reach him (issues, Telegram), and states plainly: no cookies, no analytics, no forms, nothing collected — by the page or the program.
+- **Privacy findable:** the TRUST.md link now reads "Privacy & trust"; the footer points at it as the data statement (India DPDP: no personal data is processed by us, none is collected).
+
+Touched: docs/index.html only. Not touched: README, installers, ai.py.
+
+## 2026-09-07 · radius 35 — Android: one line, zero dialogs
+
+Owner, testing as a first-time user on a fresh Moto: the old first line stopped at a blue `termux-change-repo` dialog asking about "mirror groups". "Ek esi single cmd bana jisse prerequisites pure ho jaye — ek basic person ke liye kafi ho; exception me hi debugging karni pade."
+
+- The Android line now **sets a working mirror itself** when Termux has none (writes Termux's own Cloudflare mirror to `sources.list`, only if the first `apt update` fails), then upgrades, installs curl + python, runs the installer. No dialog, no `pkg`, no second command.
+- **If it stops, the last line says what to send** ("install ruk gaya — upar ki aakhri 10 lines ka screenshot bhejo") instead of an apt error and silence.
+- Same line in README, the landing page, the in-app `/setup` card and LAKSHYA-TODO; a gate now fails if the three copies drift (they had drifted once before).
+- Verified in a shim (mirror fallback → upgrade → installer ran; total apt failure → the one message); the first real run is the owner's Moto.
+
+Touched: README, docs/index.html, docs/FAQ.md, install.sh (header), ai.py (`/setup` card text), check.sh (+1 gate).
+Not touched: the installer itself, `update_cmd` (installed systems already have a working curl check).
+
 ## 2026-09-07 · radius 34b — CI told the truth: three pins were wrong, not the code
 
 The first CI run after radius 34 went live was red on all three OS (`golden · ubuntu/macos/windows`). Read before fixing:

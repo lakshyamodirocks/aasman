@@ -54,7 +54,7 @@ t(){ case "$1" in   # t <key> — stage titles in the chosen language (Hinglish 
   keys) printf 'Cloud brains (free keys)';;
   keys.what) [ "$AI_LANG" = en ] && printf 'Groq · Cerebras · Gemini · OpenRouter — all optional, all free tier' || printf 'Groq · Cerebras · Gemini · OpenRouter — sab optional, sab free tier';;
   path) [ "$AI_LANG" = en ] && printf 'PATH (your call)' || printf 'PATH (tera faisla)';;
-  shortcut) [ "$AI_LANG" = en ] && printf 'Shortcut + pin (your call)' || printf 'Shortcut + pin (tera faisla)';;
+  shortcut) [ "$AI_LANG" = en ] && printf 'Look + shortcut (your call)' || printf 'Look + shortcut (tera faisla)';;
   path.what) [ "$AI_LANG" = en ] && printf 'I do NOT touch ~/.bashrc / ~/.zshrc' || printf 'Main ~/.bashrc / ~/.zshrc NAHI chhedta';;
   daemon) printf 'Daemon (optional)';;
   proof) printf 'Proof';;
@@ -89,7 +89,7 @@ if [ "${1:-}" = "--uninstall" ]; then
   done < "$MANIFEST"
   rm -f "$MANIFEST"
   # runtime files jo 'ai' ne chalte-chalte banayi (manifest me nahi — install ne nahi likhi thi). Dikhao, poochho.
-  RT=""; for f in .ai-daemon.json .ai-update.json .ai-egress.log .ai-first-cloud .ai-telegram.json .ai-chat.json .ai-cache.jsonl .ai-device.json .ai-metrics.json .ai-kb.jsonl .ai-brains.json .ai-jobs.json .ai-tasks.json .ai-traces.jsonl .ai-wishes.jsonl .ai-feedback.jsonl .ai-corpus.jsonl .ai-profile .ai-term.json .ai-reminders.json .ai-greet.json .ai-lists.json .ai-tuning.json .ai-usage.json .ai-hands.json .ai-connectors.json .ai-tools.json .ai-theme.json .ai-theme-backup .ai-shortcuts.json .ai-private-names; do [ -e "$HOME/$f" ] && RT="$RT $HOME/$f"; done
+  RT=""; for f in .ai-daemon.json .ai-update.json .ai-egress.log .ai-first-cloud .ai-telegram.json .ai-chat.json .ai-cache.jsonl .ai-device.json .ai-metrics.json .ai-kb.jsonl .ai-brains.json .ai-jobs.json .ai-tasks.json .ai-traces.jsonl .ai-wishes.jsonl .ai-feedback.jsonl .ai-corpus.jsonl .ai-profile .ai-term.json .ai-reminders.json .ai-greet.json .ai-lists.json .ai-tuning.json .ai-usage.json .ai-hands.json .ai-connectors.json .ai-tools.json .ai-theme.json .ai-theme-backup .ai-shortcuts.json .ai-first-run .ai-private-names; do [ -e "$HOME/$f" ] && RT="$RT $HOME/$f"; done
   if [ -n "$RT" ]; then
     echo "  'ai' ki runtime files (chat state, cache, metrics — koi key/memory nahi):"; for f in $RT; do echo "    $f"; done
     r=""; if _ux_interactive; then printf '  [Enter] ye bhi hatao   [k] rakho  '; IFS= read -r r <"$UX_TTY" || r=k; fi
@@ -248,8 +248,14 @@ n=$(printf '/agents\n/quit\n' | AI_FORCE_OFFLINE=1 _to 60 "$BIN/ai" 2>/dev/null 
 AI_FORCE_OFFLINE=1 _to 60 "$BIN/ai" daemon --once >/dev/null 2>&1 && [ -f "$HOME/.ai-daemon.json" ] && ok "daemon: one tick ran, state written (~/.ai-daemon.json)" || warn "daemon tick failed — 'ai daemon --once' chala ke dekho"
 # ── stage 8: shortcut + pin — the onboarding's last step; files only in $HOME, 'ai shortcut rm' reverses ──
 if stage_opt "$(t shortcut)" "launcher entry (Linux) / app bundle (macOS) — jahan tera OS cheezein rakhta hai; pin jahan OS program ko allow kare: GNOME auto, macOS poochh ke (Dock), baaki haath se" "Kuch install nahi hota — 1–2 files tere home me, har path record hota hai. Hataana: ai shortcut rm (uninstall khud karta hai). Fold/headless pe koi launcher nahi — tab ye stage sirf batata hai."; then
-  if [ "${AI_YES:-0}" = 1 ]; then skp "scripted run — shortcut nahi banaya (kabhi bhi:  ai shortcut add)"
-  else AI_FORCE_OFFLINE=1 "$BIN/ai" shortcut add 2>&1 | sed 's/^/    /'; fi
+  if [ "${AI_YES:-0}" = 1 ]; then skp "scripted run — theme/shortcut nahi badla (kabhi bhi:  ai theme aasmaan save  ·  ai shortcut add)"
+  else
+    th=""; if _ux_interactive; then printf '    theme (4 palettes, contrast measured; is terminal ki config me likhega jahan hand ho, warna session):  [Enter] aasmaan   [2] dark   [3] light   [4] nerd   [n] rehne do  '; IFS= read -r th <"$UX_TTY" || th=n; fi
+    case "$th" in 2) th=dark;; 3) th=light;; 4) th=nerd;; n|N) th="";; *) th=aasmaan;; esac
+    [ -n "$th" ] && AI_FORCE_OFFLINE=1 "$BIN/ai" theme "$th" save 2>&1 | sed 's/^/    /'
+    sc=""; if _ux_interactive; then printf '    launcher shortcut:  [Enter] banao   [n] nahi  '; IFS= read -r sc <"$UX_TTY" || sc=n; fi
+    case "$sc" in n|N) skp "shortcut nahi (kabhi bhi: ai shortcut add)";; *) AI_FORCE_OFFLINE=1 "$BIN/ai" shortcut add 2>&1 | sed 's/^/    /';; esac
+  fi
 fi
 
 ux_summary \

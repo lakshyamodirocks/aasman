@@ -3223,7 +3223,7 @@ def _tg_api(cfg,method,payload=None):
 def _tg_install_text():
     slug=self_version()[1] or "REPO_SLUG"; raw=f"https://raw.githubusercontent.com/{slug}/main"
     return ("Install (ek command, apne device pe):\n"
-            f"• Android (Termux, F-Droid wala):\n  apt update && apt -y -o Dpkg::Options::=--force-confnew full-upgrade && apt -y install curl python && curl -fsSL {raw}/install.sh | bash\n  (mirror error → termux-change-repo, phir dobara)\n"
+            f"• Android (Termux, F-Droid wala) — ek line, koi dialog nahi (mirror khud, upgrade, curl+python, installer):\n  (apt update || {{ echo \"deb https://packages-cf.termux.dev/apt/termux-main stable main\" > \"$PREFIX/etc/apt/sources.list\"; apt update; }}) && apt -y -o Dpkg::Options::=--force-confnew full-upgrade && apt -y install curl python && curl -fsSL {raw}/install.sh | bash || echo \"{BRAND}: install ruk gaya - upar ki aakhri 10 lines ka screenshot bhejo\"\n"
             f"• Linux / macOS:\n  curl -fsSL {raw}/install.sh | bash\n"
             f"• Windows (PowerShell, admin nahi):\n  irm {raw}/install.ps1 | iex\n"
             f"Har step poochhta hai; kuch chupke install nahi hota. Docs: https://github.com/{slug}")
@@ -6089,6 +6089,56 @@ def shortcut_intent(text):
     if m.group("rm"): return "rm"
     if m.group("add"): return "pin" if (re.search(r"\b(?:pin|dock)\b",m.group("add"),re.I) and shortcut_plan()["pin"][0]=="asks") else "add"
     return ""
+# ── FIRST LAUNCH TALKS — the bridge between the installer and the product. The wizard asked "kya chahiye?"; this card
+# answers with what THIS install actually has: an honest brain status (why "hello" may get no answer, and the two ways to
+# fix it), the experts and connectors for the chosen use-case (login ones through the guided path), and the 60-second tour.
+# Shown in full once (~/.ai-first-run), then only the brain line while there is no brain. Small talk with no brain gets a
+# human reply by rule, never a failure dump.
+FIRST_RUN_FILE=os.path.expanduser("~/.ai-first-run")
+def brain_status():
+    """Measured, not assumed: local reachable? keys set? what the wizard planned? is the ollama binary even there?"""
+    keyed=[p["n"] for p in PROVIDERS if p["k"] and os.environ.get(p["k"])]
+    return {"local":has_local(),"keyed":keyed,"planned":os.environ.get("AI_LOCAL_MODEL",""),"ollama_bin":bool(shutil.which("ollama")),"any":False}
+def brain_status_line(st=None,bs=None):
+    bs=bs or brain_status(); en=lang_now(st)=="en"
+    if bs["local"]: return ("brain: local (Ollama) — answers come from this device" if en else "dimaag: local (Ollama) — jawab isi device se aayenge")
+    if bs["keyed"]: return (f"brain: cloud key set ({', '.join(bs['keyed'])})" if en else f"dimaag: cloud key lagi hai ({', '.join(bs['keyed'])})")
+    why=""
+    if bs["planned"] and not bs["ollama_bin"]: why=(f" The wizard chose a local brain ({bs['planned']}) but Ollama is not installed — " if en else f" Wizard me local brain chuna tha ({bs['planned']}) par Ollama install nahi hua — ")+("setup-menu → brain" if IS_TERMUX else "ai setup")+"."
+    elif bs["planned"] and bs["ollama_bin"]: why=(" Ollama is installed but not running — start it:  ollama serve &   then say hello again." if en else " Ollama hai par chal nahi raha — chalao:  ollama serve &   phir dobara bolo.")
+    return (("brain: NONE yet — so chat gets no answer." if en else "dimaag: abhi KOI NAHI — isliye chat ka jawab nahi aata.")+why+
+            (f"\n     fastest fix (2 min, free): {SETUP_HINT} — a free cloud key, guided." if en else f"\n     sabse tez (2 min, free): {SETUP_HINT} — free cloud key, guided."))
+def first_run_text(st=None,force=False):
+    """The card. Full once; afterwards only the brain line while no brain. '' when nothing needs saying."""
+    bs=brain_status(); shown=os.path.exists(FIRST_RUN_FILE); en=lang_now(st)=="en"
+    if shown and not force:
+        return ("[ai] "+brain_status_line(st,bs)) if not (bs["local"] or bs["keyed"]) else ""
+    u=use_case(); L=[("[ai] first start — three things, then you are set:" if en else "[ai] pehli baar — teen cheezein, phir tu set hai:")]
+    L.append("  1) "+brain_status_line(st,bs))
+    if u:
+        have=set(experts()); ex=[e for e in USE_MAP.get(u,[]) if e in have][:4]
+        L.append(f"  2) {'for' if en else 'tere kaam'} '{u}': experts → {', '.join(ex) or '/agents'}   (/agent auto {'picks one itself' if en else 'khud chunta hai'}; /agents = {'all 19' if en else 'sab 19'})")
+        try:
+            cfg=connectors_cfg(); fit=[c for c in cfg.get("connectors",[]) if u in c.get("use_cases",[]) and c.get("suggest",True)]
+            free=[c["name"] for c in fit if c.get("tier",1)<2][:3]; login=[c["name"] for c in fit if c.get("tier",1)>=2][:3]
+            if free or login:
+                L.append(f"     connectors (optional): "+(f"keyless → {', '.join(free)}  (/mcp add <name>)" if free else "")+("   ·   " if free and login else "")
+                         +(f"login wale → {', '.join(login)}  (/mcp setup <name> — guided; key {'stays with that connector only' if en else 'sirf usi connector ko milti hai'})" if login else ""))
+        except Exception: pass
+    else: L.append("  2) "+("use-case not set — ai setup (or AI_USE=chat|code|content|study|business|family|private in ~/.ai-setup-profile)" if en else "use-case set nahi — ai setup (ya ~/.ai-setup-profile me AI_USE=chat|code|content|study|business|family|private)"))
+    L.append("  3) "+("60 seconds, everything at once:  ai tour   ·   works without any brain: = 2+2 · date · battery · /hands · /list · /remind   ·   look: /theme (aasmaan · dark · light · nerd)   ·   any time: /help" if en else "60 second me sab:  ai tour   ·   bina dimaag ke bhi: = 2+2 · date · battery · /hands · /list · /remind   ·   look: /theme (aasmaan · dark · light · nerd)   ·   kabhi bhi: /help"))
+    try: open(FIRST_RUN_FILE,"w").write(time.strftime("%Y-%m-%d %H:%M")); os.chmod(FIRST_RUN_FILE,0o600)
+    except OSError: pass
+    return "\n".join(L)
+def nobrain_smalltalk(st,text):
+    """'hello' with no brain → a human line by rule (salutation in the user's language + the two fixes). None when a brain exists or it is not small talk."""
+    if not SMALLTALK_RE.match(text or ""): return None
+    bs=brain_status()
+    if bs["local"] or bs["keyed"]: return None
+    from datetime import datetime
+    lang=lang_now(st); sal=_salute(lang,datetime.now().hour,OWNER)
+    body=("I am here — but no brain is attached yet, so I cannot chat properly." if lang=="en" else "Main yahan hoon — par abhi koi dimaag laga nahi, isliye baat theek se nahi kar paunga.")
+    return f"{sal} {body}\n[ai] {brain_status_line(st,bs)}"
 KNOWN_CMDS=['/agent', '/agents', '/ask', '/attach', '/bg', '/budget', '/cache', '/canary', '/capabilities', '/clear', '/corpus', '/ctx', '/device', '/do', '/egress', '/embed', '/explain', '/group', '/help', '/impact', '/json', '/kb', '/keys', '/memory', '/metrics', '/mode', '/model', '/net', '/panel', '/privacy', '/remember', '/route', '/run', '/save', '/serve', '/setup', '/short', '/tags', '/tool', '/trace', '/update', '/version', '/why', '/wish', '/auto', '/online', '/local', '/quit', '/q', '/exit', '/hands', '/hand', '/stop', '/undo', '/calc', '/tour', '/lang', '/voice', '/models', '/connect', '/mcp', '/tuning', '/usage', '/plan', '/list', '/remind', '/greet', '/trust', '/doctor', '/term', '/theme', '/shortcut']   # every command literal in the dispatcher (c=="/x" and c in(...)); golden pins parity; the typo-suggester matches against this
 HELP="""commands — everything is optional, plain text just talks to the best brain.
  BRAIN   /auto /online /local · /ask <brain> <q> · /panel %s · /model <name> · /route <q> · /why · /metrics [reset]
@@ -6141,7 +6191,11 @@ def repl(st):
             _cs=connector_suggest_line()
             if _cs: print(_cs); st["conn_hint_"+use_case()]=True; save(st)
     except Exception: pass
-    if not any(os.environ.get(pp["k"]) for pp in PROVIDERS if pp["k"]):
+    _fr=""
+    try: _fr=first_run_text(st)
+    except Exception as _e: print(f"[ai] first-run card skipped: {type(_e).__name__}: {_e}")
+    if _fr: print(_fr)
+    elif not any(os.environ.get(pp["k"]) for pp in PROVIDERS if pp["k"]):
         print("[ai] "+_t("tip.nokey",st,hint=SETUP_HINT))
         print("[ai] "+_t("tip.keyless",st))
     else:
@@ -6202,6 +6256,8 @@ def repl(st):
             if _hi:                                                  # a device hand, by plain words (or voice → same path)
                 print(f"[ai] → hand {_hi[0]}"+(" "+" ".join(f"{k}={v}" for k,v in _hi[1].items()) if _hi[1] else ""))
                 hand_run(st,_hi[0],_hi[1]); continue
+            _nb=nobrain_smalltalk(st,text)                           # "hello" with no brain → a human line, never a failure dump
+            if _nb: print(_nb); continue
             cc=chat_command(text)
             if cc:
                 cmd,safe=cc; print(f"[ai] → {cmd}")

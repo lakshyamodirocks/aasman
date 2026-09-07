@@ -114,7 +114,7 @@ if ($env:AI_UNINSTALL -eq "1") {
   foreach ($p in Get-Content $Manifest) { if (($p -like "$Home_*" -or $p -like "$Base*") -and (Test-Path $p)) { Remove-Item -Recurse -Force $p; Write-Host "  - $p" } }
   $up = [Environment]::GetEnvironmentVariable("Path","User")
   if ($up -and $up.Split(";") -contains $BinDir) { Set-ItemProperty -Path "HKCU:\Environment" -Name Path -Value (($up.Split(";") | Where-Object { $_ -ne $BinDir }) -join ";") -Type ExpandString; Write-Host "  - PATH entry ($BinDir) removed" }
-  $rt = @(".ai-daemon.json",".ai-update.json",".ai-egress.log",".ai-first-cloud",".ai-telegram.json",".ai-chat.json",".ai-cache.jsonl",".ai-device.json",".ai-metrics.json",".ai-kb.jsonl",".ai-brains.json",".ai-jobs.json",".ai-tasks.json",".ai-traces.jsonl",".ai-wishes.jsonl",".ai-feedback.jsonl",".ai-corpus.jsonl",".ai-profile",".ai-private-names",".ai-term.json",".ai-reminders.json",".ai-greet.json",".ai-lists.json",".ai-tuning.json",".ai-usage.json",".ai-hands.json",".ai-connectors.json",".ai-tools.json",".ai-theme.json",".ai-theme-backup",".ai-shortcuts.json") | ForEach-Object { Join-Path $Home_ $_ } | Where-Object { Test-Path $_ }
+  $rt = @(".ai-daemon.json",".ai-update.json",".ai-egress.log",".ai-first-cloud",".ai-telegram.json",".ai-chat.json",".ai-cache.jsonl",".ai-device.json",".ai-metrics.json",".ai-kb.jsonl",".ai-brains.json",".ai-jobs.json",".ai-tasks.json",".ai-traces.jsonl",".ai-wishes.jsonl",".ai-feedback.jsonl",".ai-corpus.jsonl",".ai-profile",".ai-private-names",".ai-term.json",".ai-reminders.json",".ai-greet.json",".ai-lists.json",".ai-tuning.json",".ai-usage.json",".ai-hands.json",".ai-connectors.json",".ai-tools.json",".ai-theme.json",".ai-theme-backup",".ai-shortcuts.json",".ai-first-run") | ForEach-Object { Join-Path $Home_ $_ } | Where-Object { Test-Path $_ }
   if ($rt) { Write-Host "  'ai' ki runtime files (chat state, cache — koi key/memory nahi):"; $rt | ForEach-Object { "    $_" }
     $r = if ($Auto) { "" } else { Read-Host "  [Enter] ye bhi hatao   [k] rakho" }
     if ($r -ne "k") { $rt | ForEach-Object { Remove-Item -Recurse -Force $_ }; Write-Host "  - runtime files removed" } }
@@ -276,8 +276,14 @@ $n = if ($agentsLine) { ([regex]::Matches($agentsLine, "[a-z]+\*")).Count } else
 Remove-Item Env:AI_FORCE_OFFLINE
 if ($n -ge 19) { Ok "$n/19 expert packs load hote hain (offline, bina brain ke)" } else { Warn "packs load nahi hue ($n/19) — 'ai' me /agents chala ke dekho. Output:`n$out" }
 # ── stage 8: Desktop + Start Menu shortcut (tera faisla) — taskbar pin Windows haath se hi deta hai ──
-if (StageOpt "Shortcut (tera faisla)" "Desktop + Start Menu me 'Aasmaan' (.lnk → ai.cmd) — Start me type karke milega; taskbar: right-click → Pin to taskbar (Windows programs ko ye API nahi deta)" "Do .lnk files, dono tere user folder me, record ke saath. Hataana: ai shortcut rm (uninstall khud karta hai)") {
-  $env:AI_FORCE_OFFLINE = "1"; try { & (Join-Path $BinDir "ai.cmd") shortcut add 2>&1 | ForEach-Object { "    $_" } } catch { Warn "shortcut: $_" }; Remove-Item Env:AI_FORCE_OFFLINE -ErrorAction SilentlyContinue
+if (StageOpt "Look + shortcut (tera faisla)" "theme: 4 palettes (aasmaan · dark · light · nerd) — Windows Terminal me scheme + default (backup ke saath) · Desktop + Start Menu .lnk; taskbar pin: right-click → Pin to taskbar (Windows programs ko ye API nahi deta)" "Theme sirf Windows Terminal ki settings.json me (ek backup pehle; ai theme undo). Shortcut: do .lnk, tere user folder me, record ke saath (ai shortcut rm).") {
+  $env:AI_FORCE_OFFLINE = "1"
+  $th = Read-Host "    theme:  [Enter] aasmaan   [2] dark   [3] light   [4] nerd   [n] rehne do"
+  $th = switch ($th) { "2" { "dark" } "3" { "light" } "4" { "nerd" } "n" { "" } "N" { "" } default { "aasmaan" } }
+  if ($th) { try { & (Join-Path $BinDir "ai.cmd") theme $th save 2>&1 | ForEach-Object { "    $_" } } catch { Warn "theme: $_" } }
+  $sc = Read-Host "    Desktop + Start Menu shortcut:  [Enter] banao   [n] nahi"
+  if ($sc -ne "n") { try { & (Join-Path $BinDir "ai.cmd") shortcut add 2>&1 | ForEach-Object { "    $_" } } catch { Warn "shortcut: $_" } }
+  Remove-Item Env:AI_FORCE_OFFLINE -ErrorAction SilentlyContinue
 }
 Write-Host ""; Write-Host "  ✅ Aasmaan ready" -ForegroundColor Green
 Write-Host "  chalao (nayi window):  ai"

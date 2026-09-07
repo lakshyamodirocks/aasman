@@ -35,14 +35,16 @@ _ux_stop(){ printf '\n  %sruk gaye. Jitna hua wo saved hai — dobara chalane pe
 stage(){ _ux_banner "$1" "${2:-}"
   _ux_interactive || { printf '\n'; return 0; }
   while :; do
-    if _ux_en; then printf '\n  %s[Enter] go%s   %s[?] why%s   %s[q] stop%s  ' "$_UXG" "$_UXX" "$_UXD" "$_UXX" "$_UXD" "$_UXX"
-    else printf '\n  %s[Enter] karo%s   %s[?] kyun%s   %s[q] ruk ja%s  ' "$_UXG" "$_UXX" "$_UXD" "$_UXX" "$_UXD" "$_UXX"; fi
+    if _ux_en; then printf '\n  %s[Enter] go%s   %s[?] why%s   %s[q] stop%s   %s(required — no skip)%s  ' "$_UXG" "$_UXX" "$_UXD" "$_UXX" "$_UXD" "$_UXX" "$_UXD" "$_UXX"
+    else printf '\n  %s[Enter] karo%s   %s[?] kyun%s   %s[q] ruk ja%s   %s(zaroori — skip nahi)%s  ' "$_UXG" "$_UXX" "$_UXD" "$_UXX" "$_UXD" "$_UXX" "$_UXD" "$_UXX"; fi
     IFS= read -r r <"$UX_TTY" || r=q
     case "$r" in
       ''|y|Y) printf '\n'; return 0;;
       q|Q) _ux_stop;;
       '?') printf '\n  %s%s%s\n' "$_UXD" "${3:-${2:-detail abhi nahi likhi}}" "$_UXX";;
-      *) :;;
+      s|S|n|N|no|NO|skip) if _ux_en; then printf '  %sthis stage cannot be skipped — everything after it needs it. Enter = do it · q = stop the whole install (nothing half-done)%s\n' "$_UXY" "$_UXX"
+                          else printf '  %sye stage skip nahi ho sakti — aage ka sab isi pe chalta hai. Enter = karo · q = poora install roko (aadha kuch nahi hota)%s\n' "$_UXY" "$_UXX"; fi;;
+      *) if _ux_en; then printf '  %s? Enter, ?, or q%s\n' "$_UXD" "$_UXX"; else printf '  %s? Enter, ? ya q%s\n' "$_UXD" "$_UXX"; fi;;
     esac
   done; }
 

@@ -130,8 +130,11 @@ PROFEOF
   chmod 600 "$HOME/.ai-profile"; echo "  wrote ~/.ai-profile (edit owner/about — stays on this device)"
 fi
 
-stage "Base + wake-lock" "python · git · openssl install · Android ko Termux band karne se rokega" "Ye neenv hai — baaki sab isi pe khada hai. ~120 MB, ek-do minute."
-command -v termux-wake-lock >/dev/null && termux-wake-lock || echo "  (install Termux:API for wake-lock)"
+stage "Base (zaroori) + wake-lock (tera faisla)" "python · git · openssl install — iske bina 'ai' chal hi nahi sakta; wake-lock alag se poochhega" "Ye neenv hai — baaki sab isi pe khada hai. ~120 MB, ek-do minute. Skip nahi ho sakti; poora rokna ho to q."
+if command -v termux-wake-lock >/dev/null; then
+  wl=""; if [ "${AI_YES:-0}" != 1 ] && [ -r "${UX_TTY:-/dev/tty}" ]; then printf '  wake-lock: Android ko Termux band karne se rokta hai (battery thodi zyada)  [Enter] on   [n] nahi  '; IFS= read -r wl <"${UX_TTY:-/dev/tty}" || wl=n; fi
+  case "$wl" in n|N|no) echo "  — wake-lock nahi (baad me: termux-wake-lock)";; *) termux-wake-lock && echo "  wake-lock on (hataana: termux-wake-unlock)";; esac
+else echo "  (wake-lock ke liye Termux:API app chahiye — F-Droid; abhi skip)"; fi
 echo "  updating package lists + base tools (visible below; a minute or two)…"
 pkg update -y || true
 pkg install -y python git openssl-tool termux-api || echo "  some base pkgs failed (re-run, or install by hand)"
@@ -3366,7 +3369,7 @@ def _tg_api(cfg,method,payload=None):
 def _tg_install_text():
     slug=self_version()[1] or "REPO_SLUG"; raw=f"https://raw.githubusercontent.com/{slug}/main"
     return ("Install (ek command, apne device pe):\n"
-            f"• Android (Termux, F-Droid wala):\n  apt update && apt -y -o Dpkg::Options::=--force-confnew full-upgrade && apt -y install curl python && curl -fsSL {raw}/install.sh | bash\n  (mirror error → termux-change-repo, phir dobara)\n"
+            f"• Android (Termux, F-Droid wala) — ek line, koi dialog nahi (mirror khud, upgrade, curl+python, installer):\n  (apt update || {{ echo \"deb https://packages-cf.termux.dev/apt/termux-main stable main\" > \"$PREFIX/etc/apt/sources.list\"; apt update; }}) && apt -y -o Dpkg::Options::=--force-confnew full-upgrade && apt -y install curl python && curl -fsSL {raw}/install.sh | bash || echo \"{BRAND}: install ruk gaya - upar ki aakhri 10 lines ka screenshot bhejo\"\n"
             f"• Linux / macOS:\n  curl -fsSL {raw}/install.sh | bash\n"
             f"• Windows (PowerShell, admin nahi):\n  irm {raw}/install.ps1 | iex\n"
             f"Har step poochhta hai; kuch chupke install nahi hota. Docs: https://github.com/{slug}")
@@ -6232,6 +6235,56 @@ def shortcut_intent(text):
     if m.group("rm"): return "rm"
     if m.group("add"): return "pin" if (re.search(r"\b(?:pin|dock)\b",m.group("add"),re.I) and shortcut_plan()["pin"][0]=="asks") else "add"
     return ""
+# ── FIRST LAUNCH TALKS — the bridge between the installer and the product. The wizard asked "kya chahiye?"; this card
+# answers with what THIS install actually has: an honest brain status (why "hello" may get no answer, and the two ways to
+# fix it), the experts and connectors for the chosen use-case (login ones through the guided path), and the 60-second tour.
+# Shown in full once (~/.ai-first-run), then only the brain line while there is no brain. Small talk with no brain gets a
+# human reply by rule, never a failure dump.
+FIRST_RUN_FILE=os.path.expanduser("~/.ai-first-run")
+def brain_status():
+    """Measured, not assumed: local reachable? keys set? what the wizard planned? is the ollama binary even there?"""
+    keyed=[p["n"] for p in PROVIDERS if p["k"] and os.environ.get(p["k"])]
+    return {"local":has_local(),"keyed":keyed,"planned":os.environ.get("AI_LOCAL_MODEL",""),"ollama_bin":bool(shutil.which("ollama")),"any":False}
+def brain_status_line(st=None,bs=None):
+    bs=bs or brain_status(); en=lang_now(st)=="en"
+    if bs["local"]: return ("brain: local (Ollama) — answers come from this device" if en else "dimaag: local (Ollama) — jawab isi device se aayenge")
+    if bs["keyed"]: return (f"brain: cloud key set ({', '.join(bs['keyed'])})" if en else f"dimaag: cloud key lagi hai ({', '.join(bs['keyed'])})")
+    why=""
+    if bs["planned"] and not bs["ollama_bin"]: why=(f" The wizard chose a local brain ({bs['planned']}) but Ollama is not installed — " if en else f" Wizard me local brain chuna tha ({bs['planned']}) par Ollama install nahi hua — ")+("setup-menu → brain" if IS_TERMUX else "ai setup")+"."
+    elif bs["planned"] and bs["ollama_bin"]: why=(" Ollama is installed but not running — start it:  ollama serve &   then say hello again." if en else " Ollama hai par chal nahi raha — chalao:  ollama serve &   phir dobara bolo.")
+    return (("brain: NONE yet — so chat gets no answer." if en else "dimaag: abhi KOI NAHI — isliye chat ka jawab nahi aata.")+why+
+            (f"\n     fastest fix (2 min, free): {SETUP_HINT} — a free cloud key, guided." if en else f"\n     sabse tez (2 min, free): {SETUP_HINT} — free cloud key, guided."))
+def first_run_text(st=None,force=False):
+    """The card. Full once; afterwards only the brain line while no brain. '' when nothing needs saying."""
+    bs=brain_status(); shown=os.path.exists(FIRST_RUN_FILE); en=lang_now(st)=="en"
+    if shown and not force:
+        return ("[ai] "+brain_status_line(st,bs)) if not (bs["local"] or bs["keyed"]) else ""
+    u=use_case(); L=[("[ai] first start — three things, then you are set:" if en else "[ai] pehli baar — teen cheezein, phir tu set hai:")]
+    L.append("  1) "+brain_status_line(st,bs))
+    if u:
+        have=set(experts()); ex=[e for e in USE_MAP.get(u,[]) if e in have][:4]
+        L.append(f"  2) {'for' if en else 'tere kaam'} '{u}': experts → {', '.join(ex) or '/agents'}   (/agent auto {'picks one itself' if en else 'khud chunta hai'}; /agents = {'all 19' if en else 'sab 19'})")
+        try:
+            cfg=connectors_cfg(); fit=[c for c in cfg.get("connectors",[]) if u in c.get("use_cases",[]) and c.get("suggest",True)]
+            free=[c["name"] for c in fit if c.get("tier",1)<2][:3]; login=[c["name"] for c in fit if c.get("tier",1)>=2][:3]
+            if free or login:
+                L.append(f"     connectors (optional): "+(f"keyless → {', '.join(free)}  (/mcp add <name>)" if free else "")+("   ·   " if free and login else "")
+                         +(f"login wale → {', '.join(login)}  (/mcp setup <name> — guided; key {'stays with that connector only' if en else 'sirf usi connector ko milti hai'})" if login else ""))
+        except Exception: pass
+    else: L.append("  2) "+("use-case not set — ai setup (or AI_USE=chat|code|content|study|business|family|private in ~/.ai-setup-profile)" if en else "use-case set nahi — ai setup (ya ~/.ai-setup-profile me AI_USE=chat|code|content|study|business|family|private)"))
+    L.append("  3) "+("60 seconds, everything at once:  ai tour   ·   works without any brain: = 2+2 · date · battery · /hands · /list · /remind   ·   look: /theme (aasmaan · dark · light · nerd)   ·   any time: /help" if en else "60 second me sab:  ai tour   ·   bina dimaag ke bhi: = 2+2 · date · battery · /hands · /list · /remind   ·   look: /theme (aasmaan · dark · light · nerd)   ·   kabhi bhi: /help"))
+    try: open(FIRST_RUN_FILE,"w").write(time.strftime("%Y-%m-%d %H:%M")); os.chmod(FIRST_RUN_FILE,0o600)
+    except OSError: pass
+    return "\n".join(L)
+def nobrain_smalltalk(st,text):
+    """'hello' with no brain → a human line by rule (salutation in the user's language + the two fixes). None when a brain exists or it is not small talk."""
+    if not SMALLTALK_RE.match(text or ""): return None
+    bs=brain_status()
+    if bs["local"] or bs["keyed"]: return None
+    from datetime import datetime
+    lang=lang_now(st); sal=_salute(lang,datetime.now().hour,OWNER)
+    body=("I am here — but no brain is attached yet, so I cannot chat properly." if lang=="en" else "Main yahan hoon — par abhi koi dimaag laga nahi, isliye baat theek se nahi kar paunga.")
+    return f"{sal} {body}\n[ai] {brain_status_line(st,bs)}"
 KNOWN_CMDS=['/agent', '/agents', '/ask', '/attach', '/bg', '/budget', '/cache', '/canary', '/capabilities', '/clear', '/corpus', '/ctx', '/device', '/do', '/egress', '/embed', '/explain', '/group', '/help', '/impact', '/json', '/kb', '/keys', '/memory', '/metrics', '/mode', '/model', '/net', '/panel', '/privacy', '/remember', '/route', '/run', '/save', '/serve', '/setup', '/short', '/tags', '/tool', '/trace', '/update', '/version', '/why', '/wish', '/auto', '/online', '/local', '/quit', '/q', '/exit', '/hands', '/hand', '/stop', '/undo', '/calc', '/tour', '/lang', '/voice', '/models', '/connect', '/mcp', '/tuning', '/usage', '/plan', '/list', '/remind', '/greet', '/trust', '/doctor', '/term', '/theme', '/shortcut']   # every command literal in the dispatcher (c=="/x" and c in(...)); golden pins parity; the typo-suggester matches against this
 HELP="""commands — everything is optional, plain text just talks to the best brain.
  BRAIN   /auto /online /local · /ask <brain> <q> · /panel %s · /model <name> · /route <q> · /why · /metrics [reset]
@@ -6284,7 +6337,11 @@ def repl(st):
             _cs=connector_suggest_line()
             if _cs: print(_cs); st["conn_hint_"+use_case()]=True; save(st)
     except Exception: pass
-    if not any(os.environ.get(pp["k"]) for pp in PROVIDERS if pp["k"]):
+    _fr=""
+    try: _fr=first_run_text(st)
+    except Exception as _e: print(f"[ai] first-run card skipped: {type(_e).__name__}: {_e}")
+    if _fr: print(_fr)
+    elif not any(os.environ.get(pp["k"]) for pp in PROVIDERS if pp["k"]):
         print("[ai] "+_t("tip.nokey",st,hint=SETUP_HINT))
         print("[ai] "+_t("tip.keyless",st))
     else:
@@ -6345,6 +6402,8 @@ def repl(st):
             if _hi:                                                  # a device hand, by plain words (or voice → same path)
                 print(f"[ai] → hand {_hi[0]}"+(" "+" ".join(f"{k}={v}" for k,v in _hi[1].items()) if _hi[1] else ""))
                 hand_run(st,_hi[0],_hi[1]); continue
+            _nb=nobrain_smalltalk(st,text)                           # "hello" with no brain → a human line, never a failure dump
+            if _nb: print(_nb); continue
             cc=chat_command(text)
             if cc:
                 cmd,safe=cc; print(f"[ai] → {cmd}")
@@ -7051,17 +7110,19 @@ if have go; then
 fi
 fi
 
-stage "Android ke haath (Shizuku)" "screen-sight · settings · phantom-killer · boot-autostart · vault-backup" "NO ROOT. Shizuku ki ek-baar pairing chahiye. Bina iske bhi core chalta hai."
-HAS_VM=no
-if [ -x "$HOME/rish" ] && "$HOME/rish" -c id >/dev/null 2>&1; then
-  "$HOME/rish" -c 'pm list packages com.android.virtualization.terminal' 2>/dev/null | grep -q virtualization && HAS_VM=yes
-fi
-[ "$HAS_VM" = yes ] || echo "  no Linux-Terminal VM on this device -> watchdog skipped (not needed)"
-if [ "$HAS_VM" = yes ] && [ -x "$HOME/rish" ] && "$HOME/rish" -c id >/dev/null 2>&1; then
-  echo "  rish ok: $("$HOME/rish" -c id | cut -c1-30)"
-  # write the watchdog (keeps the Debian VM alive; a shell relaunch gives a SLOW VM — see M13,
-  # hand-open the Terminal for local-inference speed; the watchdog is for staying REACHABLE).
-  cat > "$HOME/wd.sh" <<'WDEOF'
+# ── stage 5: Shizuku hands — SIRF jab wizard me chuna ho, aur tab bhi optional (generic user ise kabhi nahi dekhta)
+if ! want SCREEN; then skp "Android ke haath (Shizuku): wizard me OFF tha — skip (baad me: setup-menu → S)"; fi
+if want SCREEN && stage_opt "Android ke haath (Shizuku) — optional" "settings · phantom-killer · boot-autostart · VM-watchdog — Shizuku app + ek baar pairing chahiye" "NO ROOT, par Shizuku app chahiye. Bina iske core 'ai' poora chalta hai — skip safe hai; baad me setup-menu → S."; then
+  HAS_VM=no
+  if [ -x "$HOME/rish" ] && "$HOME/rish" -c id >/dev/null 2>&1; then
+    "$HOME/rish" -c 'pm list packages com.android.virtualization.terminal' 2>/dev/null | grep -q virtualization && HAS_VM=yes
+  fi
+  [ "$HAS_VM" = yes ] || echo "  no Linux-Terminal VM on this device -> watchdog skipped (not needed)"
+  if [ "$HAS_VM" = yes ] && [ -x "$HOME/rish" ] && "$HOME/rish" -c id >/dev/null 2>&1; then
+    echo "  rish ok: $("$HOME/rish" -c id | cut -c1-30)"
+    # write the watchdog (keeps the Debian VM alive; a shell relaunch gives a SLOW VM — see M13,
+    # hand-open the Terminal for local-inference speed; the watchdog is for staying REACHABLE).
+    cat > "$HOME/wd.sh" <<'WDEOF'
 #!/data/data/com.termux/files/usr/bin/bash
 R="$HOME/rish"; PKG=com.android.virtualization.terminal
 command -v termux-wake-lock >/dev/null && termux-wake-lock
@@ -7074,72 +7135,42 @@ while true; do
   else sleep 30; fi
 done
 WDEOF
-  chmod +x "$HOME/wd.sh"
-  # UX FIX (2026-09-05): the watchdog relaunches the VM Terminal via `monkey LAUNCHER`, which YANKS
-  # the phone to the foreground every 90s. That made sense when the VM was primary; now Termux is
-  # primary and the VM is backup-only, so auto-starting it is wrong — it interrupts normal use. So:
-  # DO NOT auto-start it, and KILL any old one a previous run left running (the cause of the
-  # "terminal baar baar front pe aa jaata hai" problem).
-  if pgrep -f 'wd.sh' >/dev/null 2>&1; then
-    pkill -f "$HOME/wd.sh" 2>/dev/null; echo "  ⏹ purana VM-watchdog band kiya (wo Terminal ko baar-baar front pe laata tha)."
+    chmod +x "$HOME/wd.sh"
+    # UX FIX (2026-09-05): the watchdog relaunches the VM Terminal via `monkey LAUNCHER`, which YANKS
+    # the phone to the foreground every 90s. That made sense when the VM was primary; now Termux is
+    # primary and the VM is backup-only, so auto-starting it is wrong — it interrupts normal use. So:
+    # DO NOT auto-start it, and KILL any old one a previous run left running (the cause of the
+    # "terminal baar baar front pe aa jaata hai" problem).
+    if pgrep -f 'wd.sh' >/dev/null 2>&1; then
+      pkill -f "$HOME/wd.sh" 2>/dev/null; echo "  ⏹ purana VM-watchdog band kiya (wo Terminal ko baar-baar front pe laata tha)."
+    fi
+    echo "  VM-watchdog likha hai par CHALU nahi kiya (default OFF — normal use disturb na ho)."
+    echo "  Agar tujhe sach me VM ko background me zinda rakhna hai:  nohup ~/wd.sh >~/wd.out 2>&1 &"
+    echo "  (dhyan: wo har ~90s VM Terminal ko front pe laayega — isiliye default off.)"
+  else
+    echo "  Shizuku (rish) abhi chalu nahi — theek hai, ye stage abhi kuch nahi badalta. Chahiye ho to: Shizuku app → Start, phir  setup-menu → S"
   fi
-  echo "  VM-watchdog likha hai par CHALU nahi kiya (default OFF — normal use disturb na ho)."
-  echo "  Agar tujhe sach me VM ko background me zinda rakhna hai:  nohup ~/wd.sh >~/wd.out 2>&1 &"
-  echo "  (dhyan: wo har ~90s VM Terminal ko front pe laayega — isiliye default off.)"
-else
-  echo "  rish NOT working — open the Shizuku app and Start it (does NOT survive a reboot),"
-  echo "  then re-run this script; the watchdog needs rish."
-fi
 
-substage "Survival — phantom-killer off + boot-autostart"
-RS="$HOME/rish"
-if [ -x "$RS" ] && "$RS" -c id >/dev/null 2>&1; then
-  "$RS" -c 'settings put global settings_enable_monitor_phantom_procs false' 2>/dev/null && echo "  phantom-proc monitor -> off (protects Ollama/llama.cpp children)"
-  "$RS" -c 'device_config put activity_manager max_phantom_processes 2147483647' 2>/dev/null && echo "  max_phantom_processes -> raised"
-  "$RS" -c 'device_config set_sync_disabled_for_tests persistent' 2>/dev/null
-  echo "  also do once by hand: Android Settings -> Battery -> Termux -> Unrestricted"
-else echo "  rish not up -> start Shizuku, re-run; phantom-killer disable needs the hand."; fi
-# boot-autostart — Lakshya greenlit 2026-09-05 (reverses the earlier no-autostart posture, on purpose)
-mkdir -p "$HOME/.termux/boot"
-cat > "$HOME/.termux/boot/aasmaan-boot.sh" <<'BOOTEOF'
+  substage "Survival — phantom-killer off + boot-autostart"
+  RS="$HOME/rish"
+  if [ -x "$RS" ] && "$RS" -c id >/dev/null 2>&1; then
+    "$RS" -c 'settings put global settings_enable_monitor_phantom_procs false' 2>/dev/null && echo "  phantom-proc monitor -> off (protects Ollama/llama.cpp children)"
+    "$RS" -c 'device_config put activity_manager max_phantom_processes 2147483647' 2>/dev/null && echo "  max_phantom_processes -> raised"
+    "$RS" -c 'device_config set_sync_disabled_for_tests persistent' 2>/dev/null
+    echo "  also do once by hand: Android Settings -> Battery -> Termux -> Unrestricted"
+  else echo "  (phantom-killer off karne ke liye Shizuku chahiye — abhi skip; baad me setup-menu → S)"; fi
+  # boot-autostart — Lakshya greenlit 2026-09-05 (reverses the earlier no-autostart posture, on purpose)
+  mkdir -p "$HOME/.termux/boot"
+  cat > "$HOME/.termux/boot/aasmaan-boot.sh" <<'BOOTEOF'
 #!/data/data/com.termux/files/usr/bin/sh
 # Aasmaan boot-autostart. Needs the Termux:Boot app (F-Droid) installed to actually fire on reboot.
 termux-wake-lock 2>/dev/null
 export OLLAMA_KEEP_ALIVE=30m
 command -v ollama >/dev/null 2>&1 && (ollama serve >/dev/null 2>&1 &)
 BOOTEOF
-chmod +x "$HOME/.termux/boot/aasmaan-boot.sh"
-echo "  boot-autostart written: ~/.termux/boot/aasmaan-boot.sh  (install Termux:Boot from F-Droid to arm it)"
-
-substage "Screen-sight — Aasmaan ki aankh (screen-dump)"
-cat > "$HOME/.local/bin/screen-dump" <<'SDEOF'
-#!/data/data/com.termux/files/usr/bin/bash
-# screen-dump -> visible text on the current Android screen, via the sanctioned rish hand.
-RS="$HOME/rish"; command -v rish >/dev/null 2>&1 && RS=rish
-[ -x "$RS" ] || command -v "$RS" >/dev/null 2>&1 || { echo "rish not available (start Shizuku)"; exit 1; }
-# dump to a private path (screen text can contain OTPs/banking) and delete it after reading
-D="$HOME/.cache/aasmaan"; mkdir -p "$D"; F="$D/window_dump.xml"
-"$RS" -c "uiautomator dump $F >/dev/null 2>&1; cat $F" 2>/dev/null \
- | grep -o 'text="[^"]*"' | sed 's/text="//; s/"$//' | grep -v '^$' | awk '!seen[$0]++'
-rm -f "$F"
-SDEOF
-chmod +x "$HOME/.local/bin/screen-dump"
-echo "  installed: screen-dump  (also:  ai  then  /do screen)"
-
-substage "Vault backup helper (on-device only)"
-cat > "$HOME/.local/bin/vault-backup" <<'VBEOF'
-#!/data/data/com.termux/files/usr/bin/bash
-# vault-backup -> timestamped local snapshot of ~/ai-vault. NEVER pushed to the repo
-# (personal corpus stays on the Fold — fold-node/CLAUDE.md constraint #6).
-V="${AI_VAULT:-$HOME/ai-vault}"; D="$HOME/vault-backups"; mkdir -p "$D"
-[ -d "$V" ] || { echo "no vault at $V"; exit 1; }
-f="$D/vault-$(date -u +%Y%m%dT%H%M%SZ).tar.gz"
-tar -czf "$f" -C "$(dirname "$V")" "$(basename "$V")" && echo "backup: $f ($(du -h "$f" | cut -f1))"
-ls -1t "$D"/vault-*.tar.gz 2>/dev/null | tail -n +11 | xargs -r rm -f   # keep last 10
-echo "off-device copy is YOUR call: Syncthing / manual copy. Repo push is blocked by design."
-VBEOF
-chmod +x "$HOME/.local/bin/vault-backup"
-echo "  installed: vault-backup  (run it, or add to the boot script)"
+  chmod +x "$HOME/.termux/boot/aasmaan-boot.sh"
+  echo "  boot-autostart written: ~/.termux/boot/aasmaan-boot.sh  (install Termux:Boot from F-Droid to arm it)"
+fi
 
 stage "Verify — sach me chala?" "har cheez ko CHALA ke dekhta hai, sirf file hone se nahi maanta" "presence != working. Isliye ek-ek ko run karke ok/missing dikhata hai."
 for t in python ai nmap hydra nikto sqlmap ffuf gobuster httpx nuclei tcpdump; do
@@ -7181,10 +7212,47 @@ for w in VOICE:2 SCREEN:Shizuku FFMPEG:6 PANEL:R; do
   k="${w%%:*}"; where="${w##*:}"
   if grep -q "^AI_WANT_$k=1" "$HOME/.ai-setup-profile" 2>/dev/null; then info "wizard me '$k' ON tha — wo setup-menu → $where se lagta hai (ek command:  setup-menu)"; fi
 done
+# helper scripts (plain files, koi permission nahi): screen-dump (Shizuku ho to kaam karta hai), vault-backup
+substage "Screen-sight — Aasmaan ki aankh (screen-dump)"
+cat > "$HOME/.local/bin/screen-dump" <<'SDEOF'
+#!/data/data/com.termux/files/usr/bin/bash
+# screen-dump -> visible text on the current Android screen, via the sanctioned rish hand.
+RS="$HOME/rish"; command -v rish >/dev/null 2>&1 && RS=rish
+[ -x "$RS" ] || command -v "$RS" >/dev/null 2>&1 || { echo "rish not available (start Shizuku)"; exit 1; }
+# dump to a private path (screen text can contain OTPs/banking) and delete it after reading
+D="$HOME/.cache/aasmaan"; mkdir -p "$D"; F="$D/window_dump.xml"
+"$RS" -c "uiautomator dump $F >/dev/null 2>&1; cat $F" 2>/dev/null \
+ | grep -o 'text="[^"]*"' | sed 's/text="//; s/"$//' | grep -v '^$' | awk '!seen[$0]++'
+rm -f "$F"
+SDEOF
+chmod +x "$HOME/.local/bin/screen-dump"
+echo "  installed: screen-dump  (also:  ai  then  /do screen)"
+
+substage "Vault backup helper (on-device only)"
+cat > "$HOME/.local/bin/vault-backup" <<'VBEOF'
+#!/data/data/com.termux/files/usr/bin/bash
+# vault-backup -> timestamped local snapshot of ~/ai-vault. NEVER pushed to the repo
+# (personal corpus stays on the Fold — fold-node/CLAUDE.md constraint #6).
+V="${AI_VAULT:-$HOME/ai-vault}"; D="$HOME/vault-backups"; mkdir -p "$D"
+[ -d "$V" ] || { echo "no vault at $V"; exit 1; }
+f="$D/vault-$(date -u +%Y%m%dT%H%M%SZ).tar.gz"
+tar -czf "$f" -C "$(dirname "$V")" "$(basename "$V")" && echo "backup: $f ($(du -h "$f" | cut -f1))"
+ls -1t "$D"/vault-*.tar.gz 2>/dev/null | tail -n +11 | xargs -r rm -f   # keep last 10
+echo "off-device copy is YOUR call: Syncthing / manual copy. Repo push is blocked by design."
+VBEOF
+chmod +x "$HOME/.local/bin/vault-backup"
+echo "  installed: vault-backup  (run it, or add to the boot script)"
+
 # ── stage 8: home-screen shortcut (optional) — the onboarding's last step ─────────────────────────────
-if stage_opt "Home screen shortcut (optional)" "~/.shortcuts me ek script + icon — Termux:Widget app (F-Droid) se home screen pe ek tap = ai" "Android kisi terminal ko khud kuch pin karne nahi deta — widget app tu lagata hai, files yahan ban jaati hain (record ke saath). Hataana: ai shortcut rm (cleanup khud karta hai)."; then
-  if [ "${AI_YES:-0}" = 1 ]; then echo "  — scripted run: shortcut nahi banaya (kabhi bhi:  ai shortcut add)"
-  else AI_FORCE_OFFLINE=1 "$HOME/.local/bin/ai" shortcut add 2>&1 | sed 's/^/  /'; fi
+if stage_opt "Look + shortcut (tera faisla)" "theme: 4 palettes (aasmaan · dark · light · nerd) — Termux ke colours turant badalte hain (backup ke saath, /theme undo) · home-screen shortcut (Termux:Widget)" "Theme = ~/.termux/colors.properties (ek backup pehle). Font Termux khud rakhta hai: size = pinch, family = ~/.termux/font.ttf — wo hum nahi chhedte. Shortcut: Android kisi terminal ko khud pin nahi karne deta — widget app tu lagata hai. Sab wapas: ai theme undo · ai shortcut rm."; then
+  if [ "${AI_YES:-0}" = 1 ]; then echo "  — scripted run: theme/shortcut nahi badla (kabhi bhi:  ai theme aasmaan save  ·  ai shortcut add)"
+  else
+    th=""; if [ -r "${UX_TTY:-/dev/tty}" ]; then printf '  theme:  [Enter] aasmaan   [2] dark   [3] light   [4] nerd   [n] rehne do  '; IFS= read -r th <"${UX_TTY:-/dev/tty}" || th=n; fi
+    case "$th" in 2) th=dark;; 3) th=light;; 4) th=nerd;; n|N) th="";; *) th=aasmaan;; esac
+    [ -n "$th" ] && AI_FORCE_OFFLINE=1 "$HOME/.local/bin/ai" theme "$th" save 2>&1 | sed 's/^/  /'
+    sc=""; if [ -r "${UX_TTY:-/dev/tty}" ]; then printf '  home-screen shortcut (Termux:Widget):  [Enter] banao   [n] nahi  '; IFS= read -r sc <"${UX_TTY:-/dev/tty}" || sc=n; fi
+    case "$sc" in n|N) echo "  — shortcut nahi (kabhi bhi: ai shortcut add)";; *) AI_FORCE_OFFLINE=1 "$HOME/.local/bin/ai" shortcut add 2>&1 | sed 's/^/  /';; esac
+  fi
 fi
 
 substage "Is device pe kya-kya unlock hua"

@@ -467,6 +467,31 @@ def t_shortcut_card_nontty():
     with _cl.redirect_stdout(b): ai.shortcut_cmd(None,"")
     s=b.getvalue(); return "[shortcut]" in s and "pin (taskbar" in s and "/shortcut add" in s and not os.path.exists(ai.SHORTCUT_FILE), s[:160]
 case("shortcut: the card prints what would be created and the pin honesty, and creates nothing", t_shortcut_card_nontty)
+# ── FIRST LAUNCH: the card says what this install has, for the chosen use-case; small talk with no brain gets a human line ──
+def t_first_run_card():
+    import io as _io, contextlib as _cl
+    for f in (ai.FIRST_RUN_FILE,):
+        try: os.remove(f)
+        except OSError: pass
+    os.environ["AI_USE"]="code"; os.environ["AI_LOCAL_MODEL"]="qwen3:4b-instruct-2507-q4_K_M"
+    o=ai.has_local; ai.has_local=lambda:False; w=ai.shutil.which; ai.shutil.which=lambda x,*a,**k:None if x=="ollama" else w(x,*a,**k)
+    st={"lang":"hinglish"}
+    try:
+        with _cl.redirect_stdout(_io.StringIO()): t1=ai.first_run_text(st); t2=ai.first_run_text(st); st["lang"]="en"; t3=ai.first_run_text(st,force=True)
+    finally: ai.has_local=o; ai.shutil.which=w; del os.environ["AI_USE"]; del os.environ["AI_LOCAL_MODEL"]
+    return (t1.startswith("[ai] pehli baar") and "rachaka" in t1 and "github" in t1 and "/mcp setup" in t1 and "qwen3:4b" in t1 and "Ollama install nahi hua" in t1 and "ai tour" in t1
+            and os.path.exists(ai.FIRST_RUN_FILE) and t2.startswith("[ai] dimaag: abhi KOI NAHI") and "pehli baar" not in t2
+            and t3.startswith("[ai] first start") and "brain: NONE yet" in t3 and "Ollama is not installed" in t3), f"{t1}\n--\n{t2}\n--\n{t3[:200]}"
+case("first launch: the card names the use-case experts (code → rachaka), the login connector via /mcp setup (github), the tour, and says honestly WHY there is no brain (wizard chose qwen3:4b, Ollama not installed); once only, then just the brain line; English mirrors it", t_first_run_card)
+def t_nobrain_smalltalk():
+    o=ai.has_local; ai.has_local=lambda:False
+    try:
+        a=ai.nobrain_smalltalk({"lang":"hinglish"},"hello"); b=ai.nobrain_smalltalk({"lang":"en"},"good morning"); c=ai.nobrain_smalltalk({"lang":"en"},"write me a regex for emails")
+        ai.has_local=lambda:True; d=ai.nobrain_smalltalk({"lang":"en"},"hello")
+    finally: ai.has_local=o
+    return (a and a.split()[0].rstrip("!.") in ("Suprabhat","Namaste","Shubh") and "dimaag laga nahi" in a and "kisi brain ne jawab nahi diya" not in a and ai.SETUP_HINT in a
+            and b and b.startswith("Good") and "no brain is attached" in b and c is None and d is None), f"{a!r} {b!r} {c!r} {d!r}"
+case("no brain + 'hello' → a greeting in the user's language and the two fixes, never the failure dump; a real question or an attached brain leaves the normal path alone", t_nobrain_smalltalk)
 def t_known_cmds_parity():
     import re as _re
     src=open(SRC,encoding="utf-8").read()

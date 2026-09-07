@@ -6,8 +6,8 @@
 <title>Aasmaan — free AI on your own device</title>
 <meta name="description" content="One Python file. Free AI on your phone or PC. No account, no server, your data stays with you.">
 <style>
-:root{--bg:#0b0e14;--fg:#e6edf6;--mut:#9aa6b8;--acc:#7cc4ff;--ok:#4cd28a;--warn:#f0b35a;--card:#121826;--line:#1f2937;color-scheme:dark}
-@media (prefers-color-scheme:light){:root{--bg:#fbfbfd;--fg:#111827;--mut:#4b5563;--acc:#1d6fd6;--ok:#15803d;--warn:#b45309;--card:#ffffff;--line:#e5e7eb;color-scheme:light}}
+:root{--bg:#0b0e14;--fg:#e6edf6;--mut:#9aa6b8;--acc:#7cc4ff;--ok:#4cd28a;--warn:#f0b35a;--warn-fg:#111;--card:#121826;--line:#1f2937;color-scheme:dark}
+@media (prefers-color-scheme:light){:root{--bg:#fbfbfd;--fg:#111827;--mut:#4b5563;--acc:#1d6fd6;--ok:#15803d;--warn:#fde68a;--warn-fg:#111827;--card:#ffffff;--line:#e5e7eb;color-scheme:light}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.55 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
 main{max-width:860px;margin:0 auto;padding:32px 20px 64px}
 h1{font-size:2.2rem;margin:.2em 0 .1em;letter-spacing:-.02em}h2{font-size:1.25rem;margin:2em 0 .5em;border-top:1px solid var(--line);padding-top:1.2em}
@@ -15,22 +15,23 @@ p{margin:.5em 0}.mut{color:var(--mut)}.tag{display:inline-block;font-size:.8rem;
 pre{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;overflow-x:auto;font:13.5px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;margin:.4em 0 1em}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
 .card h3{margin:0 0 .3em;font-size:1rem}table{border-collapse:collapse;width:100%;font-size:.95rem}td,th{border-bottom:1px solid var(--line);padding:8px 6px;text-align:left;vertical-align:top}th{color:var(--mut);font-weight:600}
-a{color:var(--acc)}#banner{display:none;background:var(--warn);color:#111;padding:10px 14px;border-radius:10px;margin-bottom:16px;font-weight:600}
-.ok{color:var(--ok)}.small{font-size:.9rem}footer{margin-top:48px;color:var(--mut);font-size:.9rem}
+a{color:var(--acc)}#banner{display:none;background:var(--warn);color:var(--warn-fg);padding:10px 14px;border-radius:10px;margin-bottom:16px;font-weight:600}
+a:focus-visible,pre:focus-visible{outline:2px solid var(--acc);outline-offset:2px}.skip{position:absolute;left:-999px;top:8px;background:var(--card);padding:6px 10px;border-radius:8px}.skip:focus{left:8px}.ok{color:var(--ok)}.small{font-size:.9rem}footer{margin-top:48px;color:var(--mut);font-size:.9rem}
 </style>
 </head>
 <body>
-<main>
+<a class="skip" href="#main">Skip to content</a>
+<main id="main">
 <div id="banner"></div>
 <span class="tag">beta</span><span class="tag">MIT</span><span class="tag">one file</span><span class="tag">no server</span>
 <h1>Aasmaan <span class="mut" style="font-weight:400">आसमान</span></h1>
 <p><strong>Free AI on your own device — phone or PC.</strong> One Python file you can read (plus a few plain scripts). No account. No server of ours. Your data stays with you.</p>
-<p class="mut">Built for the next billion: works on an ₹8,000 Android or the laptop you already have, in Hinglish, on 1 GB/month, for someone who has never typed to an AI. Adapts to your hardware; never depends on it. Phone and computer can pair by QR.</p>
+<p class="mut">Built for the next billion: works on an ₹8,000 Android or the laptop you already have, in Hinglish, for someone who has never typed to an AI. Adapts to your hardware; never depends on it. Phone and computer can pair by QR.</p>
 
 <h2>Install — one command, three devices</h2>
 <div class="grid">
   <div class="card"><h3>Android · Termux</h3><p class="small mut">Install <strong>Termux from <a href="https://f-droid.org/packages/com.termux/">F-Droid</a></strong> (not Play Store), open it, paste:</p>
-<pre>apt update &amp;&amp; apt -y -o Dpkg::Options::=--force-confnew full-upgrade &amp;&amp; apt -y install curl python &amp;&amp; curl -fsSL https://raw.githubusercontent.com/lakshyamodirocks/aasman/main/install.sh | bash</pre><p class="small mut">Starts with <code>apt</code>, not <code>pkg</code>: a fresh Termux ships a broken <code>curl</code> and <code>pkg</code> itself needs curl to pick a mirror. Mirror / “unable to resolve” error? Run <code>termux-change-repo</code> (Enter, Enter), then paste again.</p></div>
+<pre>(apt update || { echo "deb https://packages-cf.termux.dev/apt/termux-main stable main" &gt; "$PREFIX/etc/apt/sources.list"; apt update; }) &amp;&amp; apt -y -o Dpkg::Options::=--force-confnew full-upgrade &amp;&amp; apt -y install curl python &amp;&amp; curl -fsSL https://raw.githubusercontent.com/lakshyamodirocks/aasman/main/install.sh | bash || echo "Aasmaan: install ruk gaya - upar ki aakhri 10 lines ka screenshot bhejo (docs/FAQ.md)"</pre><p class="small mut">Starts with <code>apt</code>, not <code>pkg</code>: a fresh Termux ships a broken <code>curl</code> and <code>pkg</code> itself needs curl to pick a mirror. Mirror / “unable to resolve” error? Run <code>termux-change-repo</code> (Enter, Enter), then paste again.</p></div>
   <div class="card"><h3>Linux · macOS · WSL2</h3><p class="small mut">Needs python3 and curl (or wget).</p>
 <pre>curl -fsSL https://raw.githubusercontent.com/lakshyamodirocks/aasman/main/install.sh | bash</pre><p class="small mut">No curl? <code>wget -qO- https://raw.githubusercontent.com/lakshyamodirocks/aasman/main/install.sh | bash</code>. Fresh Mac: run <code>xcode-select --install</code> once first.</p></div>
   <div class="card"><h3>Windows 10/11</h3><p class="small mut">PowerShell, normal user, no admin.</p>
@@ -65,9 +66,9 @@ a{color:var(--acc)}#banner{display:none;background:var(--warn);color:#111;paddin
 <p class="small"><a href="https://t.me/+iF1WcRNqpAk0ODQ1">Telegram group</a> · <a href="https://discord.gg/j8njkbbNY">Discord</a> — humans, questions, show-and-tell. Bugs and feedback go to <a href="https://github.com/lakshyamodirocks/aasman/issues/new/choose">GitHub issues</a> so nothing gets lost; the Telegram helper bot (run by the maintainer on his own device, no server) answers <code>/install</code>, <code>/faq</code>, <code>/version</code> and forwards <code>/feedback</code>. Read <a href="https://github.com/lakshyamodirocks/aasman/blob/main/docs/WHY.md">why this exists</a>.</p>
 
 <h2>Read more</h2>
-<p class="small"><a href="https://github.com/lakshyamodirocks/aasman#readme">README</a> · <a href="https://github.com/lakshyamodirocks/aasman/blob/main/docs/ARCHITECTURE.md">How it works (with diagrams)</a> · <a href="https://github.com/lakshyamodirocks/aasman/blob/main/docs/TRUST.md">Trust: what leaves the device</a> · <a href="https://github.com/lakshyamodirocks/aasman/blob/main/docs/FAQ.md">FAQ</a> · <a href="https://github.com/lakshyamodirocks/aasman/blob/main/SECURITY.md">Security</a> · <a href="https://github.com/lakshyamodirocks/aasman/issues/new/choose">Report a bug or send feedback</a> · <a href="https://github.com/lakshyamodirocks/aasman/discussions">Discussions</a></p>
+<p class="small"><a href="https://github.com/lakshyamodirocks/aasman#readme">README</a> · <a href="https://github.com/lakshyamodirocks/aasman/blob/main/docs/ARCHITECTURE.md">How it works (with diagrams)</a> · <a href="https://github.com/lakshyamodirocks/aasman/blob/main/docs/TRUST.md">Privacy &amp; trust: what leaves the device, what never does</a> · <a href="https://github.com/lakshyamodirocks/aasman/blob/main/docs/FAQ.md">FAQ</a> · <a href="https://github.com/lakshyamodirocks/aasman/blob/main/SECURITY.md">Security</a> · <a href="https://github.com/lakshyamodirocks/aasman/issues/new/choose">Report a bug or send feedback</a> · <a href="https://github.com/lakshyamodirocks/aasman/discussions">Discussions</a></p>
 
-<footer>Made in Jaipur by Lakshya Sunderwani. MIT licensed. Models and Ollama are separate projects under their own licenses. This page loads nothing from anywhere except <code>status.json</code> beside it.</footer>
+<footer>Made in Jaipur by <a href="https://github.com/lakshyamodirocks">Lakshya Sunderwani</a> — reach the maintainer on <a href="https://github.com/lakshyamodirocks/aasman/issues/new/choose">GitHub issues</a> or the Telegram group above. MIT licensed. Models and Ollama are separate projects under their own licenses.<br>This page sets no cookies, runs no analytics, has no forms and collects nothing; it loads nothing from anywhere except <code>status.json</code> beside it. The program collects nothing either — what you type goes only where you point it (<a href="https://github.com/lakshyamodirocks/aasman/blob/main/docs/TRUST.md">TRUST.md</a>).</footer>
 </main>
 <script>
 // advisory banner: a tiny JSON beside this page, edited by hand when something needs a warning (a broken free tier, a bad version)
