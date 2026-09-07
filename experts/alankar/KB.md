@@ -81,7 +81,7 @@ here is a finding: `[named moment] -> confuses/scares without warning -> add the
 
 ## 6. Hinglish microcopy rules (THEME-SYSTEM.md §5)
 
-- Fixed lexicon, never a synonym drift: **Akasha / Brain / Context / Panel / Floater /
+- Fixed lexicon, never a synonym drift: **Aasmaan / Brain / Context / Panel / Floater /
   Profile** — flag any copy that renames one of these ("model" instead of "brain," etc.).
 - State names are warm, not raw technical words: `जाग रहा है` (booting) / `सोच रहा है`
   (generating) / `लगभग तैयार` (nearly done) / `तैयार` (ready) / `अटक गया` (failed) — never a

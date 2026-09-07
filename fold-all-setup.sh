@@ -14,7 +14,7 @@ export PATH="$HOME/.local/bin:$HOME/go/bin:$PATH"
 
 # guided/staged UX (banners, progress, pause-between-stages). Fallback if lib missing.
 _SD="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)"
-if [ -r "$_SD/lib/ux.sh" ]; then STAGE_TOTAL=7; . "$_SD/lib/ux.sh"
+if [ -r "$_SD/lib/ux.sh" ]; then STAGE_TOTAL=8; . "$_SD/lib/ux.sh"
 else stage(){ printf '\n=== %s ===\n' "$1"; }; stage_opt(){ printf '\n=== %s ===\n' "$1"; return 0; }
      substage(){ printf '\n-- %s --\n' "$1"; }; ok(){ echo "  $*"; }; warn(){ echo "  $*"; }
      skp(){ echo "  $*"; }; info(){ echo "  $*"; }; runv(){ local l="$1"; shift; "$@" >/dev/null 2>&1 && echo "  ok $l" || echo "  x $l"; }
@@ -28,7 +28,7 @@ ANDROID=$(getprop ro.build.version.release 2>/dev/null || echo "?")
 SDK=$(getprop ro.build.version.sdk 2>/dev/null || echo "?")
 DEV=$(getprop ro.product.model 2>/dev/null || echo "?")
 echo "  $DEV · Android $ANDROID (sdk $SDK) · $ARCH · $CORES cores · ${RAM_MB}MB RAM"
-# The wizard (akasha-fold/setup-wizard.sh) writes ~/.ai-setup-profile. If the user made a
+# The wizard (aasmaan-fold/setup-wizard.sh) writes ~/.ai-setup-profile. If the user made a
 # choice there, it WINS over our RAM guess — otherwise the wizard would be decoration.
 WIZ="$HOME/.ai-setup-profile"
 if [ -f "$WIZ" ]; then
@@ -87,7 +87,7 @@ if [ "$DISK_KNOWN" = yes ]; then
   printf "  DISK  : %s MB free at %s\n" "$DISK_AVAIL_MB" "$HOME"
 else
   printf "  DISK  : \033[33m? pata nahi chala\033[0m at %s\n" "$HOME"
-  printf "          \033[90m(probe fail — install rukega nahi. Wajah dekhni ho:\n           bash akasha-fold/disk-doctor.sh)\033[0m\n"
+  printf "          \033[90m(probe fail — install rukega nahi. Wajah dekhni ho:\n           bash aasmaan-fold/disk-doctor.sh)\033[0m\n"
 fi
 echo   "  ---------------------------------------------------------------"
 printf "  %-34s %8s  %s\n" "core (ai + setup-menu + panel)"   "~5 MB"   "$(fits 20)"
@@ -189,7 +189,7 @@ _load_env()
 # providers can read them; every subprocess (forged tools, /run, ffmpeg, pdftotext, tailscale…) gets a
 # SCRUBBED copy instead. Wrapping the four subprocess entry points once covers all 15+ call sites and
 # any future one. A caller that passes env= explicitly is left alone.
-_SECRET_RX=re.compile(r"(_API_KEY|_TOKEN|_SECRET|_WEBHOOK_URL|_PASSWORD)$|^(FAL_KEY|AI_SERVE_TOKEN|TELEGRAM_BOT_TOKEN|DISCORD_WEBHOOK_URL)$")
+_SECRET_RX=re.compile(r"(_API_KEY|_KEY|_TOKEN|_SECRET|_WEBHOOK_URL|_PASSWORD|_PASS|_CREDENTIALS)$|^(FAL_KEY|AI_SERVE_TOKEN|TELEGRAM_BOT_TOKEN|DISCORD_WEBHOOK_URL|OPENAPI_MCP_HEADERS)$")   # a zero-context judge found AI_OAI_KEY (ends _KEY, not _API_KEY) reaching forged tools — every *_KEY is a secret
 def _child_env(base=None):
     return {k:v for k,v in (base or os.environ).items() if not _SECRET_RX.search(k)}
 def _wrap_subprocess():
@@ -3199,7 +3199,7 @@ def _upsert_env(name,val):
     if val: lines.append(f"export {name}={shlex.quote(val)}")
     with open(fn,"w",encoding="utf-8") as f: f.write("\n".join(lines)+("\n" if lines else ""))
     try: os.chmod(fn,0o600)
-    except OSError: pass
+    except OSError as e: sys.stderr.write(f"[keys] WARNING: could not chmod 600 {fn} ({e}) — your keys may be readable by other users; run: chmod 600 {fn}\n")
     if val: os.environ[name]=val
     else: os.environ.pop(name,None)
 def keys_cmd(arg=""):
@@ -3697,6 +3697,10 @@ HANDS={
                  "params":[("h","int",{"min":0,"max":23}),("m","int",{"min":0,"max":59,"default":0}),("text","text",{"max":200})],"perm":"Automation → Calendar","risk":"S","undo":None,"conf":"doc","says":[r"^(?:calendar|calender|kalendar)(?: me| mein)? (?:add|daal(?:o| do)?|likh(?:o| do)?|save)(?: (?:at|ko|pe|par))?\s*(?:(?P<_pm3>shaam|sham|raat)\s+|(?P<_am3>subah|subeh)\s+)?(?P<h>\d{1,2})(?:[:.](?P<m>\d{2}))?\s*(?:(?P<_pm>pm|p\.m\.|shaam|sham|raat|evening|night)|(?P<_am>am|a\.m\.|subah|subeh|morning))?\s*(?:baje|o\'?clock)?\s*(?:(?P<_pm2>pm|shaam|sham|raat|evening|night)|(?P<_am2>am|subah|subeh|morning))?[: ]+(?P<text>.+)$",r"^(?:meeting|event|appointment|mulaqat) (?:daal(?:o| do)?|add|banao?|likh(?:o| do)?|rakho?)(?: (?:at|ko|pe|par))?\s*(?:(?P<_pm3>shaam|sham|raat)\s+|(?P<_am3>subah|subeh)\s+)?(?P<h>\d{1,2})(?:[:.](?P<m>\d{2}))?\s*(?:(?P<_pm>pm|p\.m\.|shaam|sham|raat|evening|night)|(?P<_am>am|a\.m\.|subah|subeh|morning))?\s*(?:baje|o\'?clock)?\s*(?:(?P<_pm2>pm|shaam|sham|raat|evening|night)|(?P<_am2>am|subah|subeh|morning))?[: ]+(?P<text>.+)$"]},
   "reminders_app":{"what":"open Reminders","argv":["open","-a","Reminders"],"params":[],"risk":"S","undo":None,"conf":"doc","says":[r"^(?:(?:open|kholo?) )?reminders(?: app)?(?: kholo| open)?$"]},
   "calendar_app":{"what":"open Calendar","argv":["open","-a","Calendar"],"params":[],"risk":"S","undo":None,"conf":"doc","says":[r"^(?:(?:open|kholo?) )?(?:calendar|calender)(?: app)?(?: kholo| open| dikhao)?$"]},
+  "theme_persist":{"what":"colour this Terminal.app window (background, text, cursor) — window-level","py":"theme_macterm","params":[("theme","enum",{"in":["light","dark","nerd","aasmaan"]})],"needs":["osascript"],"risk":"S","undo":None,"conf":"doc","says":[r"^(?:theme|colou?rs?) (?:save|persist|likh do|config me)(?: (?P<theme>light|dark|nerd|aasmaan))?$"]},
+  "shortcut_add":{"what":"~/Applications/Aasmaan.app — a launcher that opens Terminal.app and runs ai (Launchpad/Spotlight find it)","py":"shortcut_add","params":[],"needs":["osascript"],"risk":"S","undo":"shortcut_rm","conf":"doc","says":[r"^shortcut (?:add|banao|create)$"]},
+  "shortcut_pin":{"what":"add the app to the Dock (defaults write + the Dock restarts) — undo is dragging it off","py":"shortcut_pin","params":[],"needs":["defaults"],"risk":"X","undo":None,"conf":"doc","says":[r"^shortcut pin$"]},
+  "shortcut_rm":{"what":"remove the launcher files ai created","py":"shortcut_rm","params":[],"needs":[],"risk":"S","undo":None,"conf":"doc","says":[r"^shortcut (?:rm|remove|hatao)$"]},
   "_stop":["music"],
  },
  "nt":{
@@ -3744,6 +3748,10 @@ HANDS={
                  "says":[r"^(?:reminders? (?:hatao|clear|cancel)|clear reminders|cancel reminders)$"]},
   "clock_app":  {"what":"open the Clock app (alarms, timers)","py":"startfile","target":"ms-clock:","params":[],"risk":"S","undo":None,"conf":"doc","says":[r"^(?:alarms?(?: dikhao| list| show)|show alarms|clock(?: app)?(?: kholo| open)?|open clock|mere alarms?)$"]},
   "calendar_app":{"what":"open the Calendar app","py":"startfile","target":"outlookcal:","params":[],"risk":"S","undo":None,"conf":"doc","says":[r"^(?:(?:open|kholo?) )?(?:calendar|calender)(?: app)?(?: kholo| open| dikhao)?$"]},
+  "theme_persist":{"what":"add a colour scheme to Windows Terminal settings.json and make it the default (backup kept)","py":"theme_wt","params":[("theme","enum",{"in":["light","dark","nerd","aasmaan"]})],"needs":["env:WT_SESSION"],"risk":"S","undo":"theme_restore","conf":"doc","says":[r"^(?:theme|colou?rs?) (?:save|persist|likh do|config me)(?: (?P<theme>light|dark|nerd|aasmaan))?$"]},
+  "theme_restore":{"what":"restore settings.json from before /theme save","py":"theme_restore","params":[],"needs":["env:WT_SESSION"],"risk":"S","undo":None,"conf":"doc","says":[r"^(?:theme|colou?rs?) (?:restore|wapas|undo)$"]},
+  "shortcut_add":{"what":"Desktop + Start Menu .lnk to ai.cmd (Start → type the name); taskbar pin stays a right-click — Windows has no API for it","py":"shortcut_add","params":[],"needs":["powershell.exe"],"risk":"S","undo":"shortcut_rm","conf":"doc","says":[r"^shortcut (?:add|banao|create)$"]},
+  "shortcut_rm":{"what":"remove the two .lnk files ai created","py":"shortcut_rm","params":[],"needs":[],"risk":"S","undo":None,"conf":"doc","says":[r"^shortcut (?:rm|remove|hatao)$"]},
   "_stop":["media"],
  },
  "linux":{
@@ -3782,6 +3790,11 @@ HANDS={
                  "says":[r"^(?:remind me at|(?:mujhe )?yaad dila(?:na|o| do| dena)?(?: at| ko| pe| par)?)\s*(?:(?P<_pm3>shaam|sham|raat)\s+|(?P<_am3>subah|subeh)\s+)?(?P<h>\d{1,2})(?:[:.](?P<m>\d{2}))?\s*(?:(?P<_pm>pm|p\.m\.|shaam|sham|raat|evening|night)|(?P<_am>am|a\.m\.|subah|subeh|morning))?\s*(?:baje|o\'?clock)?\s*(?:(?P<_pm2>pm|shaam|sham|raat|evening|night)|(?P<_am2>am|subah|subeh|morning))?(?:\s*(?:ko|pe|par))?(?:[: ]+(?P<text>.+))?$",r"^(?:(?P<_pm3>shaam|sham|raat)\s+|(?P<_am3>subah|subeh)\s+)?(?P<h>\d{1,2})(?:[:.](?P<m>\d{2}))?\s*(?:(?P<_pm>pm|p\.m\.|shaam|sham|raat|evening|night)|(?P<_am>am|a\.m\.|subah|subeh|morning))?\s*(?:baje|o\'?clock)?\s*(?:(?P<_pm2>pm|shaam|sham|raat|evening|night)|(?P<_am2>am|subah|subeh|morning))?\s*(?:ko|pe|par)?\s*(?:yaad dila(?:na|o| do| dena)?|remind me)(?:[: ]+(?P<text>.+))?$",r"^(?:alarm|alaram|alarm laga(?:o| do)?|alarm set(?: kar(?: do)?)?|set (?:an |the )?alarm|wake me(?: up)?|mujhe (?:utha|jaga)(?:na| dena| do)?)(?: (?:at|for|ko|pe|par|ka|ki))?\s*(?:(?P<_pm3>shaam|sham|raat)\s+|(?P<_am3>subah|subeh)\s+)?(?P<h>\d{1,2})(?:[:.](?P<m>\d{2}))?\s*(?:(?P<_pm>pm|p\.m\.|shaam|sham|raat|evening|night)|(?P<_am>am|a\.m\.|subah|subeh|morning))?\s*(?:baje|o\'?clock)?\s*(?:(?P<_pm2>pm|shaam|sham|raat|evening|night)|(?P<_am2>am|subah|subeh|morning))?(?:\s*(?:ka|ki|ko))?(?:\s*(?:alarm|utha(?:na| dena| do)?|jaga(?:na| dena| do)?))?(?:[: ]+(?P<text>.+))?$",r"^(?:(?P<_pm3>shaam|sham|raat)\s+|(?P<_am3>subah|subeh)\s+)?(?P<h>\d{1,2})(?:[:.](?P<m>\d{2}))?\s*(?:(?P<_pm>pm|p\.m\.|shaam|sham|raat|evening|night)|(?P<_am>am|a\.m\.|subah|subeh|morning))?\s*(?:baje|o\'?clock)?\s*(?:(?P<_pm2>pm|shaam|sham|raat|evening|night)|(?P<_am2>am|subah|subeh|morning))?\s*(?:ka|ki|ko)?\s*(?:alarm(?: laga(?:o| do)?| set(?: kar(?: do)?)?)?|utha(?: dena| do|na)|jaga(?: dena| do|na))(?:[: ]+(?P<text>.+))?$"]},
   "remind_clear":{"what":"stop every pending Aasmaan timer/reminder unit","argv":["systemctl","--user","stop","aasmaan-at-*.timer","aasmaan-timer-*.timer"],"params":[],"needs":["env:DBUS_SESSION_BUS_ADDRESS|XDG_RUNTIME_DIR"],"risk":"S","undo":None,"conf":"doc",
                  "says":[r"^(?:reminders? (?:hatao|clear|cancel)|clear reminders|cancel reminders)$"]},
+  "theme_persist":{"what":"colour the GNOME Terminal default profile (gsettings; previous values saved)","py":"theme_gnome","params":[("theme","enum",{"in":["light","dark","nerd","aasmaan"]})],"needs":["gsettings","env:GNOME_TERMINAL_SCREEN|VTE_VERSION"],"risk":"S","undo":"theme_restore","conf":"doc","says":[r"^(?:theme|colou?rs?) (?:save|persist|likh do|config me)(?: (?P<theme>light|dark|nerd|aasmaan))?$"]},
+  "theme_restore":{"what":"restore the GNOME profile colours from before /theme save","py":"theme_restore","params":[],"needs":["gsettings"],"risk":"S","undo":None,"conf":"doc","says":[r"^(?:theme|colou?rs?) (?:restore|wapas|undo)$"]},
+  "shortcut_add":{"what":"~/.local/share/applications/aasmaan.desktop (Terminal=true) + an SVG icon — your app menu finds it","py":"shortcut_add","params":[],"needs":["env:DISPLAY|WAYLAND_DISPLAY"],"risk":"S","undo":"shortcut_rm","conf":"doc","says":[r"^shortcut (?:add|banao|create)$"]},
+  "shortcut_pin":{"what":"GNOME dash favourites (gsettings; previous list saved)","py":"shortcut_pin","params":[],"needs":["gsettings","env:DISPLAY|WAYLAND_DISPLAY"],"risk":"S","undo":"shortcut_rm","conf":"doc","says":[r"^shortcut pin$"]},
+  "shortcut_rm":{"what":"remove the launcher entry + icon ai created; restore GNOME favourites","py":"shortcut_rm","params":[],"needs":[],"risk":"S","undo":None,"conf":"doc","says":[r"^shortcut (?:rm|remove|hatao)$"]},
   "_stop":["media"],
  },
  "wsl":{   # no compositor, no session bus, no PipeWire: the OS hands live on the Windows side (documented interop)
@@ -3865,6 +3878,10 @@ HANDS={
                  "params":[("text","text",{"max":200})],"needs":["am"],"risk":"S","undo":None,"conf":"doc","says":[r"^(?:calendar|calender|kalendar)(?: me| mein)? (?:add|daal(?:o| do)?|likh(?:o| do)?|save)[: ]+(?P<text>.+)$",r"^(?:meeting|event|appointment|mulaqat) (?:daal(?:o| do)?|add|banao?|likh(?:o| do)?|rakho?)[: ]+(?P<text>.+)$"]},
   "alarms_show":{"what":"open the alarms list","argv":["am","start","-a","android.intent.action.SHOW_ALARMS"],"params":[],"needs":["am"],"risk":"S","undo":None,"conf":"doc","says":[r"^(?:alarms?(?: dikhao| list| show)|show alarms|clock(?: app)?(?: kholo| open)?|open clock|mere alarms?)$"]},
   "calendar_app":{"what":"open the calendar","argv":["am","start","-a","android.intent.action.VIEW","-d","content://com.android.calendar/time/"],"params":[],"needs":["am"],"risk":"S","undo":None,"conf":"doc","says":[r"^(?:(?:open|kholo?) )?(?:calendar|calender)(?: app)?(?: kholo| open| dikhao)?$"]},
+  "theme_persist":{"what":"write a theme into ~/.termux/colors.properties (backup kept) + reload","py":"theme_termux","params":[("theme","enum",{"in":["light","dark","nerd","aasmaan"]})],"needs":["termux-reload-settings"],"risk":"S","undo":"theme_restore","conf":"doc","says":[r"^(?:theme|colou?rs?) (?:save|persist|likh do|config me)(?: (?P<theme>light|dark|nerd|aasmaan))?$"]},
+  "theme_restore":{"what":"restore the colours from before /theme save","py":"theme_restore","params":[],"needs":["termux-reload-settings"],"risk":"S","undo":None,"conf":"doc","says":[r"^(?:theme|colou?rs?) (?:restore|wapas|undo)$"]},
+  "shortcut_add":{"what":"~/.shortcuts/Aasmaan script + PNG icon for the Termux:Widget app (F-Droid) — one tap on the home screen = ai","py":"shortcut_add","params":[],"needs":[],"risk":"S","undo":"shortcut_rm","conf":"doc","says":[r"^shortcut (?:add|banao|create)$"]},
+  "shortcut_rm":{"what":"remove the widget script + icon ai created","py":"shortcut_rm","params":[],"needs":[],"risk":"S","undo":None,"conf":"doc","says":[r"^shortcut (?:rm|remove|hatao)$"]},
   "_stop":["media","api_stop"],
  },
 }
@@ -4051,6 +4068,14 @@ def _h_py(kind,h,vals):
                 rows.append(f"{os.path.basename(os.path.dirname(cap))}: {open(cap).read().strip()}% ({st})")
             except OSError: pass
         return "\n".join(rows) if rows else "no battery visible in /sys (desktop, VM, or WSL)"
+    if kind=="theme_termux": return _theme_termux(vals["theme"])
+    if kind=="theme_wt": return _theme_wt(vals["theme"])
+    if kind=="theme_gnome": return _theme_gnome(vals["theme"])
+    if kind=="theme_macterm": return _theme_macterm(vals["theme"])
+    if kind=="theme_restore": return _theme_restore()
+    if kind=="shortcut_add": return _shortcut_write()
+    if kind=="shortcut_pin": return _shortcut_pin()
+    if kind=="shortcut_rm": return _shortcut_rm()
     return f"unknown py hand {kind}"
 def hands_intent(text,osk=None):
     """Plain words → (hand_id, vals) or None. Whole-message rules only, per available hand; a coding question
@@ -5629,7 +5654,582 @@ def trust_card(st=None):
        "│ it can only suggest; you (a typed yes) approve; code executes. /why shows any single decision.",
        "└────────────────────────────────────────────────"]
     return "\n".join(L)
-KNOWN_CMDS=['/agent', '/agents', '/ask', '/attach', '/bg', '/budget', '/cache', '/canary', '/capabilities', '/clear', '/corpus', '/ctx', '/device', '/do', '/egress', '/embed', '/explain', '/group', '/help', '/impact', '/json', '/kb', '/keys', '/memory', '/metrics', '/mode', '/model', '/net', '/panel', '/privacy', '/remember', '/route', '/run', '/save', '/serve', '/setup', '/short', '/tags', '/tool', '/trace', '/update', '/version', '/why', '/wish', '/auto', '/online', '/local', '/quit', '/q', '/exit', '/hands', '/hand', '/stop', '/undo', '/calc', '/tour', '/lang', '/voice', '/models', '/connect', '/mcp', '/tuning', '/usage', '/plan', '/list', '/remind', '/greet', '/trust']   # every command literal in the dispatcher (c=="/x" and c in(...)); golden pins parity; the typo-suggester matches against this
+# ══ ai doctor — one deterministic health + trust check, every row a measured fact with the exact fix when it is wrong.
+# Reviewers (2026-09-06, three independent) asked for it as a flagship command: "inspect everything Aasmaan installed".
+# ✓ = fine · ✗ = wrong, fix printed · ○ = optional / not set (not a problem). Reads only; `--fix` is not offered here
+# because every fix is one command the user should see and run (a doctor that operates on you unasked is not one).
+def _perm_ok(path,want=0o600):
+    try: return (os.stat(path).st_mode & 0o777)<=want
+    except OSError: return None
+def doctor_rows(st=None):
+    from datetime import datetime
+    R=[]  # (mark, label, value, fix)
+    pv=sys.version_info; R.append(("✓" if pv>=(3,8) else "✗","python",f"{pv.major}.{pv.minor}.{pv.micro} · {sys.executable}","Python 3.8+ chahiye" if pv<(3,8) else ""))
+    ver,slug,sha=self_version(); R.append(("✓" if ver else "○","ai",f"{ver or 'dev copy'} · sha {sha}"+(f" · repo {slug}" if slug else ""),""))
+    try:
+        u=update_check()
+        R.append(("○","update","available — /update (keys + memory rehte hain)" if u and u.get("new") else ("up to date" if u else "not checked (no repo / offline)"),""))
+    except Exception as e: R.append(("○","update",f"check failed: {type(e).__name__}",""))
+    d=device_info(); R.append(("✓" if (d["ram_mb"] or 0)>=3000 else "○","device",f"{d['arch']} · {d['cores']} cores · RAM {d['ram_mb'] or '?'} MB · {'Termux' if d['termux'] else platform.system()}","" if (d["ram_mb"] or 0)>=3000 else "RAM < 3 GB: local brain skip, cloud/keyless rungs chalte hain"))
+    try:
+        du=shutil.disk_usage(os.path.expanduser("~")); free=du.free//(1024*1024)
+        R.append(("✓" if free>2000 else "✗","disk",f"{free} MB free","jagah kam — models 1-5 GB lete hain; /model se chhota chuno ya safai" if free<=2000 else ""))
+    except Exception: R.append(("○","disk","? (probe failed)",""))
+    localm=[p["m"] for p in PROVIDERS if p["n"]=="local"][0]
+    if d["ollama"]:
+        up=has_local(); ms=ollama_models() if up else []
+        R.append(("✓" if up else "✗","local brain",f"ollama {'reachable' if up else 'installed but not running'} · {len(ms)} model(s)"+(f" · default {localm}" if up else ""),"" if up else "chalao:  ollama serve   (phir:  ollama pull "+localm+")"))
+    else: R.append(("○","local brain","ollama not installed — cloud/keyless rungs still work","optional: ollama.com/download (installer stage 2 prints the exact line)"))
+    keyed=[p["n"] for p in PROVIDERS if p["k"] and os.environ.get(p["k"])]
+    envf=_env_file(); pe=_perm_ok(envf)
+    R.append(("○" if not keyed else "✓","cloud keys",f"{len(keyed)} keyed: {', '.join(keyed) or 'none'}"+(" (keyless + local only)" if not keyed else ""),""))
+    if os.path.exists(envf): R.append(("✓" if pe else "✗","~/.ai-env perms",oct(os.stat(envf).st_mode&0o777),"" if pe else f"chmod 600 {envf}   (keys sabko dikh rahe hain)"))
+    else: R.append(("○","~/.ai-env","not created yet (no keys)",""))
+    vp_=VAULT
+    if not os.path.isdir(vp_): R.append(("○","vault",f"{vp_} · not created yet — made on first /remember (fresh install, not a fault)",""))
+    else:
+        ok=os.access(vp_,os.W_OK); R.append(("✓" if ok else "✗","vault",f"{vp_} · {'writable' if ok else 'NOT writable'}","" if ok else f"chmod u+rwx {vp_}"))
+    if IS_TERMUX:
+        try:
+            brc=open(os.path.expanduser("~/.bashrc"),encoding="utf-8",errors="replace").read()
+            leak=[k for k in KNOWN_KEYS if re.search(rf"^\s*(export\s+)?{re.escape(k)}=",brc,re.M)]
+            R.append(("✗" if leak else "✓","keys in .bashrc",", ".join(leak) if leak else "none (good — .bashrc is 644, ~/.ai-env is 600)","move to ~/.ai-env:  ai keys <NAME>   phir .bashrc se line hatao" if leak else ""))
+        except OSError: pass
+    up=net_up(); off=os.environ.get("AI_FORCE_OFFLINE")=="1"
+    R.append(("✓","network","offline mode (/net on se kholo)" if off else (f"link up · privacy router {'on' if os.environ.get('AI_PRIVACY','1')!='0' else 'OFF'}" if up else "link down — local brain, memory, tools, hands still work"),""))
+    conns=[n for n,pr in tools_cfg().get("providers",{}).items() if pr.get("connect")=="mcp"]
+    R.append(("○" if not conns else "✓","connectors",f"{len(conns)} wired: {', '.join(conns) or 'none'} · attended-only · each gets only its own credential",""))
+    forged=[f for f in os.listdir(os.path.expanduser("~/.local/bin")) if f.startswith(("ai-","mcp-"))] if os.path.isdir(os.path.expanduser("~/.local/bin")) else []
+    held=[f for f in forged if (_perm_ok(os.path.join(os.path.expanduser("~/.local/bin"),f),0o600) is True)]
+    R.append(("○" if not forged else ("✗" if held else "✓"),"forged tools",f"{len(forged)} on disk"+(f" · {len(held)} flagged risky and NOT registered: {', '.join(held[:3])}" if held else ""),"padho, phir chmod +x aur /mcp add — ya hata do" if held else ""))
+    tts=(_tts_argv() or [""])[0].split(os.sep)[-1]; R.append(("✓" if tts else "○","voice",f"TTS {tts or 'none'} · STT {STT_HINT} · push-to-talk only","" if tts else "optional — setup-menu / docs (no wake word by design)"))
+    tab=_h_table(); av=[h for h,hh in tab.items() if not h.startswith('_') and hand_available(hh)[0]]; hid=[h for h in tab if not h.startswith('_')]
+    R.append(("✓" if av else "○","hands",f"{len(av)}/{len(hid)} usable on {hand_os()} — /hands says why the rest are hidden",""))
+    dm=daemon_state(); R.append(("○","daemon",f"last run {dm['when']} · {dm.get('summary','')[:60]}" if dm else "never run (optional — ai daemon; read-only by design)",""))
+    return R
+def doctor_text(st=None):
+    R=doctor_rows(st); bad=[r for r in R if r[0]=="✗"]
+    L=[f"[doctor] {BRAND} · {time.strftime('%Y-%m-%d %H:%M')} · {len(R)} checks · {len(bad)} to fix"]
+    for m,label,val,fix in R:
+        L.append(f"  {m} {label:<16} {val}")
+        if fix: L.append(f"      fix: {fix}")
+    L.append("  ✓ fine · ✗ fix shown · ○ optional/not set.  Trust snapshot: /trust · what leaves: /egress · what it can do: /capabilities")
+    return "\n".join(L)
+
+# ══ CAPABILITY MATRIX — every thing this program can DO, as ONE descriptor shape, read from the tables that already gate it
+# (hands, ACTIONS, /do builtins, MCP providers, forge, cloud brains). Nothing here changes behaviour: it is the policy the
+# gates already enforce, made explicit and machine-readable, so /trust, /impact, /why and the adversarial tests read one
+# model — and so the "unattended" column can be TESTED against hand_run / mcp_ready / forge instead of trusted.
+# This is the first, safe step toward one policy engine: unify the description first; move the enforcement behind it later.
+_CLASS_OF_RISK={"R":"read","S":"write (reversible)","X":"write (asks)","D":"destructive"}
+def cap_matrix(osk=None):
+    rows=[]
+    tab=_h_table(osk)
+    for hid,h in tab.items():
+        if hid.startswith("_"): continue
+        tmpl=" ".join(a for t in (h.get("chain") or [h.get("argv",[])]) for a in t)+(h.get("target","") if "target" in h else "")
+        rows.append({"id":f"hand.{hid}","class":_CLASS_OF_RISK.get(h.get("risk"),"?"),"risk":h.get("risk","?"),
+                     "network":"opens url/app" if ("{url}" in tmpl or "http" in tmpl) else "no","credentials":"none",
+                     "reversible":"yes" if (h.get("risk")=="R" or h.get("undo") or h.get("stop")) else "no",
+                     "confirmation":"typed yes" if h.get("risk") in ("X","D") else "none",
+                     "unattended":"yes" if h.get("risk")=="R" else "no","gate":"hand_run"})
+    for name,a in ACTIONS.items():
+        rows.append({"id":f"action.{name}","class":"write","risk":{"low":"S","med":"X","high":"D"}.get(a.get("risk"),"?"),
+                     "network":"yes" if name in ("publish","setkey","serve_start") else "no","credentials":"keys" if name=="setkey" else "none",
+                     "reversible":"yes" if a.get("reversible") else "no","confirmation":"impact report" if a.get("risk")!="low" else "none",
+                     "unattended":"yes (daemon)" if name in ("kb_build",) else "no","gate":"impact_gate + caller"})
+    for name in sorted(BUILTINS):
+        rows.append({"id":f"do.{name}","class":"speak (device)" if name=="speak" else "network read (keyless)","risk":"S",
+                     "network":"no" if name=="speak" else "yes — public endpoint, logged","credentials":"none","reversible":"yes",
+                     "confirmation":"none","unattended":"no (attended caller)","gate":"route/egress log"})
+    for name,pr in tools_cfg().get("providers",{}).items():
+        if pr.get("connect")!="mcp": continue
+        rows.append({"id":f"mcp.{name}","class":"external tool","risk":"X","network":"yes (its own)" if pr.get("url") else "its own process (may network)",
+                     "credentials":", ".join((pr.get("env_map") or {}).keys()) or "none","reversible":"depends on tool",
+                     "confirmation":"attended only","unattended":"no","gate":"mcp_ready"})
+    rows.append({"id":"forge","class":"system (generates code)","risk":"D","network":"scanned: flagged if it opens one","credentials":"scanned: flagged if it reads env",
+                 "reversible":"file can be deleted","confirmation":"plan shown → typed yes → scan → preview","unattended":"no","gate":"mcp_forge"})
+    for p in PROVIDERS:
+        if p["n"]=="local": rows.append({"id":"brain.local","class":"local model","risk":"R","network":"localhost only","credentials":"none","reversible":"yes","confirmation":"none","unattended":"yes (ping)","gate":"route"})
+        elif p.get("k"): rows.append({"id":f"brain.{p['n']}","class":"cloud model","risk":"S","network":"yes — scrubbed text (privacy router)","credentials":p["k"],"reversible":"yes","confirmation":"none (you keyed it)","unattended":"ping only","gate":"route + redact"})
+    return rows
+def cap_matrix_text(osk=None):
+    rows=cap_matrix(osk)
+    L=[f"[capabilities] matrix — {len(rows)} things this install can do, one shape each (the policy the gates enforce; tested in tests/adversarial.py)",
+       f"  {'id':<22} {'class':<22} {'risk':<4} {'unattended':<14} {'confirmation':<26} network / credentials"]
+    for r in rows: L.append(f"  {r['id']:<22} {r['class']:<22} {r['risk']:<4} {r['unattended']:<14} {r['confirmation']:<26} {r['network']} · {r['credentials']}")
+    L.append("  risk: R read · S safe/reversible · X asks first · D destructive.  unattended = what the daemon may do.  /impact <action> · /why · /trust")
+    return "\n".join(L)
+# ══ TERM — the terminal is a device too. Probe what THIS terminal can pull and push by ASKING it (escape queries with
+# a 250 ms timeout on a real tty — never assumed, never sent blind into a pipe), cache it in ~/.ai-term.json per program
+# + size, then adapt every line printed after that: glyphs the terminal measurably cannot lay out get plain fallbacks,
+# width and colour depth become facts. Owner (2026-09-06): "jis bhi type ke terminal me enter kar rahe hain uske core
+# points se capabilities grab karo — scan, verify, assess; jo terminal freely allow kare wo push/pull karke adapt karo".
+# Honest boundary: a cursor-position report tells us how many CELLS a glyph took (alignment), not whether the FONT drew
+# it or a tofu box — that last bit only a human eye knows, so /term prints the measured line and asks once.
+TERM_FILE=os.path.expanduser("~/.ai-term.json"); TERMCAP={}
+_GLYPH_FALLBACK={"✓":"[ok]","✗":"[x]","○":"( )","⚠":"(!)","→":"->","·":"-","│":"|","┌":"+","└":"+","├":"+","─":"-","█":"#","░":".",
+                 "⏰":"[alarm]","🔋":"[batt]","🧠":"[brain]","🎤":"[mic]","🎙":"[mic]","🌐":"[web]","📱":"[phone]","🔒":"[lock]","🧭":"[setup]","💬":"[chat]","💻":"[pc]","🎬":"[video]","🔬":"[lab]","🪟":"[ctx]","👁":"[eye]","🛡":"[shield]","💽":"[disk]","🍎":"[ios]","🐧":"[linux]","📟":"[android]"}
+_GLYPH_EXPECT={"✓":1,"○":1,"→":1,"·":1,"│":1,"█":1,"⚠":1,"⏰":2,"🔋":2,"अ":1}
+def term_program():
+    e=os.environ
+    if IS_TERMUX or e.get("TERMUX_VERSION"): return "termux"
+    if e.get("WT_SESSION"): return "windows-terminal"
+    tp=(e.get("TERM_PROGRAM") or "").lower()
+    if "iterm" in tp: return "iterm2"
+    if "apple_terminal" in tp: return "apple-terminal"
+    if "vscode" in tp: return "vscode"
+    if "wezterm" in tp: return "wezterm"
+    if "blink" in tp: return "blink-ios"
+    if e.get("KITTY_WINDOW_ID"): return "kitty"
+    if e.get("KONSOLE_VERSION"): return "konsole"
+    if e.get("GNOME_TERMINAL_SCREEN") or e.get("VTE_VERSION"): return "gnome-terminal"
+    if e.get("ALACRITTY_WINDOW_ID") or "alacritty" in (e.get("TERM") or ""): return "alacritty"
+    if os.name=="nt": return "conhost"
+    if e.get("SSH_TTY"): return "ssh:"+(e.get("TERM") or "?")
+    return e.get("TERM") or "unknown"
+def _term_query(seq,timeout=0.25,endch="R"):
+    """Send an escape query and read the terminal's answer up to endch or the timeout. '' when not a tty, disabled, or silent."""
+    if not (sys.stdin.isatty() and sys.stdout.isatty()) or os.environ.get("AI_TERM_PROBE","1")=="0": return ""
+    try:
+        if os.name=="nt":
+            import msvcrt
+            sys.stdout.write(seq); sys.stdout.flush(); out=""; t0=time.time()
+            while time.time()-t0<timeout:
+                if msvcrt.kbhit():
+                    ch=msvcrt.getwch(); out+=ch
+                    if ch==endch: break
+                else: time.sleep(0.005)
+            return out
+        import termios,tty,select
+        fd=sys.stdin.fileno(); old=termios.tcgetattr(fd)
+        try:
+            tty.setcbreak(fd); sys.stdout.write(seq); sys.stdout.flush(); out=""; t0=time.time()
+            while time.time()-t0<timeout:
+                r,_,_=select.select([fd],[],[],max(0.0,timeout-(time.time()-t0)))
+                if not r: break
+                ch=os.read(fd,1).decode("utf-8","ignore"); out+=ch
+                if ch==endch: break
+        finally: termios.tcsetattr(fd,termios.TCSADRAIN,old)
+        return out
+    except Exception: return ""
+def _cursor_col():
+    m=re.search(r"\x1b\[(\d+);(\d+)R",_term_query("\x1b[6n")); return int(m.group(2)) if m else None
+def _glyph_cells(g):
+    """How many cells THIS terminal advanced for g — measured (cursor report before/after), then the probe is erased."""
+    c0=_cursor_col()
+    if c0 is None: return None
+    sys.stdout.write(g); sys.stdout.flush(); c1=_cursor_col(); sys.stdout.write("\r\x1b[K"); sys.stdout.flush()
+    return None if c1 is None else c1-c0
+def _term_load():
+    try: return json.load(open(TERM_FILE))
+    except Exception: return {}
+def term_probe(force=False):
+    """Measure once per (program, width); cached in ~/.ai-term.json. `/term probe` re-measures."""
+    prog=term_program(); sz=shutil.get_terminal_size((80,24)); cached=_term_load()
+    if not force and cached.get("v")==2 and cached.get("program")==prog and cached.get("cols")==sz.columns:
+        TERMCAP.clear(); TERMCAP.update(cached); return cached
+    tty_=bool(sys.stdout.isatty() and sys.stdin.isatty())
+    enc=(getattr(sys.stdout,"encoding","") or "").lower().replace("-","")
+    color=("truecolor" if (os.environ.get("COLORTERM","").lower() in ("truecolor","24bit") or prog in ("windows-terminal","iterm2","kitty","wezterm","alacritty","vscode","termux"))
+           else "256" if "256" in (os.environ.get("TERM") or "") else "16" if tty_ else "none")
+    t={"v":2,"program":prog,"cols":sz.columns,"rows":sz.lines,"tty":tty_,"utf8":enc=="utf8","color":color,"answers_cpr":False,"da1":"","glyphs":{},"measured":time.strftime("%Y-%m-%d %H:%M")}
+    if tty_:
+        c=_cursor_col(); t["answers_cpr"]=c is not None
+        if t["answers_cpr"]:
+            for g in _GLYPH_EXPECT: t["glyphs"][g]=_glyph_cells(g)
+            t["da1"]=_term_query("\x1b[c",endch="c").replace("\x1b","ESC")
+    run="run" if t["answers_cpr"] else "doc"
+    t["push"]={"title (OSC 0/2)":"no" if prog=="conhost" else run,
+               "clipboard (OSC 52)":"doc" if prog in ("windows-terminal","iterm2","kitty","wezterm","alacritty","termux","blink-ios") else "no",
+               "hyperlinks (OSC 8)":"doc" if prog in ("windows-terminal","iterm2","kitty","wezterm","gnome-terminal","konsole","vscode","alacritty","termux") else "no",
+               "notification (OSC 9/777)":"doc" if prog in ("iterm2","kitty","wezterm","windows-terminal","konsole") else "no",
+               "bell":"run" if tty_ else "no"}
+    t["pull"]={"size (rows×cols)":"run","cursor (DSR 6)":"run" if t["answers_cpr"] else "no answer","device attributes (DA1)":"run" if t["da1"] else "no answer","colour depth":"from env"}
+    try: json.dump(t,open(TERM_FILE,"w")); os.chmod(TERM_FILE,0o600)
+    except OSError: pass
+    TERMCAP.clear(); TERMCAP.update(t); return t
+class _AdaptOut:
+    """stdout wrapper: glyphs this terminal measurably cannot lay out become plain fallbacks. Installed only on a tty."""
+    def __init__(self,base,table): self._b=base; self._t=table
+    def write(self,s):
+        for k,v in self._t.items(): s=s.replace(k,v)
+        return self._b.write(s)
+    def __getattr__(self,n): return getattr(self._b,n)
+def term_fallback_table(t):
+    """Which glyphs to replace, from measurements: a family falls back together (if ✓ breaks, so do ✗ ○ ⚠)."""
+    g=t.get("glyphs") or {}; bad=set()
+    for k,n in g.items():
+        exp=_GLYPH_EXPECT.get(k,1)
+        if n is None or n<1 or n>exp: bad.add(k)
+    if not t.get("utf8"): bad|=set(_GLYPH_EXPECT)
+    table={}
+    if bad&{"✓","○","⚠","→","·"}: table.update({k:v for k,v in _GLYPH_FALLBACK.items() if k in "✓✗○⚠→·"})
+    if bad&{"│","█"}: table.update({k:v for k,v in _GLYPH_FALLBACK.items() if k in "│┌└├─█░"})
+    if bad&{"⏰","🔋"}: table.update({k:v for k,v in _GLYPH_FALLBACK.items() if k not in "✓✗○⚠→·│┌└├─█░"})   # everything else in the table is the pictograph family
+    return table
+def term_adapt(t=None):
+    t=t or TERMCAP or term_probe()
+    if os.environ.get("AI_TERM_ADAPT","1")=="0": return {}
+    table=term_fallback_table(t)
+    if table and sys.stdout.isatty() and not isinstance(sys.stdout,_AdaptOut): sys.stdout=_AdaptOut(sys.stdout,table)
+    TERMCAP["fallback"]=table; return table
+def term_text(t=None):
+    t=t or TERMCAP or term_probe(); fb=t.get("fallback") or term_fallback_table(t)
+    L=[f"[term] {t['program']} · {t['cols']}×{t['rows']} · colour {t['color']} · utf-8 {'yes' if t.get('utf8') else 'NO'} · {'a tty' if t.get('tty') else 'not a tty (piped) — nothing probed'} · measured {t.get('measured','?')}"]
+    if t.get("glyphs"):
+        L.append("  glyph cells (measured by cursor report; expected in brackets — a match means it lines up, the eye still judges the shape):")
+        L.append("    "+"  ".join(f"{g}={n if n is not None else '?'}[{_GLYPH_EXPECT[g]}]" for g,n in t["glyphs"].items()))
+    elif t.get("tty"): L.append("  glyphs: this terminal did not answer a cursor-position query — nothing measured, no fallback applied (AI_TERM_PROBE=0 to skip probing)")
+    L.append("  can PUSH → "+" · ".join(f"{k}: {v}" for k,v in (t.get("push") or {}).items()))
+    L.append("  can PULL ← "+" · ".join(f"{k}: {v}" for k,v in (t.get("pull") or {}).items()))
+    L.append("  fallback: "+(", ".join(f"{k}→{v}" for k,v in list(fb.items())[:6])+(" …" if len(fb)>6 else "") if fb else "none needed"))
+    L.append("  run · doc · no = measured here · from the program's documentation · not offered.  Re-measure: /term probe · raw: /term raw · fallback off: AI_TERM_ADAPT=0")
+    L.append("  Ek baar batao: upar ki glyph line saaf dikhi ya boxes (□)? — font ka jawab sirf aankh de sakti hai.  Theme/font size hands: next radius.")
+    return "\n".join(L)
+def term_cmd(a):
+    a=(a or "").strip().lower()
+    if a=="probe": t=term_probe(force=True); term_adapt(t); print(term_text(t)); return
+    if a=="raw": print(json.dumps(TERMCAP or term_probe(),ensure_ascii=False,indent=1)); return
+    print(term_text())
+# ══ THEMES — four palettes as DATA (light · dark · nerd · aasmaan), built on colour theory and MEASURED for contrast
+# (WCAG: text ≥ 7:1, every accent ≥ 3:1 against the background — a pin, not a promise). Applying is two doors, kept
+# apart from the probe (r32): (1) SESSION push through the xterm OSC colour sequences almost every modern terminal
+# understands (10 fg · 11 bg · 12 cursor · 4;n palette), re-pushed at every start from ~/.ai-theme.json — persistent
+# enough on any OSC-capable terminal without touching a config file; (2) PERSIST through the platform's own config,
+# as a typed hand with a backup and an undo (Termux colors.properties · Windows Terminal settings.json · GNOME
+# Terminal gsettings · macOS Terminal window colours). Owner (2026-09-06): "har platform ke default interface ke liye
+# premade 3-4 themes … light dark nerd aur aasmaan, colour-theory based palette; push/pull capabilities alag rakho".
+THEME_FILE=os.path.expanduser("~/.ai-theme.json"); THEME_BAK=os.path.expanduser("~/.ai-theme-backup")
+THEMES={
+ "light":  {"note":"warm paper + cool ink; muted accents so colour never shouts on white (Munsell: low chroma on high value)",
+            "bg":"#FAFAF7","fg":"#1F2328","cursor":"#1B5FBF",
+            "ansi":["#1F2328","#B3261E","#1B7F3B","#8A6100","#1B5FBF","#8E24AA","#0E7C86","#D9D9D4","#5A6069","#D93F32","#2E9E4F","#A67C00","#3A78D8","#A64AC9","#1E97A3","#FFFFFF"]},
+ "dark":   {"note":"neutral near-black + pastel accents at even lightness (no single colour dominates a dark field)",
+            "bg":"#0F1115","fg":"#E6E6E6","cursor":"#7AA2F7",
+            "ansi":["#1A1D23","#FF6B6B","#7BD88F","#FFD166","#7AA2F7","#C792EA","#7FDBFF","#C8CCD4","#3A3F4B","#FF8A8A","#9BE8A8","#FFE08A","#9FBCFF","#D9B0F5","#A6E9FF","#FFFFFF"]},
+ "nerd":   {"note":"phosphor: one hue (green) carries the text, amber is the single complementary call-to-action",
+            "bg":"#000000","fg":"#33FF66","cursor":"#FFB000",
+            "ansi":["#0B0F0B","#FF5555","#33FF66","#FFB000","#4FC3F7","#C792EA","#00E5FF","#B0FFB0","#2E4A2E","#FF7B7B","#66FF99","#FFC94D","#81D4FA","#D9B0F5","#66F0FF","#E0FFE0"]},
+ "aasmaan":{"note":"आसमान: analogous night-indigo → sky → horizon-teal base, ONE complementary saffron (sunrise) accent — Itten's complementary contrast; cloud-white text",
+            "bg":"#0B1F3A","fg":"#E8EEF7","cursor":"#F4A261",
+            "ansi":["#12294A","#E76F8A","#7CC47F","#F4A261","#4FA3E3","#B197FC","#2EC4B6","#CBD6E6","#2B4468","#F28FA5","#9BD99E","#F7B984","#7BBDF0","#C7B3FF","#5ED8CC","#FFFFFF"]},
+}
+_ANSI_NAMES=["black","red","green","yellow","blue","magenta","cyan","white"]
+def _rgb(h): h=h.lstrip("#"); return tuple(int(h[i:i+2],16) for i in (0,2,4))
+def _lum(h):
+    def ch(c): c=c/255; return c/12.92 if c<=0.03928 else ((c+0.055)/1.055)**2.4
+    r,g,b=_rgb(h); return 0.2126*ch(r)+0.7152*ch(g)+0.0722*ch(b)
+def contrast(a,b):
+    """WCAG contrast ratio between two #hex colours (1.0 … 21.0)."""
+    la,lb=_lum(a),_lum(b); hi,lo=max(la,lb),min(la,lb); return (hi+0.05)/(lo+0.05)
+def theme_check(name):
+    """(ok, detail): text ≥ 7:1 and every accent (ansi 1-6, 9-14) ≥ 3:1 against the background — measured, every run."""
+    t=THEMES[name]; bad=[]
+    fgc=contrast(t["fg"],t["bg"])
+    if fgc<7: bad.append(f"fg {fgc:.1f}<7")
+    for i in (1,2,3,4,5,6,9,10,11,12,13,14):
+        c=contrast(t["ansi"][i],t["bg"])
+        if c<3: bad.append(f"{_ANSI_NAMES[i%8]}{'+' if i>7 else ''} {c:.1f}<3")
+    return (not bad),(f"text {fgc:.1f}:1 · accents ≥ {min(contrast(t['ansi'][i],t['bg']) for i in (1,2,3,4,5,6,9,10,11,12,13,14)):.1f}:1" if not bad else "; ".join(bad))
+def theme_osc(name):
+    """The session sequences: OSC 10/11/12 + OSC 4;n — only hex digits from the palette ever enter them."""
+    t=THEMES[name]; seq=f"\x1b]10;{t['fg']}\x07\x1b]11;{t['bg']}\x07\x1b]12;{t['cursor']}\x07"
+    for i,c in enumerate(t["ansi"]): seq+=f"\x1b]4;{i};{c}\x07"
+    return seq
+def theme_reset_seq(): return "\x1b]110\x07\x1b]111\x07\x1b]112\x07\x1b]104\x07"
+def _theme_state():
+    try: return json.load(open(THEME_FILE))
+    except Exception: return {}
+def theme_push(name,quiet=False):
+    """Apply for THIS session (tty only). Saved so every start re-pushes it."""
+    if name not in THEMES: return False
+    ok,det=theme_check(name)
+    if sys.stdout.isatty() and os.environ.get("AI_THEME_PUSH","1")!="0":
+        base=getattr(sys.stdout,"_b",sys.stdout); base.write(theme_osc(name)); base.flush()
+    try: json.dump({"theme":name,"since":time.strftime("%Y-%m-%d %H:%M")},open(THEME_FILE,"w")); os.chmod(THEME_FILE,0o600)
+    except OSError: pass
+    if not quiet: print(f"[theme] {name} — {THEMES[name]['note']}\n  contrast: {det} · session (OSC 10/11/12/4) · har start pe dobara lagega · persist: /theme {name} save · wapas: /theme off")
+    return True
+def theme_off():
+    if sys.stdout.isatty():
+        base=getattr(sys.stdout,"_b",sys.stdout); base.write(theme_reset_seq()); base.flush()
+    try: os.remove(THEME_FILE)
+    except OSError: pass
+    print("[theme] terminal ke apne default colours wapas (OSC 104/110/111/112); persist kiya tha to: /theme undo")
+def theme_swatches(name):
+    t=THEMES[name]; tc=(TERMCAP.get("color")=="truecolor") and sys.stdout.isatty()
+    def sw(h,label):
+        if tc: r,g,b=_rgb(h); return f"\x1b[48;2;{r};{g};{b}m  \x1b[0m {label:<8}{h}"
+        return f"■ {label:<8}{h}"
+    L=[f"  {sw(t['bg'],'bg')}   {sw(t['fg'],'text')}   {sw(t['cursor'],'cursor')}"]
+    L.append("  "+"  ".join(sw(t["ansi"][i],_ANSI_NAMES[i]) for i in range(1,7)))
+    return "\n".join(L)
+def theme_text():
+    cur=_theme_state().get("theme"); L=[f"[theme] {len(THEMES)} palettes — colour theory, contrast measured (WCAG). Current: {cur or 'terminal default'}"]
+    for n,t in THEMES.items():
+        ok,det=theme_check(n); L.append(f"  {'▶' if n==cur else ' '} {n:<8} {det:<32} {t['note']}")
+    tab=_h_table(); pers=[h for h in tab if h.startswith("theme_persist") and hand_available(tab[h])[0]]
+    L.append(f"  apply now:  /theme <name>   (session, re-applied every start)   ·   write into this terminal's config:  /theme <name> save   ({'available: '+', '.join(pers) if pers else 'no config hand on this platform yet — session apply still works'})")
+    L.append("  off: /theme off · undo a saved one: /theme undo · plain words: \"dark theme lagao\", \"aasmaan theme\"")
+    return "\n".join(L)
+def theme_cmd(st,a):
+    p=(a or "").strip().lower().split()
+    if not p: print(theme_text()); return
+    if p[0] in ("off","reset","default"): theme_off(); return
+    if p[0]=="undo":
+        theme_off()
+        # the restore only puts back files WE backed up (manifest in ~/.ai-theme-backup) — it needs no hand gate, so it works from any terminal, including uninstall
+        if os.path.exists(os.path.join(THEME_BAK,"manifest.json")) or os.path.exists(os.path.join(THEME_BAK,"gnome.json")): print("[theme] "+_theme_restore().replace("\n","\n        "))
+        else: print("[theme] is platform pe koi saved config nahi tha")
+        return
+    name=p[0]
+    if name not in THEMES: print(f"[theme] '{name}' nahi — {', '.join(THEMES)}"); return
+    print(theme_swatches(name))
+    theme_push(name)
+    if len(p)>1 and p[1] in ("save","persist"):
+        tab=_h_table(); h=next((x for x in tab if x.startswith("theme_persist")),None)
+        if not h or not hand_available(tab[h])[0]: print("[theme] is terminal ke config ke liye hand abhi nahi — session apply chal raha hai, har start pe lagega"); return
+        hand_run(st,h,{"theme":name},source="theme")
+_THEME_RX=re.compile(r"^(?:(?:mujhe |ek )?(?P<n>light|dark|nerd|aasmaan|aasman)\s*(?:(?:theme|mode|colou?rs?)\s*(?:laga(?:o| do)?|kar(?: do)?|chahiye|on|please)?|(?:laga(?:o| do)?|kar(?: do)?|chahiye|on))|(?:theme|mode|colou?rs?)\s*(?P<n2>light|dark|nerd|aasmaan|aasman)\s*(?:laga(?:o| do)?|kar(?: do)?)?|theme (?P<off>off|hatao|default|reset))$",re.I)   # a bare word ("dark", "light") is never a theme switch: it needs theme/mode/colour or a verb
+def theme_intent(text):
+    m=_THEME_RX.match((text or "").strip())
+    if not m: return None
+    if m.group("off"): return "off"
+    n=(m.group("n") or m.group("n2") or "").lower(); return "aasmaan" if n=="aasman" else n
+# ── persist writers (py hands): each writes ONE backup first (~/.ai-theme-backup/), never twice; theme name is an enum
+def _theme_bak(key,path):
+    os.makedirs(THEME_BAK,exist_ok=True)
+    try: os.chmod(THEME_BAK,0o700)
+    except OSError: pass
+    man=os.path.join(THEME_BAK,"manifest.json")
+    try: m=json.load(open(man))
+    except Exception: m={}
+    if key not in m:
+        bak=os.path.join(THEME_BAK,key+".bak")
+        if os.path.exists(path): shutil.copy2(path,bak); m[key]={"path":path,"bak":bak}
+        else: m[key]={"path":path,"bak":None}
+        json.dump(m,open(man,"w"))
+    return m[key]
+def _theme_termux(name):
+    t=THEMES[name]; d=os.path.expanduser("~/.termux"); os.makedirs(d,exist_ok=True); p=os.path.join(d,"colors.properties"); _theme_bak("termux",p)
+    L=[f"# {BRAND} theme: {name} — {t['note']}",f"background={t['bg']}",f"foreground={t['fg']}",f"cursor={t['cursor']}"]+[f"color{i}={c}" for i,c in enumerate(t["ansi"])]
+    open(p,"w").write("\n".join(L)+"\n"); runargv(["termux-reload-settings"]); return f"wrote {p} (backup in {THEME_BAK}) · reloaded"
+def _wt_settings():
+    la=os.environ.get("LOCALAPPDATA","")
+    for sub in ("Microsoft.WindowsTerminal_8wekyb3d8bbwe","Microsoft.WindowsTerminalPreview_8wekyb3d8bbwe"):
+        p=os.path.join(la,"Packages",sub,"LocalState","settings.json")
+        if la and os.path.exists(p): return p
+    p=os.path.join(la,"Microsoft","Windows Terminal","settings.json"); return p if la and os.path.exists(p) else ""
+def _theme_wt(name):
+    t=THEMES[name]; p=_wt_settings()
+    if not p: return "Windows Terminal settings.json nahi mila"
+    try: cfg=json.load(open(p,encoding="utf-8"))
+    except Exception as e: return f"settings.json parse nahi hua ({type(e).__name__}) — comments/trailing commas? haath se: Settings → Color schemes"
+    _theme_bak("wt",p); sch=f"{BRAND} {name}"
+    scheme={"name":sch,"background":t["bg"],"foreground":t["fg"],"cursorColor":t["cursor"],"selectionBackground":t["ansi"][8]}
+    for i,k in enumerate(["black","red","green","yellow","blue","purple","cyan","white"]): scheme[k]=t["ansi"][i]; scheme["bright"+k.capitalize()]=t["ansi"][i+8]
+    cfg["schemes"]=[s for s in cfg.get("schemes",[]) if s.get("name")!=sch]+[scheme]
+    prof=cfg.setdefault("profiles",{}); 
+    if isinstance(prof,dict): prof.setdefault("defaults",{})["colorScheme"]=sch
+    json.dump(cfg,open(p,"w",encoding="utf-8"),indent=4); return f"scheme '{sch}' added + set as default profile colour (backup in {THEME_BAK}) — Windows Terminal reloads itself"
+def _theme_gnome(name):
+    t=THEMES[name]; out=runargv(["gsettings","get","org.gnome.Terminal.ProfilesList","default"]) or ""
+    uid=out.strip().strip("'"); 
+    if not uid: return "GNOME Terminal default profile nahi mila"
+    base=f"org.gnome.Terminal.Legacy.Profile:/org/gnome/terminal/legacy/profiles:/:{uid}/"
+    man=os.path.join(THEME_BAK,"gnome.json"); os.makedirs(THEME_BAK,exist_ok=True)
+    if not os.path.exists(man): json.dump({k:(runargv(["gsettings","get",base,k]) or "").strip() for k in ("use-theme-colors","background-color","foreground-color","palette")},open(man,"w"))
+    pal="["+", ".join(f"'{c}'" for c in t["ansi"])+"]"
+    for k,v in (("use-theme-colors","false"),("background-color",f"'{t['bg']}'"),("foreground-color",f"'{t['fg']}'"),("palette",pal)): runargv(["gsettings","set",base,k,v])
+    return f"GNOME profile {uid[:8]}… coloured (previous values saved in {man})"
+def _theme_macterm(name):
+    t=THEMES[name]
+    def trip(h): r,g,b=_rgb(h); return f"{{{r*257}, {g*257}, {b*257}}}"
+    scr=(f'tell application "Terminal" to tell selected tab of front window to set background color to {trip(t["bg"])}\n'
+         f'tell application "Terminal" to tell selected tab of front window to set normal text color to {trip(t["fg"])}\n'
+         f'tell application "Terminal" to tell selected tab of front window to set cursor color to {trip(t["cursor"])}')
+    runargv(["osascript","-e",scr]); return "is window ke colours set (Terminal.app profiles Settings → Profiles se save hote hain; ye window-level hai)"
+def _theme_restore():
+    man=os.path.join(THEME_BAK,"manifest.json"); did=[]
+    try: m=json.load(open(man))
+    except Exception: m={}
+    for key,rec in m.items():
+        try:
+            if rec.get("bak") and os.path.exists(rec["bak"]): shutil.copy2(rec["bak"],rec["path"]); did.append(f"{key}: restored {rec['path']}")
+            elif os.path.exists(rec["path"]): os.remove(rec["path"]); did.append(f"{key}: removed {rec['path']} (there was none before)")
+        except OSError as e: did.append(f"{key}: {e}")
+    g=os.path.join(THEME_BAK,"gnome.json")
+    if os.path.exists(g):
+        try:
+            prev=json.load(open(g)); out=runargv(["gsettings","get","org.gnome.Terminal.ProfilesList","default"]) or ""; uid=out.strip().strip("'")
+            base=f"org.gnome.Terminal.Legacy.Profile:/org/gnome/terminal/legacy/profiles:/:{uid}/"
+            for k,v in prev.items():
+                if v: runargv(["gsettings","set",base,k,v])
+            os.remove(g); did.append("gnome: previous colours restored")
+        except Exception as e: did.append(f"gnome: {e}")
+    if IS_TERMUX and any(d.startswith("termux") for d in did): runargv(["termux-reload-settings"])
+    try:
+        if m: os.remove(man)
+    except OSError: pass
+    return "\n".join(did) if did else "koi saved theme config nahi tha"
+# ── SHORTCUT: the onboarding's LAST step — 'ai' where your OS puts the things you open (home screen, launcher,
+# Start Menu, Dock). Files only under HOME, every path recorded (~/.ai-shortcuts.json) so /shortcut rm removes exactly
+# them; PIN only where the OS lets a program do it (GNOME: auto + reversible · macOS Dock: asks, restarts the Dock ·
+# Android and Windows: no API exists → the exact manual step is printed instead of a promise).
+SHORTCUT_FILE=os.path.expanduser("~/.ai-shortcuts.json")
+_SC_SVG='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#0B1F3A"/><circle cx="32" cy="34" r="13" fill="#F4A261"/><path d="M6 46h52" stroke="#4FA3E3" stroke-width="5" stroke-linecap="round"/></svg>\n'
+def _png_icon(w=96):
+    """A stdlib PNG (indigo tile, saffron sun, sky line) for launchers that want a bitmap (Termux:Widget)."""
+    import zlib,struct
+    rows=[]
+    for y in range(w):
+        row=bytearray([0])
+        for x in range(w):
+            dx,dy=x-w/2,y-w*0.53
+            if 0.70*w<=y<0.78*w and w*0.09<=x<w*0.91: c=(0x4F,0xA3,0xE3)
+            elif dx*dx+dy*dy<=(w*0.2)**2: c=(0xF4,0xA2,0x61)
+            else: c=(0x0B,0x1F,0x3A)
+            row+=bytes(c)
+        rows.append(bytes(row))
+    def chunk(t,d): return struct.pack(">I",len(d))+t+d+struct.pack(">I",zlib.crc32(t+d)&0xffffffff)
+    return b"\x89PNG\r\n\x1a\n"+chunk(b"IHDR",struct.pack(">IIBBBBB",w,w,8,2,0,0,0))+chunk(b"IDAT",zlib.compress(b"".join(rows),9))+chunk(b"IEND",b"")
+def _self_launch(osk):
+    """How a launcher starts 'ai': (target, args). Code-derived paths only (the installed file or its shim) — never user text."""
+    me=os.path.abspath(__file__)
+    if osk=="nt":
+        shim=os.path.join(os.path.dirname(os.path.dirname(me)),"bin","ai.cmd")
+        if os.path.exists(shim): return shim,""
+        w=shutil.which("ai.cmd") or shutil.which("ai")
+        return (w,"") if w else (sys.executable,f'"{me}"')
+    return (shutil.which("ai") or me),""
+def shortcut_plan(osk=None):
+    """What /shortcut add would create on this OS, and whether a pin is auto / asks / manual / no — before anything is touched."""
+    osk=osk or hand_os(); H=os.path.expanduser("~"); tgt,args=_self_launch(osk)
+    if osk=="termux":
+        return {"os":osk,"target":tgt,"args":args,"create":[("Termux:Widget script",os.path.join(H,".shortcuts",BRAND)),("icon (PNG)",os.path.join(H,".shortcuts","icons",BRAND+".png"))],
+                "pin":("manual",f"Android lets no terminal pin anything itself. Install Termux:Widget (F-Droid: https://f-droid.org/packages/com.termux.widget/ — same signature as your Termux), then long-press the home screen → Widgets → Termux:Widget → 'Termux shortcut' → pick {BRAND}. One tap = ai.")}
+    if osk=="linux":
+        gnome=bool(shutil.which("gsettings")) and "gnome" in os.environ.get("XDG_CURRENT_DESKTOP","").lower()
+        return {"os":osk,"target":tgt,"args":args,"create":[("launcher entry",os.path.join(H,".local","share","applications","aasmaan.desktop")),("icon (SVG)",os.path.join(H,".local","share","icons","hicolor","scalable","apps","aasmaan.svg"))],
+                "pin":("auto","GNOME dash favourites (gsettings; the previous list is saved, /shortcut rm restores it)") if gnome else ("manual",f"open your app menu → {BRAND} → right-click → Pin / Add to Favourites / Add to Panel (KDE, XFCE, Cinnamon each name it differently; a program cannot do it for you there)")}
+    if osk=="darwin":
+        return {"os":osk,"target":tgt,"args":args,"create":[("app bundle",os.path.join(H,"Applications",BRAND+".app"))],
+                "pin":("asks","Dock: /shortcut pin — adds the app to the Dock and restarts the Dock (defaults write + killall Dock); undo = drag it off the Dock")}
+    if osk=="nt":
+        ap=os.environ.get("APPDATA") or os.path.join(H,"AppData","Roaming")
+        return {"os":osk,"target":tgt,"args":args,"create":[("Desktop shortcut",os.path.join(H,"Desktop",BRAND+".lnk")),("Start Menu entry",os.path.join(ap,"Microsoft","Windows","Start Menu","Programs",BRAND+".lnk"))],
+                "pin":("manual",f"Windows gives programs no pin-to-taskbar API (removed in Windows 10). Start → type {BRAND} → right-click → Pin to taskbar.")}
+    return {"os":osk,"target":tgt,"args":args,"create":[],"pin":("no","no launcher on this platform (WSL: install on the Windows side too and run 'ai shortcut add' there, or just open WSL and type ai)")}
+def _sc_state():
+    try: return json.load(open(SHORTCUT_FILE))
+    except Exception: return {}
+def _sc_record(paths,extra=None):
+    s=_sc_state(); s["files"]=sorted(set(s.get("files",[]))|set(paths)); s.update(extra or {})
+    try: json.dump(s,open(SHORTCUT_FILE,"w")); os.chmod(SHORTCUT_FILE,0o600)
+    except OSError: pass
+def _shortcut_write(osk=None):
+    """Create this OS's launcher entries. Returns what was written; every path is recorded for /shortcut rm."""
+    osk=osk or hand_os(); p=shortcut_plan(osk); tgt=p["target"]; args=p["args"]; made=[]
+    if osk=="termux":
+        d=os.path.join(os.path.expanduser("~"),".shortcuts"); os.makedirs(os.path.join(d,"icons"),exist_ok=True)
+        try: os.chmod(d,0o700)
+        except OSError: pass
+        sp=p["create"][0][1]; open(sp,"w").write(f"#!/data/data/com.termux/files/usr/bin/bash\n# {BRAND} — Termux:Widget shortcut (made by 'ai shortcut add'; 'ai shortcut rm' removes it)\nexec {shlex.quote(tgt)} {args}\n".replace(" \n","\n")); os.chmod(sp,0o755); made.append(sp)
+        ip=p["create"][1][1]; open(ip,"wb").write(_png_icon()); made.append(ip)
+    elif osk=="linux":
+        dp,ip=p["create"][0][1],p["create"][1][1]; os.makedirs(os.path.dirname(dp),exist_ok=True); os.makedirs(os.path.dirname(ip),exist_ok=True)
+        open(ip,"w").write(_SC_SVG); made.append(ip)
+        ex=(f'"{tgt}"' if " " in tgt else tgt)+(" "+args if args else "")
+        open(dp,"w").write(f"[Desktop Entry]\nType=Application\nName={BRAND}\nComment=your AI, in a terminal, on your device\nExec={ex}\nIcon=aasmaan\nTerminal=true\nCategories=Utility;\nStartupNotify=false\n"); os.chmod(dp,0o755); made.append(dp)
+        if shutil.which("update-desktop-database"):
+            try: subprocess.run(["update-desktop-database",os.path.dirname(dp)],capture_output=True,timeout=30)
+            except Exception: pass
+    elif osk=="darwin":
+        import html as _html
+        app=p["create"][0][1]; os.makedirs(os.path.join(app,"Contents","MacOS"),exist_ok=True)
+        open(os.path.join(app,"Contents","Info.plist"),"w").write(f'<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict>\n<key>CFBundleName</key><string>{_html.escape(BRAND)}</string>\n<key>CFBundleIdentifier</key><string>com.aasmaan.launcher</string>\n<key>CFBundleExecutable</key><string>{_html.escape(BRAND)}</string>\n<key>CFBundlePackageType</key><string>APPL</string>\n<key>CFBundleVersion</key><string>1</string>\n<key>LSUIElement</key><true/>\n</dict></plist>\n')
+        ex=os.path.join(app,"Contents","MacOS",BRAND); q=(shlex.quote(tgt)+(" "+args if args else "")).replace("\\","\\\\").replace('"','\\"')
+        open(ex,"w").write(f"#!/bin/bash\n# {BRAND} launcher — opens Terminal.app and runs ai (the installed path, written at creation by 'ai shortcut add')\nosascript -e 'tell application \"Terminal\"' -e 'do script \"{q}\"' -e 'activate' -e 'end tell'\n"); os.chmod(ex,0o755); made.append(app)
+    elif osk=="nt":
+        ps=shutil.which("powershell.exe") or shutil.which("powershell") or shutil.which("pwsh")
+        if not ps: return "powershell nahi mila — shortcut nahi bana"
+        scr=os.path.join(os.path.expanduser("~"),".ai-shortcut.ps1")   # static script; the paths travel as environment variables, never inside it
+        open(scr,"w",encoding="utf-8").write('$s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:AI_SC_LNK)\n$s.TargetPath=$env:AI_SC_TARGET\nif ($env:AI_SC_ARGS) { $s.Arguments=$env:AI_SC_ARGS }\n$s.WorkingDirectory=$env:USERPROFILE\n$s.Description="'+BRAND+' - your AI, in a terminal"\n$s.Save()\n')
+        for label,lnk in p["create"]:
+            os.makedirs(os.path.dirname(lnk),exist_ok=True)
+            env=_child_env(); env.update({"AI_SC_LNK":lnk,"AI_SC_TARGET":tgt,"AI_SC_ARGS":args})
+            try:
+                r=subprocess.run([ps,"-NoProfile","-ExecutionPolicy","Bypass","-File",scr],capture_output=True,text=True,timeout=60,env=env)
+                if r.returncode==0 and os.path.exists(lnk): made.append(lnk)
+                else: print(f"[shortcut] {label}: {(r.stderr or r.stdout).strip()[:200]}")
+            except Exception as e: print(f"[shortcut] {label}: {type(e).__name__}: {e}")
+        try: os.remove(scr)
+        except OSError: pass
+    else: return p["pin"][1]
+    _sc_record(made)
+    L=[f"created: {m}" for m in made] or ["nothing created"]; how,txt=p["pin"]; L.append(("pin: " if how!="auto" else "pin (auto, next): ")+txt)
+    return "\n".join(L)
+def _shortcut_pin(osk=None):
+    osk=osk or hand_os(); p=shortcut_plan(osk)
+    if osk=="linux":
+        cur=(runargv(["gsettings","get","org.gnome.shell","favorite-apps"]) or "").strip()
+        if not cur.startswith("["): return "GNOME favourites nahi padh paya ("+(cur or "gsettings blank")+") — app menu se pin karo"
+        if "'aasmaan.desktop'" in cur: return "already in GNOME favourites"
+        new=(cur.rstrip("]").rstrip()+(", " if cur.strip()!="[]" else "")+"'aasmaan.desktop']")
+        runargv(["gsettings","set","org.gnome.shell","favorite-apps",new]); _sc_record([],{"gnome_favs_prev":cur}); return "added to the GNOME dash favourites (previous list saved; /shortcut rm restores it)"
+    if osk=="darwin":
+        import html as _html
+        app=p["create"][0][1]
+        if not os.path.isdir(app): return f"{app} nahi hai — pehle /shortcut add"
+        tile=f'<dict><key>tile-data</key><dict><key>file-data</key><dict><key>_CFURLString</key><string>{_html.escape(app)}</string><key>_CFURLStringType</key><integer>0</integer></dict></dict></dict>'
+        runargv(["defaults","write","com.apple.dock","persistent-apps","-array-add",tile]); runargv(["killall","Dock"]); _sc_record([],{"dock":True}); return "added to the Dock (Dock restarted). Undo: drag it off the Dock"
+    return p["pin"][1]
+def _shortcut_rm():
+    """Remove exactly what 'ai' recorded, restore the GNOME favourites if it changed them, drop the record. Needs no hand gate: it only reverses our own writes."""
+    s=_sc_state(); did=[]
+    for f in s.get("files",[]):
+        try:
+            if os.path.isdir(f): shutil.rmtree(f)
+            elif os.path.exists(f): os.remove(f)
+            else: continue
+            did.append("removed "+f)
+        except OSError as e: did.append(f"{f}: {e}")
+    if s.get("gnome_favs_prev") and shutil.which("gsettings"): runargv(["gsettings","set","org.gnome.shell","favorite-apps",s["gnome_favs_prev"]]); did.append("GNOME favourites restored")
+    if s.get("dock"): did.append(f"Dock: drag {BRAND} off the Dock (macOS gives a program no clean way to remove one tile)")
+    try: os.remove(SHORTCUT_FILE)
+    except OSError: pass
+    return "\n".join(did) if did else "koi shortcut bana hi nahi tha"
+def shortcut_text(osk=None):
+    p=shortcut_plan(osk); s=_sc_state(); have=[f for f in s.get("files",[]) if os.path.exists(f)]
+    L=[f"[shortcut] {BRAND} where {p['os']} keeps the things you open — the onboarding's last step, yours to say yes to. Files only in your home; every path is recorded."]
+    for label,path in p["create"]: L.append(f"  {'✓' if path in have else '○'} {label:<22} {path}")
+    if not p["create"]: L.append("  ○ nothing to create on this platform")
+    how,txt=p["pin"]; L.append(f"  pin (taskbar / dock / home screen): {how}  — {txt}")
+    L.append("  /shortcut add · /shortcut rm"+(" · /shortcut pin" if how in ("auto","asks") else "")+"   ·   ai shortcut add   ·   words: \"home screen pe shortcut banao\", \"add a desktop shortcut\", \"pin to taskbar\"")
+    return "\n".join(L)
+def shortcut_cmd(st,a):
+    p=(a or "").strip().lower(); tab=_h_table()
+    if p in ("add","create","banao"):
+        if "shortcut_add" not in tab: print("[shortcut] "+shortcut_plan()["pin"][1]); return
+        hand_run(st,"shortcut_add",source="shortcut")
+        if shortcut_plan()["pin"][0]=="auto" and "shortcut_pin" in tab: hand_run(st,"shortcut_pin",source="shortcut")   # GNOME: automatic because it is reversible
+        return
+    if p in ("rm","remove","hatao","undo","delete"): print("[shortcut] "+_shortcut_rm().replace("\n","\n  ")); return
+    if p=="pin":
+        if "shortcut_pin" in tab: hand_run(st,"shortcut_pin",source="shortcut")
+        else: print("[shortcut] "+shortcut_plan()["pin"][1])
+        return
+    print(shortcut_text())
+_SHORTCUT_RX=re.compile(r"^(?:(?P<add>(?:(?:home ?screen|desktop|launcher|start menu|dock|taskbar)\s*(?:pe|par|me|on|ka|ki)?\s*)?(?:ek |a )?shortcut\s*(?:bana(?:o| do| de)?|add(?: kar(?: do)?)?|create|chahiye|daal(?: do)?|lagao)|(?:add|create|make) (?:a |an )?(?:desktop |home ?screen |start menu )?shortcut|pin (?:it |ai |aasmaan |this )?(?:to|on) (?:the |my )?(?:taskbar|dock|home ?screen|start)|taskbar (?:pe|me|par) pin(?: kar(?: do)?)?|dock (?:me|pe) (?:daal|add)(?: do)?)|(?P<rm>shortcut (?:hatao|remove|rm|delete|nikal do)|remove (?:the |my )?shortcut)|(?P<card>shortcut\??))$",re.I)
+def shortcut_intent(text):
+    """Plain words → 'add' | 'rm' | 'pin' | '' (card) | None. A question about keyboard shortcuts never matches."""
+    m=_SHORTCUT_RX.match((text or "").strip())
+    if not m: return None
+    if m.group("rm"): return "rm"
+    if m.group("add"): return "pin" if (re.search(r"\b(?:pin|dock)\b",m.group("add"),re.I) and shortcut_plan()["pin"][0]=="asks") else "add"
+    return ""
+KNOWN_CMDS=['/agent', '/agents', '/ask', '/attach', '/bg', '/budget', '/cache', '/canary', '/capabilities', '/clear', '/corpus', '/ctx', '/device', '/do', '/egress', '/embed', '/explain', '/group', '/help', '/impact', '/json', '/kb', '/keys', '/memory', '/metrics', '/mode', '/model', '/net', '/panel', '/privacy', '/remember', '/route', '/run', '/save', '/serve', '/setup', '/short', '/tags', '/tool', '/trace', '/update', '/version', '/why', '/wish', '/auto', '/online', '/local', '/quit', '/q', '/exit', '/hands', '/hand', '/stop', '/undo', '/calc', '/tour', '/lang', '/voice', '/models', '/connect', '/mcp', '/tuning', '/usage', '/plan', '/list', '/remind', '/greet', '/trust', '/doctor', '/term', '/theme', '/shortcut']   # every command literal in the dispatcher (c=="/x" and c in(...)); golden pins parity; the typo-suggester matches against this
 HELP="""commands — everything is optional, plain text just talks to the best brain.
  BRAIN   /auto /online /local · /ask <brain> <q> · /panel %s · /model <name> · /route <q> · /why · /metrics [reset]
  ANSWER  /short · /json <q> · /clear · /save · /mode
@@ -5650,14 +6250,26 @@ HELP="""commands — everything is optional, plain text just talks to the best b
  BG      /bg <question> · /bg do <cap> <input> · /bg !<shell cmd> · /bg  (list) · /bg <id>  — kaam peeche, baat chalu
  EXPERTS /agents · /agent auto <task>  (naam yaad na ho to khud chunta hai) · /agent <name> <task> · /group
  SYSTEM  /attach <file> · /run <cmd> · /explain · /serve [port] · /device · /net [off|on] · /canary · /embed <text> · /privacy [on|off|<text>]
+ THEME   /theme · /theme light|dark|nerd|aasmaan [save] · /theme off · /theme undo  — 4 colour-theory palettes, contrast measured; session apply (OSC, re-applied every start) · save = this terminal's config with backup; plain: "dark theme lagao"
+ SHORTCUT /shortcut · /shortcut add · /shortcut rm · /shortcut pin  — 'ai' where your OS keeps the things you open (Termux:Widget script · .desktop · .app · Desktop+Start Menu .lnk); pin only where the OS allows a program to (GNOME auto, macOS asks, Android/Windows: the exact manual step); ai shortcut add
+ TERM    /term · /term probe · /term raw  — ye terminal kya push/pull kar sakta hai (measured: size, cursor report, glyph cells, colour), fallback jo laga; ai term
+ DOCTOR  /doctor (ai doctor) — har cheez ek line: python, ai sha, update, device, disk, local brain, keys + perms, vault, network, connectors, forged tools, voice, hands, daemon; ✗ ke saath exact fix · /capabilities matrix — har kaam ek descriptor (class/risk/unattended/confirmation)
  TRUST   /trust  — ek card: kaunsa brain, kya device se bahar jaata hai, kya read/write, screen/mic, connectors, background, aakhri egress · /why (ek faisla) · /egress (har call) · /impact <action>
  SELF    /version · /capabilities (ye install abhi kya kar sakta hai) · /egress (har network call ka log: kahan, kab, kitna) · /update · /setup · /keys [NAME|rm NAME] · /attach <file|png|pdf> · ai daemon [--once]
  PAIR    ai pair [port] [--lan]  — QR se phone (iPhone bhi) is computer ke 'ai' se jud jaata hai; tera hardware, tera network
  COMMUNITY  ai telegram [--once]  (helper bot for your group: /install /faq /feedback — fail-closed allowlist)  ·  ai announce <text>
  EXIT    /quit
- the DO ladder never answers 'no': 1 provider -> 2 keyless builtin -> 3 recipe -> 4 brain -> 5 forge the tool."""
+ the DO ladder never answers 'no' — but safety is the last word: 1 provider -> 2 keyless builtin -> 3 recipe -> 4 brain -> 5 forge the tool (scanned, shown, your yes)."""
 def repl(st):
     _ST_REF[0]=st; hist=[]; run=None; _next=[]      # _next: a corrected command queued by the typo-suggester
+    try:
+        _tc=term_probe(); _fb=term_adapt(_tc)      # measure THIS terminal once, then every line below adapts to it
+        if _fb: print(f"[term] {_tc['program']}: kuch glyphs is terminal me line up nahi hote — plain fallbacks on ({len(_fb)}) · /term")
+    except Exception: pass
+    try:
+        _th=_theme_state().get("theme")
+        if _th in THEMES: theme_push(_th,quiet=True)     # the chosen palette, re-pushed every start (session door)
+    except Exception: pass
     print(f"ai ({EDITION}) · mode={st['mode']} budget={st['budget']} ctx={' '.join(st['ctx']) or 'off'} vault={VAULT}")
     try: device_adapt()          # new phone / more RAM / Shizuku just enabled -> re-tune, no reinstall
     except Exception: pass
@@ -5720,6 +6332,10 @@ def repl(st):
                 lists_cmd(f"add {n} {it}" if it else n); continue
             _gi=greet_intent(text)
             if _gi: greet_cmd(st,_gi); continue
+            _ti=theme_intent(text)
+            if _ti: theme_cmd(st,_ti); continue
+            _si=shortcut_intent(text)
+            if _si is not None: shortcut_cmd(st,_si); continue
             _ri=remind_intent(text)
             if _ri: remind_add(st,_ri[0],_ri[1]); continue          # reminder words + a time → the store (+ the OS endpoint if one exists)
             _hi=hands_intent(text)
@@ -5743,7 +6359,11 @@ def repl(st):
             elif c=="/help": print(HELP.replace("%s",",".join(st["panel"])))
             elif c=="/version": print(self_info())
             elif c=="/egress": print(egress_report(int(a) if a.isdigit() else 20))
-            elif c=="/capabilities": print(capabilities())
+            elif c=="/capabilities": print(cap_matrix_text() if a.strip()=="matrix" else capabilities())
+            elif c=="/doctor": print(doctor_text(st))
+            elif c=="/term": term_cmd(a)
+            elif c=="/theme": theme_cmd(st,a)
+            elif c=="/shortcut": shortcut_cmd(st,a)
             elif c=="/trust": print(trust_card(st))
             elif c=="/update": run_self_cmd("update")
             elif c=="/setup": run_self_cmd("setup")
@@ -6067,8 +6687,8 @@ def _read_first(paths,fallback):
             except OSError: pass
     return fallback
 def _panel_html(): return _read_first(["~/.ai-panel.html",REPO+"/panel.html",REPO+"/fold-node/termux/panel.html"],PANEL_FALLBACK)
-def _board_html(): return _read_first(["~/.ai-whiteboard.html",REPO+"/whiteboard.html",REPO+"/fold-node/akasha-whiteboard.html"],
-    "<!doctype html><meta charset=utf-8><title>Board</title><body style=\"font:15px system-ui;background:#0b0e14;color:#e6edf6;padding:20px\"><h3>whiteboard not found</h3><p>copy fold-node/akasha-whiteboard.html to ~/.ai-whiteboard.html</p>")
+def _board_html(): return _read_first(["~/.ai-whiteboard.html",REPO+"/whiteboard.html",REPO+"/fold-node/aasmaan-whiteboard.html"],
+    "<!doctype html><meta charset=utf-8><title>Board</title><body style=\"font:15px system-ui;background:#0b0e14;color:#e6edf6;padding:20px\"><h3>whiteboard not found</h3><p>copy fold-node/aasmaan-whiteboard.html to ~/.ai-whiteboard.html</p>")
 def _serve_token():
     """The pairing token, read from ~/.ai-env on every request (a 1-line file): removing it there revokes
     every paired phone immediately, even from a running server. Env var only as a fallback for tests."""
@@ -6337,7 +6957,11 @@ def main():
         if sys.argv[1]=="announce": return announce(" ".join(sys.argv[2:]))
         if sys.argv[1] in ("help","-h","--help"): print(HELP.replace("%s",",".join(st["panel"]))); return
         if sys.argv[1]=="trust": _ST_REF[0]=st; print(trust_card(st)); return
-        if sys.argv[1]=="capabilities": print(capabilities()); return
+        if sys.argv[1]=="capabilities": print(cap_matrix_text() if len(sys.argv)>2 and sys.argv[2]=="matrix" else capabilities()); return
+        if sys.argv[1]=="doctor": _ST_REF[0]=st; print(doctor_text(st)); return
+        if sys.argv[1]=="term": term_cmd(" ".join(sys.argv[2:])); return
+        if sys.argv[1]=="theme": _ST_REF[0]=st; theme_cmd(st," ".join(sys.argv[2:])); return
+        if sys.argv[1]=="shortcut": _ST_REF[0]=st; shortcut_cmd(st," ".join(sys.argv[2:])); return
         if sys.argv[1]=="tour": return tour(st)
         if sys.argv[1]=="models": print(models_text(st)); return
         if sys.argv[1]=="tuning": print(tuning_text(st)); return
@@ -6474,15 +7098,15 @@ if [ -x "$RS" ] && "$RS" -c id >/dev/null 2>&1; then
 else echo "  rish not up -> start Shizuku, re-run; phantom-killer disable needs the hand."; fi
 # boot-autostart — Lakshya greenlit 2026-09-05 (reverses the earlier no-autostart posture, on purpose)
 mkdir -p "$HOME/.termux/boot"
-cat > "$HOME/.termux/boot/akasha-boot.sh" <<'BOOTEOF'
+cat > "$HOME/.termux/boot/aasmaan-boot.sh" <<'BOOTEOF'
 #!/data/data/com.termux/files/usr/bin/sh
 # Aasmaan boot-autostart. Needs the Termux:Boot app (F-Droid) installed to actually fire on reboot.
 termux-wake-lock 2>/dev/null
 export OLLAMA_KEEP_ALIVE=30m
 command -v ollama >/dev/null 2>&1 && (ollama serve >/dev/null 2>&1 &)
 BOOTEOF
-chmod +x "$HOME/.termux/boot/akasha-boot.sh"
-echo "  boot-autostart written: ~/.termux/boot/akasha-boot.sh  (install Termux:Boot from F-Droid to arm it)"
+chmod +x "$HOME/.termux/boot/aasmaan-boot.sh"
+echo "  boot-autostart written: ~/.termux/boot/aasmaan-boot.sh  (install Termux:Boot from F-Droid to arm it)"
 
 substage "Screen-sight — Aasmaan ki aankh (screen-dump)"
 cat > "$HOME/.local/bin/screen-dump" <<'SDEOF'
@@ -6491,7 +7115,7 @@ cat > "$HOME/.local/bin/screen-dump" <<'SDEOF'
 RS="$HOME/rish"; command -v rish >/dev/null 2>&1 && RS=rish
 [ -x "$RS" ] || command -v "$RS" >/dev/null 2>&1 || { echo "rish not available (start Shizuku)"; exit 1; }
 # dump to a private path (screen text can contain OTPs/banking) and delete it after reading
-D="$HOME/.cache/akasha"; mkdir -p "$D"; F="$D/window_dump.xml"
+D="$HOME/.cache/aasmaan"; mkdir -p "$D"; F="$D/window_dump.xml"
 "$RS" -c "uiautomator dump $F >/dev/null 2>&1; cat $F" 2>/dev/null \
  | grep -o 'text="[^"]*"' | sed 's/text="//; s/"$//' | grep -v '^$' | awk '!seen[$0]++'
 rm -f "$F"
@@ -6530,7 +7154,7 @@ else
 fi
 # panel + whiteboard assets for 'ai serve' (served from ~/.ai-*.html; repo copy is the fallback)
 [ -f "$SELFDIR/panel.html" ] && install -m644 "$SELFDIR/panel.html" "$HOME/.ai-panel.html" && echo "  installed: control panel (ai serve)"
-WB="$SELFDIR/whiteboard.html"; [ -f "$WB" ] || WB="$SELFDIR/../akasha-whiteboard.html"     # bundle layout first, then monorepo
+WB="$SELFDIR/whiteboard.html"; [ -f "$WB" ] || WB="$SELFDIR/../aasmaan-whiteboard.html"     # bundle layout first, then monorepo
 [ -f "$WB" ] && install -m644 "$WB" "$HOME/.ai-whiteboard.html" && echo "  installed: whiteboard (ai serve -> /board)"
 TR="$SELFDIR/tools-routing.json"; [ -f "$TR" ] || TR="$SELFDIR/../tools-routing.json"
 [ -f "$TR" ] && install -m644 "$TR" "$HOME/.ai-tools.json" && echo "  installed: tool-router config (/do)"
@@ -6554,6 +7178,12 @@ for w in VOICE:2 SCREEN:Shizuku FFMPEG:6 PANEL:R; do
   k="${w%%:*}"; where="${w##*:}"
   if grep -q "^AI_WANT_$k=1" "$HOME/.ai-setup-profile" 2>/dev/null; then info "wizard me '$k' ON tha — wo setup-menu → $where se lagta hai (ek command:  setup-menu)"; fi
 done
+# ── stage 8: home-screen shortcut (optional) — the onboarding's last step ─────────────────────────────
+if stage_opt "Home screen shortcut (optional)" "~/.shortcuts me ek script + icon — Termux:Widget app (F-Droid) se home screen pe ek tap = ai" "Android kisi terminal ko khud kuch pin karne nahi deta — widget app tu lagata hai, files yahan ban jaati hain (record ke saath). Hataana: ai shortcut rm (cleanup khud karta hai)."; then
+  if [ "${AI_YES:-0}" = 1 ]; then echo "  — scripted run: shortcut nahi banaya (kabhi bhi:  ai shortcut add)"
+  else AI_FORCE_OFFLINE=1 "$HOME/.local/bin/ai" shortcut add 2>&1 | sed 's/^/  /'; fi
+fi
+
 substage "Is device pe kya-kya unlock hua"
 echo "  tier 0 core     : chat + vault + BM25/hybrid RAG + cloud router      -> always works"
 have termux-tts-speak && echo "  tier 1 sensors  : voice, notifications, sensors (Termux:API)      -> ON" || echo "  tier 1 sensors  : install the Termux:API app to unlock voice/sensors"

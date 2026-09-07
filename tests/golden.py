@@ -3,7 +3,7 @@
 fails here before it ships. 'Worse' = redaction stops scrubbing · fence loses its nonce ·
 risky code passes · offline gate leaks · unknown capability gets permitted · impact gate
 misfires · routing heuristics flip. No network, no keys, no LLM: every case is exact.
-Run:  python3 akasha-fold/tests/golden.py      exit 0 = all pass."""
+Run:  python3 tests/golden.py      exit 0 = all pass."""
 import importlib.util, json, os, sys, tempfile
 # Two homes: the monorepo (fold-node/termux/ai-termux.py) and the public bundle (ai.py beside tests/).
 _B=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -12,6 +12,7 @@ else: ROOT=os.path.dirname(_B); SRC=os.path.join(ROOT,"fold-node","termux","ai-t
 SRC=os.environ.get("AI_SRC",SRC)
 # isolate: fake HOME, forced offline, zero keys
 os.environ["HOME"]=tempfile.mkdtemp(prefix="golden-"); os.environ["AI_FORCE_OFFLINE"]="1"
+if os.name=="nt": os.environ["USERPROFILE"]=os.environ["HOME"]   # ntpath.expanduser reads USERPROFILE, not HOME — without this the pins would write into the real profile
 os.environ["AI_REPO"]=ROOT   # fake HOME would hide the repo → expert packs must still resolve
 for k in list(os.environ):
     if k.endswith("_API_KEY"): del os.environ[k]
@@ -351,6 +352,118 @@ def t_trust_card():
     return ("AASMAAN · TRUST" in c and "brain" in c and "network      intent" in c and "connectors" in c and "each gets ONLY its own credential" in c
             and "does" in c and "its own network" in c and "can NEVER grant authority" in c and "last cloud: NONE" in c), c[:120]
 case("trust: /trust prints one card from live state (brain, network intent, files, screen/mic, connectors, background, egress) + the honest boundary line; a local egress call is never shown as a cloud call", t_trust_card)
+def t_doctor():
+    import io as _io, contextlib as _cl
+    envf=os.path.expanduser("~/.ai-env"); open(envf,"w").write("export X_API_KEY=y\n"); os.chmod(envf,0o644)
+    rows=ai.doctor_rows({}); m={r[1]:r for r in rows}
+    bad=m.get("~/.ai-env perms"); os.chmod(envf,0o600); rows2=ai.doctor_rows({}); good={r[1]:r for r in rows2}.get("~/.ai-env perms")
+    txt=ai.doctor_text({})
+    return (m["python"][0]=="✓" and bad and bad[0]=="✗" and "chmod 600" in bad[3] and good and good[0]=="✓" and "[doctor]" in txt and "to fix" in txt
+            and all(k in m for k in ("device","disk","vault","network","hands","voice","connectors","forged tools"))), f"{bad} {good}"
+case("doctor: every row is a measured fact; a world-readable ~/.ai-env is ✗ with the exact chmod fix, and ✓ once fixed", t_doctor)
+# ── TERM: the terminal is measured, never assumed; fallbacks only when the terminal itself says a glyph does not line up ──
+def t_term_nontty():
+    import time as _t
+    t0=_t.time(); t=ai.term_probe(force=True); dt=_t.time()-t0
+    return (t["tty"] is False and t["glyphs"]=={} and t["answers_cpr"] is False and dt<1.0 and not isinstance(sys.stdout,ai._AdaptOut) and ai.term_fallback_table(t)=={}
+            and isinstance(ai.term_program(),str) and "PUSH" in ai.term_text(t) and "PULL" in ai.term_text(t)), f"tty={t['tty']} glyphs={t['glyphs']} dt={dt:.2f}"
+case("term: piped/CI (not a tty) → nothing is probed, nothing hangs (<1 s), no stdout wrapper, no fallback; the card still prints push/pull", t_term_nontty)
+def t_term_fallback_from_measurement():
+    base={"utf8":True,"glyphs":{"✓":1,"○":1,"→":1,"·":1,"│":1,"█":1,"⚠":1,"⏰":2,"🔋":2,"अ":1}}
+    ok=ai.term_fallback_table(base)
+    brk=dict(base); brk["glyphs"]=dict(base["glyphs"],**{"✓":None}); t1=ai.term_fallback_table(brk)
+    box=dict(base); box["glyphs"]=dict(base["glyphs"],**{"│":0}); t2=ai.term_fallback_table(box)
+    emo=dict(base); emo["glyphs"]=dict(base["glyphs"],**{"⏰":3}); t3=ai.term_fallback_table(emo)
+    noutf=dict(base); noutf["utf8"]=False; t4=ai.term_fallback_table(noutf)
+    import io as _io; b=_io.StringIO(); w=ai._AdaptOut(b,t1); w.write("  ✓ done · ✗ fail → next"); s=b.getvalue()
+    return (ok=={} and t1.get("✓")=="[ok]" and t1.get("✗")=="[x]" and "│" not in t1 and t2.get("│")=="|" and "✓" not in t2 and t3.get("⏰")=="[alarm]" and "✓" not in t3
+            and len(t4)>=len(t1)+len(t2)+len(t3)-2 and s=="  [ok] done - [x] fail -> next"), f"{ok} {t1} {t2} {t3} {s!r}"
+case("term: fallbacks come from measurement, by family — all glyphs lining up → none; ✓ not advancing → the check family; │ → the box family; ⏰ advancing 3 → the emoji family; no UTF-8 → all; the writer rewrites a line exactly", t_term_fallback_from_measurement)
+# ── THEME: four colour-theory palettes, contrast measured, session by OSC, persist by hand with a backup ──
+def t_theme_contrast():
+    a=ai.contrast("#FFFFFF","#000000"); b=ai.contrast("#000000","#FFFFFF"); c=ai.contrast("#777777","#777777")
+    return abs(a-21.0)<0.01 and abs(b-21.0)<0.01 and abs(c-1.0)<1e-9, f"{a} {b} {c}"
+case("theme: WCAG contrast — white/black = 21.0 either way, a colour against itself = 1.0", t_theme_contrast)
+def t_theme_all_pass():
+    bad=[(n,d) for n in ai.THEMES for ok,d in [ai.theme_check(n)] if not ok]
+    return set(ai.THEMES)=={"light","dark","nerd","aasmaan"} and not bad and all(len(t["ansi"])==16 for t in ai.THEMES.values()), f"{sorted(ai.THEMES)} bad={bad}"
+case("theme: exactly light/dark/nerd/aasmaan ship, each with 16 ANSI colours, text ≥7:1 and every accent ≥3:1 on its background — measured, not asserted", t_theme_all_pass)
+def t_theme_osc_hex_only():
+    import re as _re
+    res=[]
+    for n in ai.THEMES:
+        parts=[p for p in ai.theme_osc(n).split("\x07") if p]
+        ok=len(parts)==19 and parts[0].startswith("\x1b]10;") and parts[1].startswith("\x1b]11;") and parts[2].startswith("\x1b]12;") and all(_re.fullmatch(r"\x1b\](?:1[012]|4;\d{1,2});#[0-9A-Fa-f]{6}",p) for p in parts)
+        res.append((n,ok,len(parts)))
+    rs=ai.theme_reset_seq()
+    return all(o for _,o,_ in res) and all(f"\x1b]{k}\x07" in rs for k in (104,110,111,112)), f"{res} reset={rs!r}"
+case("theme: the session sequence is exactly OSC 10/11/12 + 16× OSC 4 with a #rrggbb payload and nothing else; reset is OSC 104/110/111/112", t_theme_osc_hex_only)
+def t_theme_intent():
+    a=ai.theme_intent("dark theme lagao"); b=ai.theme_intent("aasman theme"); c=ai.theme_intent("theme off"); d=ai.theme_intent("how do I theme vim")
+    e=ai.theme_intent("dark"); f=ai.theme_intent("light kar do"); g=ai.theme_intent("mujhe nerd mode chahiye"); h=ai.theme_intent("it is dark outside")
+    return a=="dark" and b=="aasmaan" and c=="off" and d is None and e is None and f=="light" and g=="nerd" and h is None, f"{a} {b} {c} {d} {e} {f} {g} {h}"
+case("theme: plain words map to a palette (aasman→aasmaan); a bare 'dark', a sentence, or a coding question never switch the theme", t_theme_intent)
+def t_theme_cmd_nontty():
+    import io as _io, contextlib as _cl, re as _re
+    buf=_io.StringIO()
+    with _cl.redirect_stdout(buf): ai.theme_cmd(None,"aasmaan")
+    out=buf.getvalue(); st=ai._theme_state()
+    buf2=_io.StringIO()
+    with _cl.redirect_stdout(buf2): ai.theme_cmd(None,"")
+    lst=buf2.getvalue()
+    buf3=_io.StringIO()
+    with _cl.redirect_stdout(buf3): ai.theme_cmd(None,"off")
+    gone=not os.path.exists(ai.THEME_FILE)
+    esc="\x1b" in out
+    return (not esc and st.get("theme")=="aasmaan" and os.path.dirname(ai.THEME_FILE)==os.path.expanduser("~") and "#0B1F3A" in out
+            and "▶ aasmaan" in lst and all(n in lst for n in ai.THEMES) and gone and ai._theme_state()=={}), f"esc={esc} st={st} gone={gone} lst={lst[:80]!r}"
+case("theme: not a tty → no escape reaches stdout, the choice is still saved (~/.ai-theme.json, 0600) and shown ▶ in the list; /theme off removes it", t_theme_cmd_nontty)
+def t_theme_persist_backup_restore():
+    p=os.path.join(os.environ["HOME"],".termux","colors.properties"); man=os.path.join(ai.THEME_BAK,"manifest.json")
+    import io as _io, contextlib as _cl
+    with _cl.redirect_stdout(_io.StringIO()):
+        r1=ai._theme_termux("nerd")
+        body=open(p).read(); m1=json.load(open(man))
+        r2=ai._theme_termux("light")           # second write must NOT overwrite the one backup
+        m2=json.load(open(man)); body2=open(p).read()
+        r3=ai._theme_restore()
+    return (body.count("color")==16 and "background=#000000" in body and m1["termux"]["bak"] is None and m2==m1 and "background=#FAFAF7" in body2
+            and not os.path.exists(p) and not os.path.exists(man) and "removed" in r3), f"{r1} {m1} {r3} exists={os.path.exists(p)}"
+case("theme: persist writes 16 colours + a ONE-time backup (a second save keeps the first backup); restore puts the file back or removes it when there was none", t_theme_persist_backup_restore)
+# ── SHORTCUT: the onboarding's last step — per OS, files only under HOME, pin only where the OS allows ──
+def t_shortcut_plan_all_os():
+    H=os.path.expanduser("~"); res={}
+    for osk in ("termux","linux","darwin","nt"):
+        p=ai.shortcut_plan(osk); res[osk]=(p["pin"][0],len(p["create"]))
+        if not p["create"] or not all(os.path.isabs(c[1]) for c in p["create"]) or not os.path.isabs(p["target"]): return False,f"{osk}: {p}"
+        if osk!="nt" and not all(c[1].startswith(H) for c in p["create"]): return False,f"{osk} outside HOME: {p}"
+    w=ai.shortcut_plan("wsl")
+    return (res["termux"]==("manual",2) and res["linux"][0] in ("auto","manual") and res["linux"][1]==2 and res["darwin"]==("asks",1) and res["nt"]==("manual",2)
+            and w["create"]==[] and w["pin"][0]=="no" and "f-droid.org/packages/com.termux.widget" in ai.shortcut_plan("termux")["pin"][1]), str(res)
+case("shortcut: every OS has a plan before anything is touched — files only under HOME, absolute target; pin is manual on Android/Windows (no API), asks on macOS (Dock restart), auto only on GNOME; WSL says no", t_shortcut_plan_all_os)
+def t_shortcut_write_rm():
+    import io as _io, contextlib as _cl
+    with _cl.redirect_stdout(_io.StringIO()):
+        r1=ai._shortcut_write("termux"); sp,ip=[c[1] for c in ai.shortcut_plan("termux")["create"]]
+        okt=os.path.exists(sp) and (os.name=="nt" or os.stat(sp).st_mode&0o111) and open(ip,"rb").read(8)==b"\x89PNG\r\n\x1a\n" and "exec " in open(sp).read()
+        r2=ai._shortcut_write("linux"); dp=ai.shortcut_plan("linux")["create"][0][1]; d=open(dp).read()
+        ex=[l for l in d.splitlines() if l.startswith("Exec=")][0][5:].strip('"').split(" ")[0]
+        okl="[Desktop Entry]" in d and "Terminal=true" in d and os.path.isabs(ex) and "Icon=aasmaan" in d and os.path.exists(ai.shortcut_plan("linux")["create"][1][1])
+        st2=ai._sc_state(); r3=ai._shortcut_rm()
+        gone=not any(os.path.exists(f) for f in st2.get("files",[])) and not os.path.exists(ai.SHORTCUT_FILE)
+    return bool(okt and okl and len(st2.get("files",[]))==4 and gone and "removed" in r3), f"{r1} | {r2} | {r3} | files={st2.get('files')} gone={gone}"
+case("shortcut: Termux writes an executable widget script + a real PNG; Linux writes a .desktop (Terminal=true, absolute Exec, icon) — every path recorded; rm removes exactly them and the record", t_shortcut_write_rm)
+def t_shortcut_intent():
+    a=ai.shortcut_intent("home screen pe shortcut banao"); b=ai.shortcut_intent("add a desktop shortcut"); c=ai.shortcut_intent("shortcut hatao"); d=ai.shortcut_intent("what is a keyboard shortcut for copy")
+    e=ai.shortcut_intent("pin to taskbar"); f=ai.shortcut_intent("shortcut"); g=ai.shortcut_intent("shortcut key kya hai vim me")
+    return a=="add" and b=="add" and c=="rm" and d is None and e in ("add","pin") and f=="" and g is None, f"{a} {b} {c} {d} {e} {f} {g}"
+case("shortcut: plain words → add / rm / card; a question about keyboard shortcuts never creates anything", t_shortcut_intent)
+def t_shortcut_card_nontty():
+    import io as _io, contextlib as _cl
+    b=_io.StringIO()
+    with _cl.redirect_stdout(b): ai.shortcut_cmd(None,"")
+    s=b.getvalue(); return "[shortcut]" in s and "pin (taskbar" in s and "/shortcut add" in s and not os.path.exists(ai.SHORTCUT_FILE), s[:160]
+case("shortcut: the card prints what would be created and the pin honesty, and creates nothing", t_shortcut_card_nontty)
 def t_known_cmds_parity():
     import re as _re
     src=open(SRC,encoding="utf-8").read()
@@ -402,6 +515,20 @@ def t_hands_gates():
     r3=ai.hand_run(None,"danger",osk="test",source="cli")   # stdin is not a tty here -> must refuse, not run
     return r1 is None and r2 is not None and r3 is None, f"{r1!r} {r2!r} {r3!r}"
 case("hands: unattended runs read-only hands only; X-risk without a tty is refused, never run", t_hands_gates)
+def t_cap_matrix_matches_gates():
+    rows=ai.cap_matrix("test"); m={r["id"]:r for r in rows}
+    ids=set(m); hands={f"hand.{h}" for h in ai.HANDS["test"] if not h.startswith("_")}; acts={f"action.{a}" for a in ai.ACTIONS}; bis={f"do.{b}" for b in ai.BUILTINS}
+    gaps=(hands|acts|bis|{"forge","brain.local"})-ids
+    # the 'unattended' column must equal what hand_run actually does when AI_ATTENDED=0
+    import io as _io, contextlib as _cl
+    os.environ["AI_ATTENDED"]="0"
+    with _cl.redirect_stdout(_io.StringIO()):
+        real={h:(ai.hand_run(None,h,{"level":"5"} if h=="lvl" else {},osk="test",source="cli") is not None) for h in ("ro","lvl","danger")}
+        mcp_ok,_=ai.mcp_ready({"connect":"mcp","argv":["x"]})
+    os.environ["AI_ATTENDED"]="1"
+    claimed={h:(m[f"hand.{h}"]["unattended"]=="yes") for h in ("ro","lvl","danger")}
+    return (not gaps and real==claimed and not mcp_ok and m["forge"]["unattended"]=="no"), f"gaps={gaps} real={real} claimed={claimed}"
+case("capabilities matrix: every hand/action/builtin/forge/brain has one descriptor (no gaps), and the 'unattended' column equals what hand_run and mcp_ready really do with AI_ATTENDED=0", t_cap_matrix_matches_gates)
 # ── CONNECTORS polish: ask-for-only entries, the safety line on every card, forge explains and asks ──
 def t_connectors_ask_first():
     import io as _io, contextlib as _cl

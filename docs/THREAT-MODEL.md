@@ -18,7 +18,7 @@ it — it runs because an authorized capability, gated by risk and attendance, a
 
 | Asset | Threat | Boundary | Mitigation (code) | Proof |
 |---|---|---|---|---|
-| API keys / tokens | inherited by a child process, or exfiltrated by a tool | process boundary | `_child_env` scrubs every `*_API_KEY`/`*_TOKEN`/`*_SECRET` from every spawned env; `_wrap_subprocess` applies it by default | **A1, A2** |
+| API keys / tokens | inherited by a child process, or exfiltrated by a tool | process boundary | `_child_env` scrubs every `*_KEY`/`*_API_KEY`/`*_TOKEN`/`*_SECRET`/`*_PASSWORD`/`*_CREDENTIALS` from every spawned env (a zero-context judge found `AI_OAI_KEY` slipping through the old `*_API_KEY`-only rule — fixed and pinned); `_wrap_subprocess` applies it by default | **A1, A2** |
 | API keys / tokens | leaked into a cloud prompt | privacy router | `redact` scrubs key/PII shapes from every cloud-bound string (`AI_PRIVACY`, on by default); the local brain gets raw text, cloud gets scrubbed | **A9**, golden `redact:*` |
 | API keys / tokens | persisted into a plain file (journal, corpus, feedback) | write path | `scrub_keys` replaces key-shapes with `<KEY-REDACTED>` before anything is written | **A9** |
 | Files / device | a forged tool runs arbitrary code | forge scan + attendance | `_risky` (AST, resolves `import x as y` bindings) flags env-reads, network, writes, deletes, subprocess; a flagged tool is previewed and left **unregistered**; forge is attended-only | **A3, A4** |
@@ -82,6 +82,7 @@ because execution never trusts model output (**A5–A7**).
   platform offers real isolation, a future radius will run forged tools in a restricted profile
   (temp dir, scrubbed env, no network, timeout); where it does not, the honest position is that a
   forged tool you register runs with your privileges — read it first.
+- **Fetch-time SSRF is not yet guarded.** Keyless fetches (`webget`, `linkget`, search) check literal internal hosts but do not resolve the name first, so a hostname that resolves to 127.0.0.1 / 100.x could reach a local service. Planned: resolve → validate → connect (no private/loopback/link-local unless the user typed it).
 - **Subprocess egress is separate.** `ai`'s own HTTP is logged; a program `ai` runs for you does its
   own network. The claim is scoped accordingly (`/trust`).
 - **Windows paths are CI-tested, not yet hardware-tested.** Some Windows behaviour is verified by CI

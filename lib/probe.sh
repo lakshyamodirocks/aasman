@@ -1,4 +1,4 @@
-# akasha/lib/probe.sh — device probes. source this; sets nothing until called.
+# aasmaan/lib/probe.sh — device probes. source this; sets nothing until called.
 # Har probe ke kai tareeqe hain, aur PATA-NAHI ko kabhi 0 nahi banate.
 # "" = pata nahi chala (alag baat), "0" = sach me zero.
 

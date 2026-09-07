@@ -4,6 +4,96 @@ Every published version is a line in `VERSION` (`date sha repo`). Installed copi
 
 Changes ship as **impact radii**: one commit per concern, each entry names what it touched and what it deliberately did not, so a fix in one place cannot quietly break another. (How this works: CONTRIBUTING.md → "How changes ship".)
 
+## 2026-09-06 · radius 34 — the onboarding's last step: a shortcut where your OS keeps the things you open
+
+Owner: "onboarding me last step — home screen pe shortcut, ya Windows/Linux/Mac ho to pin to taskbar bhi — OS ke hisaab se user ko poochho aur shortcut add kar do." Until now the install ended with "type `ai`"; a person who never opens a terminal on purpose needs the thing they tap.
+
+- **One more stage, always asked, never assumed:** every installer (phone, Linux/macOS, Windows) now ends with *Shortcut + pin (your call)*; Enter creates it, `s` skips it, scripted runs (`AI_YES=1`, CI) never create one. It runs `ai shortcut add` — one implementation in the harness, the installers only ask.
+- **Per OS, files only under your home, every path recorded** (`~/.ai-shortcuts.json`) so `ai shortcut rm` removes exactly them: Android → `~/.shortcuts/Aasmaan` + a PNG icon for the **Termux:Widget** app (F-Droid; the widget is the only way a terminal can reach the home screen — the exact tap sequence is printed) · Linux → `~/.local/share/applications/aasmaan.desktop` (Terminal=true) + an SVG icon, so the app menu finds it · macOS → `~/Applications/Aasmaan.app`, a launcher that opens Terminal.app and runs `ai` (Launchpad/Spotlight find it) · Windows → Desktop + Start Menu `.lnk` to `ai.cmd` (Start → type the name).
+- **Pin only where the OS lets a program pin** — stated on the card before anything happens: GNOME dash favourites are set automatically (reversible, the previous list is saved); the macOS Dock asks first (`/shortcut pin`: `defaults write` + the Dock restarts; undo is dragging it off); **Windows and Android have no such API** — the card prints the right-click / long-press step instead of pretending. WSL says "no launcher here" and points to the Windows side.
+- **Plain words:** "home screen pe shortcut banao", "add a desktop shortcut", "pin to taskbar", "shortcut hatao". A question about keyboard shortcuts never matches.
+- **Uninstall reverses it first** (all three uninstallers run `ai shortcut rm` before removing `ai`), then removes the record.
+- **Gate fix that rode along:** the golden set now isolates `USERPROFILE` on Windows as well as `HOME` (Windows' `expanduser` ignores `HOME`, so until now Windows CI pins wrote into the runner's real profile).
+- **Honest limit:** macOS and Windows paths are written from documentation and CI, not yet a physical device — the `.app`/`.lnk` shapes are standard, the first real run is the first real test. No icon on macOS (an `.icns` needs a build step) or Windows (the console's own icon) yet.
+
+Touched: ai.py (`shortcut_*`, `_shortcut_*`, `_png_icon`, hands rows `shortcut_add/pin/rm` on four platforms, `/shortcut`, `ai shortcut`, chat intent, HELP), tests/golden.py (+4 pins, Windows HOME isolation), pc-setup.sh + install.ps1 + fold-all-setup.sh (stage 8; totals 7→8), setup-wizard.sh (completeness line), the three uninstall lists, README, docs/FAQ.md, docs/HANDS.md.
+Not touched: any other hand, themes, the model path, connectors.
+
+## 2026-09-06 · radius 33 — four themes from colour theory, measured for contrast, applied without touching a config unless you say so
+
+Owner: "har platform ke default interface ke liye premade 3–4 themes — light, dark, nerd, aasmaan — colour-theory palettes; push/pull capabilities alag rakho." A theme is the one thing people change first and the one thing a tool must never change behind their back.
+
+- **Four palettes, each with a stated principle:** `light` (warm paper, cool ink, low-chroma accents), `dark` (neutral near-black, pastel accents at even lightness), `nerd` (phosphor green, amber as the single complementary call-to-action), `aasmaan` (analogous indigo → sky → teal, one complementary saffron). Each is 16 ANSI colours + background, text, cursor.
+- **Contrast is measured, not claimed:** WCAG ratio in code — text ≥ 7:1, every accent ≥ 3:1 against the background, computed every run and printed on the card; a pin fails the gate if a palette ever drifts below.
+- **Two layers, kept apart:** `/theme <name>` applies for this *session* only (OSC 10/11/12 + 16× OSC 4 — sequences that carry nothing but hex digits), saved in `~/.ai-theme.json` and re-pushed at every start; `/theme <name> save` is a *hand* — one per platform (Termux `colors.properties` + reload, Windows Terminal `settings.json` scheme + default, GNOME Terminal profile via gsettings, Terminal.app window via osascript) — and every hand makes **one backup first** (`~/.ai-theme-backup/`), never twice. `/theme off` = the terminal's own colours (OSC 104/110–112); `/theme undo` puts the backed-up config back. Uninstall runs the undo before removing `ai`.
+- **Plain words:** "dark theme lagao", "aasmaan theme", "theme off". A bare "dark" or "it is dark outside" never switches anything.
+- **Honest limit:** OSC colour changes work in every terminal `/term` recognises except plain conhost; where a platform has no config hand yet (kitty, Alacritty, iTerm2 profiles), the card says so and the session layer still works. Font size / DPI adaptation stays the next radius.
+
+Touched: ai.py (`THEMES`, `contrast`, `theme_*`, `_theme_*` hands, `/theme`, `ai theme`, REPL start re-push, chat intent), tests/golden.py (+6 pins), the three uninstall lists (`.ai-theme.json`, `.ai-theme-backup`, restore-before-remove), README, docs/FAQ.md, docs/HANDS.md.
+Not touched: the terminal probe (`/term`), any other hand, the model path, connectors.
+
+## 2026-09-06 · radius 32 — the terminal is a device too: measured, then adapted to
+
+Owner: "jis bhi type ke terminal me enter kar rahe hain uske core points se capabilities grab karo — scan, verify, assess; jo terminal freely allow kare wo push/pull karke adapt karo." Until now the harness measured the hardware and the OS but assumed the terminal — which is why ✓/✗ broke on Windows consoles and a human had to be asked which glyph line renders.
+
+- **Probe by asking, on a real tty only:** program (Termux, Windows Terminal, conhost, iTerm2, Apple Terminal, kitty, WezTerm, Konsole, GNOME, Alacritty, VS Code, Blink on iOS, ssh), size, colour depth, UTF-8, and — the useful part — **how many cells this terminal advances for each glyph we draw** (`✓ ○ → · │ █ ⚠ ⏰ 🔋 अ`), measured with cursor-position reports (DSR 6) and erased, plus device attributes (DA1). 250 ms timeout; a pipe or CI probes nothing and never hangs.
+- **Adapt:** when a glyph measurably does not line up, its whole family falls back to plain text (`✓→[ok]`, `│→|`, `⏰→[alarm]`…) through a stdout wrapper — installed only on a tty, only when needed, `AI_TERM_ADAPT=0` turns it off. No UTF-8 → everything falls back.
+- **`/term` (and `ai term`)**: one card — what this terminal can **push** (title, clipboard OSC 52, hyperlinks OSC 8, notifications OSC 9/777, bell) and **pull** (size, cursor, DA1, colour), each marked *run / doc / no*; the measured glyph line; which fallbacks are active; `/term probe` re-measures. Cached in `~/.ai-term.json` per program + width.
+- **Honest limit, stated on the card:** a cell count proves alignment, not that the font drew the shape rather than a box — that one judgement stays with the eye, asked once. Theme / font-size hands per platform and a resolution-based size recommendation are the next radius.
+
+Touched: ai.py (`term_*`, `_AdaptOut`, `/term`, `ai term`, REPL start), tests/golden.py (+2 pins), README, docs/FAQ.md.
+Not touched: hands, connectors, any output text (only its rendering when the terminal cannot draw it).
+
+## 2026-09-06 · radius 31 — a zero-context judge scored the bundle 6.5/10; the real findings are fixed
+
+A reviewer with no prior context ran the shipped bundle (compile, golden, adversarial, doctor, trust, tour, wizard, a first-user session) and read `ai.py` as a staff engineer. Verified and fixed the same night:
+
+- **A real key leak in the headline invariant.** `_SECRET_RX` matched `*_API_KEY` but not `*_KEY`, so `AI_OAI_KEY` (your custom endpoint key) reached every forged tool and MCP subprocess. Now every `*_KEY`, `*_PASSWORD`, `*_CREDENTIALS`, `*_PASS` and `OPENAPI_MCP_HEADERS` are scrubbed; adversarial case 1 now asserts `AI_OAI_KEY` never leaves.
+- **A false CI claim.** README said CI runs the adversarial suite; `ci.yml` ran only compile + golden + install. The step is added — the sentence is now true.
+- **A false "checkable" claim.** TRUST.md said the word `analytics` does not appear in the code; it does, once, inside an expert's topic-word list. The claim now says what is actually true (no code path reports anything) and tells you how to check.
+- **Verify instructions pointed at a path that does not exist in the bundle** (`akasha-fold/tests/…`); TRUST.md and both test docstrings now say `tests/…`.
+- **Residual lowercase brand** (`akasha-boot.sh`, `.cache/akasha`, a profile comment) survived the bundle sed, contradicting the "zero occurrences" claim; build-dist now substitutes all cases and the gate fails on any survivor outside CHANGELOG.
+- **`ai doctor` cried wolf on a fresh install** (vault "missing / not writable" — it is created on first `/remember`); now ○ "not created yet", ✗ only when it exists and is not writable.
+- **A silent `chmod 600` failure on `~/.ai-env`** now prints a warning with the fix instead of `pass`.
+- **`/run` is named in TRUST.md as the one deliberate shell door** — the line you typed, terminal-only, keys scrubbed, never reachable from a model/webpage/connector/voice; the confirm-with-diff gate is on the roadmap (D19).
+- **Fetch-time SSRF** (a hostname resolving to loopback/tailnet) is stated as a known limit in THREAT-MODEL until the resolve→validate→connect radius lands.
+- **Number drift is now a build failure:** README's golden/adversarial counts must equal what the suites contain, or build-dist refuses. README corrected to 132 / 10 and ~6,350 lines.
+
+Not changed on purpose: the judge's "147 broad excepts" (real; the harness's never-crash-the-session posture — narrowed case by case in Phase A, not in one sweep) and the one-file architecture (see "Why one file").
+
+Touched: ai.py (`_SECRET_RX`, doctor vault row, `_upsert_env` warning), tests/adversarial.py (case 1), tests/golden.py + adversarial.py docstrings, .github/workflows/ci.yml, README, docs/TRUST.md, docs/THREAT-MODEL.md, build-dist (lowercase brand, count gate).
+Not touched: gates, hands, connectors, onboarding.
+
+## 2026-09-06 · radius 30 — onboarding demonstrates, it does not configure
+
+An onboarding review (7.5/10: "technically thoughtful, cognitively too ambitious — it teaches how Aasmaan is built before why to care") and the fresh-eyes run (all-Enter ended with no brain, silently) drove a redesign of the phone wizard, keeping its 7-step skeleton so the replays in the gate still hold:
+
+- **One question decides ~70% of the setup.** Step 2 is now *"Kya chahiye?"* — 🧠 Private AI · 💬 Quick assistant · 🎙 Voice + phone control · 💻 Coding · 🎬 Content · 🔬 Sab kuch — capability-first words, no model names. Each maps to a brain that **fits this phone's RAM**, a context size and the extras. Enter on a capable phone never yields "no brain" any more (Quick assistant takes the small local brain; only < 4 GB RAM goes cloud/keyless).
+- **A Recommended card replaces the model picker** (step 3): what local brain, how many MB to download, "offline chalega", context in A4-pages, a **battery truth** line, a **storage budget** (app + model + voice + tools vs free), the RAM bar. **Enter keeps it; `[a]` opens advanced** (the old model/context pickers, unchanged); digits still pick a brain directly.
+- **Extras are capability-first** — "Voice — bol ke baat", "Video/audio tools", "Web panel"; **Screen reading (Shizuku: one Android step, no root) and Pentest kit sit behind `[m]`**, so a person who wants to chat never meets nmap.
+- **The closing screen tells the truth:** a setup-completeness bar (✓ core · ✓ language · ✓/○ local brain · ✓/○ voice · ○ phone controls · ○ pairing, each with where to turn it on later), "the installer runs next", `ai doctor` and `ai tour` as the two things to remember — and the correct path for re-running the wizard (it printed a monorepo path that does not exist on a phone).
+- The "abhi tak: qwen3:4b · ctx 8k · RAM" crumb no longer shows before any choice exists.
+- `AI_USE` now shares one vocabulary with the PC installer (private / chat / code / content).
+
+Touched: setup-wizard.sh (`s_intent`, new `s_recommend`, `s_brain_adv`, `s_extras`, `s_write`, `hdr`), docs/FAQ.md. Not touched: the installer stages, the harness; both gate replays (fit-check + back-nav) still pass unchanged.
+
+## 2026-09-06 · radius 29 — two trust commands: `ai doctor` and the capability matrix
+
+Three more independent reviews (8.2–8.4/10) converged on the same ask — hardening over features, a flagship health check, and one machine-readable description of every capability. Both ship as read-only commands; no gate changed.
+
+- **`ai doctor` / `/doctor`** — 15 measured rows: Python, the running file's sha and repo, update state (cached, never a forced fetch), device (arch/cores/RAM), disk free, local brain (Ollama installed? running? models), cloud keys, `~/.ai-env` permissions, vault, keys leaked into `.bashrc` (Termux), network mode + privacy router, connectors, forged tools (and which are flagged/unregistered), voice, hands usable on this platform, daemon. ✓ fine · ✗ wrong **with the exact fix printed** · ○ optional. It only reads — a doctor that operates on you unasked is not one. Pinned: a world-readable `~/.ai-env` is ✗ with `chmod 600 …`, ✓ once fixed.
+- **`/capabilities matrix` / `ai capabilities matrix`** — every hand, every impact action, every `/do` builtin, every wired MCP server, forge, and every brain as **one descriptor**: id · class (read / write reversible / write-asks / destructive / external tool / cloud model…) · risk letter · unattended? · confirmation · network · credentials · which gate enforces it. This is the policy the gates already enforce, made explicit — the first, behaviour-free step toward one policy engine. **Pinned against reality:** no hand/action/builtin is missing a descriptor, and the `unattended` column equals what `hand_run` and `mcp_ready` actually do with `AI_ATTENDED=0`.
+- Philosophy line sharpened in `/help` (from a reviewer): the DO ladder never answers "no" — **but safety is the last word.**
+
+Touched: ai.py (`doctor_rows/doctor_text`, `cap_matrix/cap_matrix_text`, `/doctor`, `/capabilities matrix`, `ai doctor`, help), tests/golden.py (+2 pins), README, docs/TRUST.md.
+Not touched: any gate, hand, action or provider behaviour.
+
+## 2026-09-06 · radius 28 — README tells the truth about the trust work, and about the one file
+
+The README still said "~5,000 lines" (it is ~6,200) and did not mention `/trust`, the adversarial suite or the threat model that radii 25–27 shipped. Now: the *Trust* section explains the card, the ten proven invariants, and links THREAT-MODEL.md; the egress sentence carries the subprocess boundary; *Honest status* names the 130 golden + 10 adversarial gate; and a new **Why one file** section answers the reviewers' architecture question plainly — a deliberate choice for auditability (one file, one sha256, embedded whole) whose cost (discipline instead of import walls) is covered by the adversarial suite, with a package split kept possible behind those tests but not the next step.
+
+Touched: README. Not touched: code, tests.
+
 ## 2026-09-06 · radius 27 — docs/THREAT-MODEL.md: the security architecture, legible to an outside reviewer
 
 Formalised what the trust code already does into one document a security engineer can read before trusting the tool: the single invariant (untrusted data can never become authority), an asset/threat/boundary/mitigation table where every mitigation is real code cross-referenced to the adversarial case that proves it (A1–A10), the questions a reviewer always asks answered plainly (what the model can and cannot control; trusted vs untrusted input; webpage/MCP/forged-tool/unattended/no-net/dangerous-ask/compromised-connector/compromised-local-model), and the known limits stated rather than hidden (no universal sandbox — `_risky` is detection not proof; subprocess egress is separate; Windows is CI-tested not hardware-tested; one file with the adversarial suite as the boundary net). Linked from TRUST.md and ROADMAP.

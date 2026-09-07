@@ -27,7 +27,7 @@ $App    = Join-Path $Base "app"
 $BinDir = Join-Path $Base "bin"
 $Manifest = Join-Path $Base "manifest.txt"
 $Home_  = $env:USERPROFILE
-$Total  = 7; $script:N = 0
+$Total  = 8; $script:N = 0
 # Language: English by default. Hinglish = Hindi in Roman letters. Devanagari is offered only inside Windows Terminal
 # (conhost cannot shape it), and even then only the model answers in it — installer text stays Hinglish. Stored as AI_LANG.
 $Lang = if ($env:AI_LANG) { $env:AI_LANG.ToLower() } else { "" }
@@ -107,13 +107,17 @@ if ($env:AI_UNINSTALL -eq "1") {
   Write-Host "  $Home_\.ai-env (keys) aur $Home_\ai-vault (memory) rakhe jaate hain — hataane ho to khud."
   if (-not $Auto) { $r = Read-Host "  [Enter] hatao   [q] rehne do"; if ($r -eq "q") { exit 0 } }
   if ((Get-Content $Manifest) -contains "task:Aasmaan-daemon") { Native { & schtasks /Delete /TN "Aasmaan-daemon" /F 2>&1 | Out-Null }; Write-Host "  - Task Scheduler: Aasmaan-daemon removed" }
+  # the .lnk files ai created go first (record: ~\.ai-shortcuts.json)
+  if ((Test-Path "$Home_\.ai-shortcuts.json") -and (Test-Path (Join-Path $BinDir "ai.cmd"))) { try { & (Join-Path $BinDir "ai.cmd") shortcut rm 2>&1 | Out-Null; Write-Host "  - shortcuts removed (/shortcut rm)" } catch {} }
+  # a saved Windows Terminal scheme goes back to what it was BEFORE ai.cmd is removed
+  if ((Test-Path "$Home_\.ai-theme-backup") -and (Test-Path (Join-Path $BinDir "ai.cmd"))) { try { & (Join-Path $BinDir "ai.cmd") theme undo 2>&1 | Out-Null; Write-Host "  - terminal colours restored (/theme undo)" } catch {} }
   foreach ($p in Get-Content $Manifest) { if (($p -like "$Home_*" -or $p -like "$Base*") -and (Test-Path $p)) { Remove-Item -Recurse -Force $p; Write-Host "  - $p" } }
   $up = [Environment]::GetEnvironmentVariable("Path","User")
   if ($up -and $up.Split(";") -contains $BinDir) { Set-ItemProperty -Path "HKCU:\Environment" -Name Path -Value (($up.Split(";") | Where-Object { $_ -ne $BinDir }) -join ";") -Type ExpandString; Write-Host "  - PATH entry ($BinDir) removed" }
-  $rt = @(".ai-daemon.json",".ai-update.json",".ai-egress.log",".ai-first-cloud",".ai-telegram.json",".ai-chat.json",".ai-cache.jsonl",".ai-device.json",".ai-metrics.json",".ai-kb.jsonl",".ai-brains.json",".ai-jobs.json",".ai-tasks.json",".ai-traces.jsonl",".ai-wishes.jsonl",".ai-feedback.jsonl",".ai-corpus.jsonl",".ai-profile",".ai-private-names") | ForEach-Object { Join-Path $Home_ $_ } | Where-Object { Test-Path $_ }
+  $rt = @(".ai-daemon.json",".ai-update.json",".ai-egress.log",".ai-first-cloud",".ai-telegram.json",".ai-chat.json",".ai-cache.jsonl",".ai-device.json",".ai-metrics.json",".ai-kb.jsonl",".ai-brains.json",".ai-jobs.json",".ai-tasks.json",".ai-traces.jsonl",".ai-wishes.jsonl",".ai-feedback.jsonl",".ai-corpus.jsonl",".ai-profile",".ai-private-names",".ai-term.json",".ai-reminders.json",".ai-greet.json",".ai-lists.json",".ai-tuning.json",".ai-usage.json",".ai-hands.json",".ai-connectors.json",".ai-tools.json",".ai-theme.json",".ai-theme-backup",".ai-shortcuts.json") | ForEach-Object { Join-Path $Home_ $_ } | Where-Object { Test-Path $_ }
   if ($rt) { Write-Host "  'ai' ki runtime files (chat state, cache — koi key/memory nahi):"; $rt | ForEach-Object { "    $_" }
     $r = if ($Auto) { "" } else { Read-Host "  [Enter] ye bhi hatao   [k] rakho" }
-    if ($r -ne "k") { $rt | ForEach-Object { Remove-Item -Force $_ }; Write-Host "  - runtime files removed" } }
+    if ($r -ne "k") { $rt | ForEach-Object { Remove-Item -Recurse -Force $_ }; Write-Host "  - runtime files removed" } }
   Remove-Item -Force $Manifest -ErrorAction SilentlyContinue
   if ((Get-ChildItem $Base -ErrorAction SilentlyContinue | Measure-Object).Count -eq 0) { Remove-Item -Force $Base -ErrorAction SilentlyContinue }
   Write-Host "  done. Ollama aur uske models tere hain — unhe chhua nahi (Settings > Apps se hatate hain)."; exit 0
@@ -271,6 +275,10 @@ $agentsLine = [string](($out -split "`n" | Where-Object { $_ -match "agents:" } 
 $n = if ($agentsLine) { ([regex]::Matches($agentsLine, "[a-z]+\*")).Count } else { 0 }
 Remove-Item Env:AI_FORCE_OFFLINE
 if ($n -ge 19) { Ok "$n/19 expert packs load hote hain (offline, bina brain ke)" } else { Warn "packs load nahi hue ($n/19) — 'ai' me /agents chala ke dekho. Output:`n$out" }
+# ── stage 8: Desktop + Start Menu shortcut (tera faisla) — taskbar pin Windows haath se hi deta hai ──
+if (StageOpt "Shortcut (tera faisla)" "Desktop + Start Menu me 'Aasmaan' (.lnk → ai.cmd) — Start me type karke milega; taskbar: right-click → Pin to taskbar (Windows programs ko ye API nahi deta)" "Do .lnk files, dono tere user folder me, record ke saath. Hataana: ai shortcut rm (uninstall khud karta hai)") {
+  $env:AI_FORCE_OFFLINE = "1"; try { & (Join-Path $BinDir "ai.cmd") shortcut add 2>&1 | ForEach-Object { "    $_" } } catch { Warn "shortcut: $_" }; Remove-Item Env:AI_FORCE_OFFLINE -ErrorAction SilentlyContinue
+}
 Write-Host ""; Write-Host "  ✅ Aasmaan ready" -ForegroundColor Green
 Write-Host "  chalao (nayi window):  ai"
 Write-Host "  code:   /agent rachaka <paste traceback>   ·  /ctx <file>   ·  /do forge <tool naam>"

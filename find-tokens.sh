@@ -52,7 +52,7 @@ printf '%s╰──────────────────────�
 printf '\n%s1. env / config files%s\n' "$Y" "$X"
 for f in "$HOME/.ai-env" "$HOME/.ai-env.bak" "$HOME/.ai-setup-profile" "$HOME/.netrc" \
          "$HOME/.env" "$HOME/.profile" "$HOME/.bashrc" "$HOME/.zshrc"; do scan "$f" "env file"; done
-for f in "$HOME"/akasha-backup/*; do [ -f "$f" ] && scan "$f" "backup"; done
+for f in "$HOME"/aasmaan-backup/*; do [ -f "$f" ] && scan "$f" "backup"; done
 
 printf '\n%s2. git credential store%s\n' "$Y" "$X"
 for f in "$HOME/.git-credentials" "$HOME/.config/git/credentials" \

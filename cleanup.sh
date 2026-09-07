@@ -31,29 +31,33 @@ elif [ -r /etc/debian_version ] && [ "$(id -un 2>/dev/null)" = droid ]; then WHE
 fi
 
 # ---- NEVER touch: ye paths aur inke andar ka sab kuch -----------------------
-# --uninstall: hata do jo installer ne likha (keys ~/.ai-env, memory ~/ai-vault, akasha-backup REHTE hain). Termux app
+# --uninstall: hata do jo installer ne likha (keys ~/.ai-env, memory ~/ai-vault, aasmaan-backup REHTE hain). Termux app
 # uninstall = sab kuch gaya; ye sirf 'ai' ko hataata hai aur Termux ko waise chhod deta hai jaise pehle tha.
 if [ "${1:-}" = "--uninstall" ]; then
   echo "ye hatega (keys, memory, backup NAHI):"
   RM=( "$HOME/.local/bin/ai" "$HOME/.local/bin/VERSION" "$HOME/.local/bin/setup-menu" "$HOME/.local/bin/screen-dump" "$HOME/.local/bin/vault-backup"
        "$HOME/.local/bin/vedit" "$HOME/.local/bin/say" "$HOME/.local/bin/listen" "$HOME/.local/bin/talk" "$HOME/.local/bin/whisper-stt" "$HOME/.local/bin/__pycache__"
        "$HOME/.ai-experts.json" "$HOME/.ai-experts" "$HOME/.ai-tools.json" "$HOME/.ai-panel.html" "$HOME/.ai-whiteboard.html" "$HOME/.ai-setup-profile" "$HOME/.ai-profile"
-       "$HOME/.ai-device.json" "$HOME/.ai-chat.json" "$HOME/.ai-cache.jsonl" "$HOME/.ai-metrics.json" "$HOME/.ai-kb.jsonl" "$HOME/.ai-brains.json" "$HOME/.ai-daemon.json" "$HOME/.ai-update.json" "$HOME/.ai-egress.log" "$HOME/.ai-first-cloud" "$HOME/.ai-telegram.json"
-       "$HOME/.termux/boot/akasha-boot.sh" "$HOME/wd.sh" "$HOME/.local/share/aasmaan" "$HOME/ai-vault/reference" )
+       "$HOME/.ai-shortcuts.json" "$HOME/.shortcuts/Aasmaan" "$HOME/.shortcuts/icons/Aasmaan.png" "$HOME/.ai-theme.json" "$HOME/.ai-theme-backup" "$HOME/.ai-term.json" "$HOME/.ai-reminders.json" "$HOME/.ai-greet.json" "$HOME/.ai-lists.json" "$HOME/.ai-tuning.json" "$HOME/.ai-usage.json" "$HOME/.ai-hands.json" "$HOME/.ai-device.json" "$HOME/.ai-chat.json" "$HOME/.ai-cache.jsonl" "$HOME/.ai-metrics.json" "$HOME/.ai-kb.jsonl" "$HOME/.ai-brains.json" "$HOME/.ai-daemon.json" "$HOME/.ai-update.json" "$HOME/.ai-egress.log" "$HOME/.ai-first-cloud" "$HOME/.ai-telegram.json"
+       "$HOME/.termux/boot/aasmaan-boot.sh" "$HOME/wd.sh" "$HOME/.local/share/aasmaan" "$HOME/ai-vault/reference" )
   for f in "${RM[@]}"; do [ -e "$f" ] && echo "  $f"; done
   echo "  + ~/.bashrc se PATH wali line · phantom-process settings wapas default (rish ho to)"
   if [ "${AI_YES:-0}" != 1 ]; then printf '[Enter] hatao   [q] rehne do  '; read -r r </dev/tty || r=q; [ "$r" = q ] && exit 0; fi
+  # the widget script + icon ai created go first (record: ~/.ai-shortcuts.json)
+  [ -f "$HOME/.ai-shortcuts.json" ] && [ -x "$HOME/.local/bin/ai" ] && { "$HOME/.local/bin/ai" shortcut rm >/dev/null 2>&1 && echo "  - shortcuts removed (/shortcut rm)" || true; }
+  # a saved Termux theme (colors.properties) goes back to what it was BEFORE 'ai' is removed
+  [ -d "$HOME/.ai-theme-backup" ] && [ -x "$HOME/.local/bin/ai" ] && { "$HOME/.local/bin/ai" theme undo >/dev/null 2>&1 && echo "  - terminal colours restored (/theme undo)" || true; }
   for f in "${RM[@]}"; do [ -e "$f" ] && rm -rf "$f" && echo "  - $f"; done
   sed -i '/export PATH=.*\.local\/bin.*go\/bin/d' "$HOME/.bashrc" 2>/dev/null || true
   command -v termux-wake-unlock >/dev/null 2>&1 && termux-wake-unlock 2>/dev/null || true
   [ -x "$HOME/rish" ] && "$HOME/rish" -c "settings delete global settings_enable_monitor_phantom_procs; device_config delete activity_manager max_phantom_processes" >/dev/null 2>&1 || true
-  echo "done. Bache: ~/.ai-env (keys), ~/ai-vault (memory), ~/akasha-backup. Poora Termux hataana ho to app uninstall."; exit 0
+  echo "done. Bache: ~/.ai-env (keys), ~/ai-vault (memory), ~/aasmaan-backup. Poora Termux hataana ho to app uninstall."; exit 0
 fi
-KEEP=( "$HOME/.ai-env" "$HOME/akasha-backup" "$HOME/ai-vault" "$HOME/.ai-setup-profile"
+KEEP=( "$HOME/.ai-env" "$HOME/aasmaan-backup" "$HOME/ai-vault" "$HOME/.ai-setup-profile"
        "$HOME/.ai-experts.json" "$HOME/.ai-experts" "$HOME/.ai-tools.json" "$HOME/.ai-private-names"
-       "$HOME/.termux/boot/akasha-boot.sh" "$HOME/akasha-src" "$HOME/.ssh" "$HOME/.gitconfig" )
+       "$HOME/.termux/boot/aasmaan-boot.sh" "$HOME/aasmaan-src" "$HOME/.ssh" "$HOME/.gitconfig" )
 
-# prefix-safe: ~/akasha-backup/kuch/bhi bhi bachega, sirf exact match nahi
+# prefix-safe: ~/aasmaan-backup/kuch/bhi bhi bachega, sirf exact match nahi
 is_kept(){ local p="$1" k; for k in "${KEEP[@]}"; do
     [ "$p" = "$k" ] && return 0
     case "$p" in "$k"/*) return 0 ;; esac
@@ -151,6 +155,6 @@ for p in "${CAND[@]}"; do
   if rm -rf "$p" 2>/dev/null; then printf '  %s✓ hataya%s %s\n' "$G" "$X" "${p/#$HOME/\~}"
   else printf '  %s✗ nahi hata%s %s\n' "$R" "$X" "${p/#$HOME/\~}"; FAIL=$((FAIL+1)); fi
 done
-printf '\n  %s✔ Saaf. Keys / vault / backup / akasha-src — sab surakshit.%s\n' "$G" "$X"
+printf '\n  %s✔ Saaf. Keys / vault / backup / aasmaan-src — sab surakshit.%s\n' "$G" "$X"
 [ "$FAIL" -gt 0 ] && printf '  %s%d cheez nahi hat payi (permission?).%s\n' "$Y" "$FAIL" "$X"
 printf '\n'

@@ -3,7 +3,7 @@
 The one rule under test: untrusted data (a webpage, a memory note, an MCP reply, a voice line,
 a forged tool, a paired peer) can NEVER become authority. It may only SUGGEST; a typed human yes
 APPROVES; code EXECUTES. Each case exercises the real code path — no grep, no mocks of the thing
-under test. Run:  python3 akasha-fold/tests/adversarial.py   exit 0 = every invariant holds.
+under test. Run:  python3 tests/adversarial.py   exit 0 = every invariant holds.
 A failure here is a security regression: fix the code, never the test."""
 import importlib.util, os, sys, tempfile, io, contextlib, json
 _B=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -26,8 +26,9 @@ def atk(name,fn):
 # 1 — API keys are scrubbed from every child process environment
 def t_keys_not_in_child_env():
     os.environ["GROQ_API_KEY"]="gsk_SECRET_should_never_leave"; os.environ["AI_SERVE_TOKEN"]="tok_secret"; os.environ["X_SECRET"]="s"; os.environ["SAFE_VAR"]="ok"
+    os.environ["AI_OAI_KEY"]="custom-endpoint-key"; os.environ["GOOGLE_OAUTH_CREDENTIALS"]="/p/creds.json"; os.environ["MCP_EMAIL_SERVER_PASSWORD"]="app-pass"   # the judge's leak: *_KEY, not *_API_KEY
     e=ai._child_env()
-    return (not any(k.endswith(("_API_KEY","_TOKEN","_SECRET")) for k in e) and "GROQ_API_KEY" not in e and "AI_SERVE_TOKEN" not in e and e.get("SAFE_VAR")=="ok"), sorted(k for k in e if "SECRET" in k or "KEY" in k or "TOKEN" in k)
+    return (not any(k.endswith(("_API_KEY","_KEY","_TOKEN","_SECRET","_PASSWORD","_CREDENTIALS")) for k in e) and "AI_OAI_KEY" not in e and "GROQ_API_KEY" not in e and e.get("SAFE_VAR")=="ok"), sorted(k for k in e if "SECRET" in k or "KEY" in k or "TOKEN" in k or "PASS" in k)
 atk("a real spawned process never receives an API key / token / secret (_child_env scrubs them, non-secrets stay)", t_keys_not_in_child_env)
 
 # 2 — the subprocess wrapper actually injects the scrubbed env by default
