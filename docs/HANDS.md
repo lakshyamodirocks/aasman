@@ -45,6 +45,10 @@ awaaz 30               the same, by plain words — "pause", "next song", "batte
 | open alarms / calendar | ✓ | ✓ | ✓ (`ms-clock:`, `outlookcal:`) | — | — |
 | find files by name | — | Spotlight | — (Search index planned) | — | — |
 | windows list / minimize all | — | — | ✓ | — | — |
+| theme → terminal config (`/theme <name> save`; one backup first) | `~/.termux/colors.properties` + reload | Terminal.app window (osascript; profiles are yours to save) | Windows Terminal `settings.json` scheme + default | GNOME Terminal profile (gsettings) | — |
+| theme restore (`/theme undo`) | ✓ | — (window-level, nothing to restore) | ✓ | ✓ | — |
+| shortcut where the OS keeps apps (`/shortcut add`; paths recorded) | `~/.shortcuts/Aasmaan` + PNG for Termux:Widget (F-Droid) | `~/Applications/Aasmaan.app` (opens Terminal.app) | Desktop + Start Menu `.lnk` | `.desktop` entry + SVG icon | — |
+| pin to taskbar / dock / home (`/shortcut pin`) | — no API: widget long-press (printed) | asks first (Dock restart; undo = drag off) | — no API: right-click → Pin (printed) | GNOME favourites auto (reversible); others: menu right-click | — |
 
 **`/remind` is the floor under all of these.** "remind me at 10:30 chai", "kal 9 baje meeting yaad dilana", "7 pm dawai" or `/remind in 20 min call` go into `~/.ai-reminders.json` on every platform. The OS endpoint is tried on top (an Android alarm, a Reminders.app entry, a Task Scheduler popup, a systemd timer) so it fires even when `ai` is closed; when none exists or it refuses, `ai` fires it while open (an in-process timer) and `ai daemon` fires whatever came due while it was closed — as a notification and, with voice on, spoken. `/remind` lists, `/remind rm <id>` removes. The text never enters a shell: Android and macOS get it as one argv item, Windows reads it from a 0600 file, notifications carry it as an argument or an environment variable.
 

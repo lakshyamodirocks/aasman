@@ -442,7 +442,7 @@ menu_status(){
 menu_findtokens(){
   c 36 "== Token finder — kaun sa token kahan pada hai =="
   local FT=""
-  for p in "$HOME/.local/share/aasmaan/app/find-tokens.sh" "$(dirname "$0")/find-tokens.sh" "$HOME/akasha-src/akasha-fold/find-tokens.sh" "$(dirname "$0")/../../akasha-fold/find-tokens.sh"; do
+  for p in "$HOME/.local/share/aasmaan/app/find-tokens.sh" "$(dirname "$0")/find-tokens.sh" "$HOME/aasmaan-src/aasmaan-fold/find-tokens.sh" "$(dirname "$0")/../../aasmaan-fold/find-tokens.sh"; do
     [ -f "$p" ] && { FT="$p"; break; }
   done
   [ -z "$FT" ] && { c 31 "  find-tokens.sh nahi mila — install.sh dobara chalao (bundle refresh)"; return; }
@@ -454,7 +454,7 @@ menu_findtokens(){
 menu_cleanup(){
   c 36 "== Cleanup — test/command ka malba hatao =="
   local CL=""
-  for p in "$HOME/.local/share/aasmaan/app/cleanup.sh" "$(dirname "$0")/cleanup.sh" "$HOME/akasha-src/akasha-fold/cleanup.sh" "$(dirname "$0")/../../akasha-fold/cleanup.sh"; do
+  for p in "$HOME/.local/share/aasmaan/app/cleanup.sh" "$(dirname "$0")/cleanup.sh" "$HOME/aasmaan-src/aasmaan-fold/cleanup.sh" "$(dirname "$0")/../../aasmaan-fold/cleanup.sh"; do
     [ -f "$p" ] && { CL="$p"; break; }
   done
   if [ -z "$CL" ]; then

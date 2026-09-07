@@ -70,7 +70,7 @@ Q: "Fold-node ka README ke liye ek chhota 'what is this' paragraph likho."
 A: "Fold-node ek Termux-based AI harness hai jo Pixel Fold jaisi phone-class device pe chalta
 hai — no server, koi bhi capability (voice/image/video/research) `/do <capability>` se dispatch
 hoti hai, jo pehle real provider try karta hai aur ek keyless offline floor pe girta hai agar
-wo na mile. Ye Akasha nahi hai — same mechanism, alag goal: trust-first, phone-first, free AI
+wo na mile. Ye kisi ka personal assistant nahi hai — same mechanism, alag goal: trust-first, phone-first, free AI
 access." (No hook, no CTA — ek doc explainer hai, padhne wale ko seedha jawab chahiye.)
 
 **4. Refusing a fabricated stat**

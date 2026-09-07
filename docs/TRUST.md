@@ -23,10 +23,11 @@ Everything else — memory, KB index, chat state, cache, metrics, expert packs, 
 ## Never
 
 - **No server of ours.** There is nothing to host, so nothing to breach on our side.
-- **No telemetry.** No crash reports, no "anonymous usage", no pings. The word `analytics` does not appear in the code.
+- **No telemetry.** No crash reports, no "anonymous usage", no pings — there is no code path that reports anything about you anywhere. (`grep -n analytics ai.py` finds one hit: the word inside an expert's topic list, not a call.)
 - **No silent installs.** Python and Ollama are installed by you from official installers; every stage waits for Enter.
 - **No key exports.** Keys are read from `~/.ai-env` by `ai` itself (`_load_env`); they are not put in your shell or handed to child processes.
 - **No unattended action.** The daemon runs with `AI_ATTENDED=0`; forging tools and shell execution are hard-blocked there.
+- **One deliberate shell door, and only one.** `/run <cmd>` (and `/bg !<cmd>`) runs exactly the line *you* typed, in your terminal, with your keys scrubbed from its environment; it is never reached from a model's output, a webpage, a connector or voice. It is the one place free text does become a shell, because you are the one typing it. A confirm-with-diff gate for it is planned (ROADMAP).
 - **No text inside a script.** Device hands (docs/HANDS.md) are code-owned templates; free text is only ever its own argument or stdin, never embedded in an `osascript`/`-Command`/`rish -c` script. A hand that violates this fails to load (`hands_check`), and the daemon may only use read-only hands.
 - **No fake results.** If a test did not run, it says so. If no brain can see your image, it says so instead of guessing.
 
@@ -41,13 +42,15 @@ grep -n "def redact" ai.py         # the scrub
 grep -n "AI_ATTENDED" ai.py        # the unattended gate
 /capabilities           # what this install can do right now (keyed brains, alive brains, vision)
 /trust                  # one card: brain, network intent, files, screen/mic, connectors, background, last egress
+ai doctor               # the install itself: 15 measured rows, the exact fix under every ✗ (reads only)
+ai capabilities matrix  # every action as one descriptor: class · risk · unattended? · confirmation · network · credentials
 /why                    # which brain answered your last question, and why
 /egress                 # the runtime log: every network call this install ever made — when, local or CLOUD, host/path, bytes out (never the query or body)
 ```
 
 The full asset/threat/boundary/mitigation table, and the questions a security reviewer will ask, are in [docs/THREAT-MODEL.md](THREAT-MODEL.md).
 
-**These are not just claims — they are tested as attacks.** `akasha-fold/tests/adversarial.py` proves the invariants by trying to break them: a spawned process cannot read an API key, a forged tool that reads the environment or opens the network is flagged, a connector's server receives only its own credential, the unattended daemon refuses to write or forge, an MCP server's reply is treated as data (a reply saying "add a connector" registers nothing), an injected instruction inside untrusted text never auto-executes, a memory note is context not a command, key-shaped strings are scrubbed before a cloud brain or a log sees them, and the paired door needs a token while forge/MCP stay attended-only. The gate runs this suite on every change, on every OS. A trust boundary cannot regress silently.
+**These are not just claims — they are tested as attacks.** `tests/adversarial.py` proves the invariants by trying to break them: a spawned process cannot read an API key, a forged tool that reads the environment or opens the network is flagged, a connector's server receives only its own credential, the unattended daemon refuses to write or forge, an MCP server's reply is treated as data (a reply saying "add a connector" registers nothing), an injected instruction inside untrusted text never auto-executes, a memory note is context not a command, key-shaped strings are scrubbed before a cloud brain or a log sees them, and the paired door needs a token while forge/MCP stay attended-only. The gate runs this suite on every change, on every OS. A trust boundary cannot regress silently.
 
 Airplane-mode test: turn networking off, run `ai`, ask something. The local brain answers; `/memory` and `/kb` work; nothing errors about a missing server, because there is none.
 

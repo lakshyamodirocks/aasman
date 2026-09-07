@@ -9,9 +9,9 @@
 #    · tere existing Ollama / models / keys ko reuse karta hai, dobara install nahi
 #    · --uninstall se EXACTLY wahi hataata hai jo isne banaya tha, aur kya hataya wo dikhata hai
 #
-#     bash akasha-fold/pc/pc-setup.sh              # guided, staged (Enter = aage, q = ruk)
-#     bash akasha-fold/pc/pc-setup.sh --uninstall  # manifest ke hisaab se saaf
-#     AI_YES=1 bash akasha-fold/pc/pc-setup.sh     # scripted (tests) — koi pause nahi
+#     bash aasmaan-fold/pc/pc-setup.sh              # guided, staged (Enter = aage, q = ruk)
+#     bash aasmaan-fold/pc/pc-setup.sh --uninstall  # manifest ke hisaab se saaf
+#     AI_YES=1 bash aasmaan-fold/pc/pc-setup.sh     # scripted (tests) — koi pause nahi
 # ═══════════════════════════════════════════════════════════════
 set -u
 SELFDIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
@@ -23,11 +23,11 @@ if [ -f "$SELFDIR/ai.py" ]; then
 else
   ROOT="$(cd "$SELFDIR/../.." && pwd)"; TX="$ROOT/fold-node/termux"
   SRC_AI="$TX/ai-termux.py"; SRC_LIB="$TX/lib"; SRC_EXPERTS="$TX/experts.json"; SRC_PACKS="$TX/experts"
-  SRC_TOOLS="$ROOT/fold-node/tools-routing.json"; SRC_PANEL="$TX/panel.html"; SRC_BOARD="$ROOT/fold-node/akasha-whiteboard.html"; SRC_CONN="$ROOT/fold-node/connectors.json"
-  [ -f "$ROOT/akasha-fold/lib/probe.sh" ] && PROBE="$ROOT/akasha-fold/lib/probe.sh"
+  SRC_TOOLS="$ROOT/fold-node/tools-routing.json"; SRC_PANEL="$TX/panel.html"; SRC_BOARD="$ROOT/fold-node/aasmaan-whiteboard.html"; SRC_CONN="$ROOT/fold-node/connectors.json"
+  [ -f "$ROOT/aasmaan-fold/lib/probe.sh" ] && PROBE="$ROOT/aasmaan-fold/lib/probe.sh"
 fi
 . "$SRC_LIB/ux.sh"; . "${PROBE:-$SRC_LIB/probe.sh}"
-STAGE_TOTAL=7; export AI_BRAND="${AI_BRAND:-Aasmaan}"
+STAGE_TOTAL=8; export AI_BRAND="${AI_BRAND:-Aasmaan}"
 # ── stage 0: language. English by default; Enter keeps it; the choice lives in ~/.ai-setup-profile as AI_LANG
 # (read by 'ai' at every start). Re-runs keep the earlier answer; AI_YES/scripted runs never ask.
 PROF0="$HOME/.ai-setup-profile"; _pl="$(grep -m1 '^AI_LANG=' "$PROF0" 2>/dev/null | cut -d= -f2)"
@@ -54,6 +54,7 @@ t(){ case "$1" in   # t <key> — stage titles in the chosen language (Hinglish 
   keys) printf 'Cloud brains (free keys)';;
   keys.what) [ "$AI_LANG" = en ] && printf 'Groq · Cerebras · Gemini · OpenRouter — all optional, all free tier' || printf 'Groq · Cerebras · Gemini · OpenRouter — sab optional, sab free tier';;
   path) [ "$AI_LANG" = en ] && printf 'PATH (your call)' || printf 'PATH (tera faisla)';;
+  shortcut) [ "$AI_LANG" = en ] && printf 'Shortcut + pin (your call)' || printf 'Shortcut + pin (tera faisla)';;
   path.what) [ "$AI_LANG" = en ] && printf 'I do NOT touch ~/.bashrc / ~/.zshrc' || printf 'Main ~/.bashrc / ~/.zshrc NAHI chhedta';;
   daemon) printf 'Daemon (optional)';;
   proof) printf 'Proof';;
@@ -79,16 +80,20 @@ if [ "${1:-}" = "--uninstall" ]; then
   if _ux_interactive; then printf '\n  [Enter] hatao   [q] rehne do  '; IFS= read -r r <"$UX_TTY" || r=q; [ "$r" = q ] && exit 0; fi
   grep -q 'aasmaan-daemon.service' "$MANIFEST" && systemctl --user disable --now aasmaan-daemon.service >/dev/null 2>&1 && echo "  - daemon service stopped"
   grep -q 'com.aasmaan.daemon.plist' "$MANIFEST" && launchctl unload "$HOME/Library/LaunchAgents/com.aasmaan.daemon.plist" >/dev/null 2>&1 && echo "  - LaunchAgent unloaded"
+  # launcher entries ai created go first (the record lives in ~/.ai-shortcuts.json)
+  [ -f "$HOME/.ai-shortcuts.json" ] && [ -x "$BIN/ai" ] && { "$BIN/ai" shortcut rm >/dev/null 2>&1 && echo "  - shortcuts removed (/shortcut rm)" || true; }
+  # a saved terminal theme goes back to what it was BEFORE 'ai' is removed (the restore needs 'ai' and its backup)
+  [ -d "$HOME/.ai-theme-backup" ] && [ -x "$BIN/ai" ] && { "$BIN/ai" theme undo >/dev/null 2>&1 && echo "  - terminal colours restored (/theme undo)" || true; }
   while IFS= read -r f; do
     case "$f" in "$HOME"/*) [ -e "$f" ] && { rm -rf "$f"; echo "  - $f"; } ;; *) echo "  ? skipped (outside HOME): $f";; esac
   done < "$MANIFEST"
   rm -f "$MANIFEST"
   # runtime files jo 'ai' ne chalte-chalte banayi (manifest me nahi — install ne nahi likhi thi). Dikhao, poochho.
-  RT=""; for f in .ai-daemon.json .ai-update.json .ai-egress.log .ai-first-cloud .ai-telegram.json .ai-chat.json .ai-cache.jsonl .ai-device.json .ai-metrics.json .ai-kb.jsonl .ai-brains.json .ai-jobs.json .ai-tasks.json .ai-traces.jsonl .ai-wishes.jsonl .ai-feedback.jsonl .ai-corpus.jsonl .ai-profile .ai-private-names; do [ -e "$HOME/$f" ] && RT="$RT $HOME/$f"; done
+  RT=""; for f in .ai-daemon.json .ai-update.json .ai-egress.log .ai-first-cloud .ai-telegram.json .ai-chat.json .ai-cache.jsonl .ai-device.json .ai-metrics.json .ai-kb.jsonl .ai-brains.json .ai-jobs.json .ai-tasks.json .ai-traces.jsonl .ai-wishes.jsonl .ai-feedback.jsonl .ai-corpus.jsonl .ai-profile .ai-term.json .ai-reminders.json .ai-greet.json .ai-lists.json .ai-tuning.json .ai-usage.json .ai-hands.json .ai-connectors.json .ai-tools.json .ai-theme.json .ai-theme-backup .ai-shortcuts.json .ai-private-names; do [ -e "$HOME/$f" ] && RT="$RT $HOME/$f"; done
   if [ -n "$RT" ]; then
     echo "  'ai' ki runtime files (chat state, cache, metrics — koi key/memory nahi):"; for f in $RT; do echo "    $f"; done
     r=""; if _ux_interactive; then printf '  [Enter] ye bhi hatao   [k] rakho  '; IFS= read -r r <"$UX_TTY" || r=k; fi
-    [ "$r" = k ] || { rm -f $RT; echo "  - runtime files removed"; }
+    [ "$r" = k ] || { rm -rf $RT; echo "  - runtime files removed"; }
   fi
   echo "  done. Ollama aur uske models tere hain — unhe chhua nahi. Bache: ~/.ai-env (keys), ~/ai-vault (memory) — tere."; exit 0
 fi
@@ -241,6 +246,12 @@ AI_FORCE_OFFLINE=1 "$BIN/ai" version 2>/dev/null | sed 's/^/    /' | head -4
 n=$(printf '/agents\n/quit\n' | AI_FORCE_OFFLINE=1 _to 60 "$BIN/ai" 2>/dev/null | grep 'agents:' | grep -o '[a-z]*\*' | wc -l)
 [ "$n" -ge 19 ] && ok "$n/19 expert packs load hote hain (offline, bina brain ke)" || warn "packs load nahi hue ($n/19) — 'ai' ke andar /agents chala ke dekho"
 AI_FORCE_OFFLINE=1 _to 60 "$BIN/ai" daemon --once >/dev/null 2>&1 && [ -f "$HOME/.ai-daemon.json" ] && ok "daemon: one tick ran, state written (~/.ai-daemon.json)" || warn "daemon tick failed — 'ai daemon --once' chala ke dekho"
+# ── stage 8: shortcut + pin — the onboarding's last step; files only in $HOME, 'ai shortcut rm' reverses ──
+if stage_opt "$(t shortcut)" "launcher entry (Linux) / app bundle (macOS) — jahan tera OS cheezein rakhta hai; pin jahan OS program ko allow kare: GNOME auto, macOS poochh ke (Dock), baaki haath se" "Kuch install nahi hota — 1–2 files tere home me, har path record hota hai. Hataana: ai shortcut rm (uninstall khud karta hai). Fold/headless pe koi launcher nahi — tab ye stage sirf batata hai."; then
+  if [ "${AI_YES:-0}" = 1 ]; then skp "scripted run — shortcut nahi banaya (kabhi bhi:  ai shortcut add)"
+  else AI_FORCE_OFFLINE=1 "$BIN/ai" shortcut add 2>&1 | sed 's/^/    /'; fi
+fi
+
 ux_summary \
   "chalao:  $BIN/ai        (offline bhi: /memory /kb /agent rachaka <code sawaal>)" \
   "code:    /agent rachaka <paste traceback>   ·  /do forge <tool naam>  ·  /ctx <file>" \

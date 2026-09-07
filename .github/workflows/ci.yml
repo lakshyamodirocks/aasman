@@ -26,6 +26,9 @@ jobs:
       - name: pinned behaviours (no network, no keys)
         env: { AI_FORCE_OFFLINE: "1" }
         run: python tests/golden.py
+      - name: trust invariants, attacked (no network, no keys)
+        env: { AI_FORCE_OFFLINE: "1" }
+        run: python tests/adversarial.py
   install-unix:
     name: install · ${{ matrix.os }}
     runs-on: ${{ matrix.os }}

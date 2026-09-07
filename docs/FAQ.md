@@ -12,6 +12,18 @@ Minimal Debian/Ubuntu me curl hota hi nahi: `wget -qO- …/install.sh | bash` wa
 **Alarm, timer, reminder, calendar — chalega?**
 Haan, har platform pe, bina account: "alarm 6:30 baje", "timer 10 min chai", "remind me at 10:30 chai", "kal 9 baje meeting yaad dilana", "meeting daal do 3 pm: dentist". Android pe Clock/Calendar app khud kaam karte hain (`am` intents, koi add-on nahi), Mac pe Reminders/Calendar.app, Windows pe Task Scheduler ka popup aur Clock/Calendar app, Linux pe systemd timer. Aur `/remind` sab jagah ka floor hai: OS na le to `ai` khula hone pe ya `ai daemon` se notification + awaaz. `/remind` = list, `/remind rm <id>` = hatao.
 
+**✓ ✗ │ ki jagah ?? ya boxes dikh rahe hain?**
+`ai` shuru hote hi tere terminal se poochhta hai (cursor-position report se) ki har glyph kitne cells leta hai; jo line up nahi hota uska poora family plain text ban jaata hai (`[ok]`, `|`, `[alarm]`). `/term` dikhata hai kya measure hua, kya push/pull ho sakta hai, kya fallback laga; `/term probe` dobara maapta hai; `AI_TERM_ADAPT=0` band karta hai. Ek cheez program nahi jaan sakta: font ne shape banaya ya box — wo ek baar tu bata de.
+
+**Home screen / Desktop pe shortcut? Taskbar pe pin?**
+Installer ki aakhri stage poochhti hai; baad me kabhi bhi `ai shortcut add`. Android: `~/.shortcuts/Aasmaan` + icon banta hai — **Termux:Widget** app (F-Droid) lagao, home screen long-press → Widgets → Termux:Widget → Aasmaan; koi terminal khud home screen pe pin nahi kar sakta, isliye ye ek step tera hai. Linux: `.desktop` entry (app menu me dikhta hai; GNOME pe favourites me khud jud jaata hai, wapas hota hai). macOS: `~/Applications/Aasmaan.app` — Dock me `ai shortcut pin` (poochh ke, Dock restart hota hai). Windows: Desktop + Start Menu `.lnk`; taskbar pin Windows programs ko nahi deta — right-click → Pin to taskbar. `ai shortcut rm` sab wapas; uninstall pehle yahi karta hai.
+
+**Terminal ke colours badal sakta hai? Meri settings to nahi chhedega?**
+`/theme` — chaar palettes (light, dark, nerd, aasmaan), colour theory se, contrast code me maapa hua (text ≥ 7:1, accents ≥ 3:1). Bina `save` ke sirf is session ke colours badalte hain (OSC sequences — koi file nahi chhuti), aur har start pe dobara lag jaate hain. `/theme aasmaan save` tab hi tere terminal ki config likhta hai — ek backup pehle (`~/.ai-theme-backup/`), `/theme undo` wapas. `/theme off` = terminal ke apne default. Uninstall bhi pehle undo chalata hai.
+
+**Setup me model ke naam / MB / context kyun poochhte ho — mujhe bas chalana hai?**
+Ab nahi poochhte. Ek sawaal — *kya chahiye?* (Private AI / Quick assistant / Voice + phone control / Coding / Content / Sab kuch) — aur uske hisaab se tere phone ki RAM pe fit hone wala brain, context aur extras khud chun liye jaate hain; agli screen ek "Recommended" card hai: kitna download, offline chalega ya nahi, battery pe kya asar, storage budget. Enter = yahi rakho. Model ke naam sirf `[a]` advanced me hain. Screen reading (Shizuku) aur pentest kit `[m]` ke peeche — chat wale ko kabhi nahi dikhte. Akhir me ek completeness bar batata hai kya on hai, kya baad me on kar sakte ho, aur `ai doctor` / `ai tour` yaad rakhne ke liye.
+
 **Setup ne mera phone pehchan liya, phir bhi device kyun poochha?**
 Ab nahi poochhta — wizard detected platform dikhata hai ("✓ Android (Termux) — yahi") aur Enter se aage. Sirf tab picker aata hai jab tujhe badalna ho (iPhone client, ya Linux/Mac). iPhone kabhi auto-detect nahi hota kyunki iOS ye chala hi nahi sakta. Windows apne installer se (`irm …/install.ps1 | iex`), ye wizard nahi.
 
