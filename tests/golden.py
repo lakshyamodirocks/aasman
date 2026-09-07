@@ -358,6 +358,9 @@ def t_doctor():
     rows=ai.doctor_rows({}); m={r[1]:r for r in rows}
     bad=m.get("~/.ai-env perms"); os.chmod(envf,0o600); rows2=ai.doctor_rows({}); good={r[1]:r for r in rows2}.get("~/.ai-env perms")
     txt=ai.doctor_text({})
+    if os.name=="nt":   # Windows has no owner-only mode bit: the row must say so (○ + icacls) instead of pretending to measure chmod
+        return (m["python"][0]=="✓" and bad and bad[0]=="○" and "icacls" in bad[2] and "[doctor]" in txt
+                and all(k in m for k in ("device","disk","vault","network","hands","voice","connectors","forged tools"))), f"{bad}"
     return (m["python"][0]=="✓" and bad and bad[0]=="✗" and "chmod 600" in bad[3] and good and good[0]=="✓" and "[doctor]" in txt and "to fix" in txt
             and all(k in m for k in ("device","disk","vault","network","hands","voice","connectors","forged tools"))), f"{bad} {good}"
 case("doctor: every row is a measured fact; a world-readable ~/.ai-env is ✗ with the exact chmod fix, and ✓ once fixed", t_doctor)
@@ -561,7 +564,7 @@ def t_greet_offline():
         ai._remind_os=o; ai.GREET_LINES.clear()
         with _cl.redirect_stdout(_io.StringIO()): ai.lists_cmd("clear greetlist")
     L=txt.splitlines()
-    return (L[0].split()[0] in ("Suprabhat","Namaste","Shubh") and "2026" in L[1] and any("client call" in x for x in L) and any("greetlist 1" in x for x in L)
+    return (L[0].split()[0].rstrip("!.") in ("Suprabhat","Namaste","Shubh") and "2026" in L[1] and any("client call" in x for x in L) and any("greetlist 1" in x for x in L)
             and "Tithi: plug" in txt and any(x.startswith("Aaj ka tip") for x in L) and en.split()[0]=="Good" and "[" not in txt), txt
 case("greet: composed offline from device facts — salutation by time+language+name, date, today's reminders, lists, a plug line, a tip; no brain line without a brain", t_greet_offline)
 def t_greet_once_a_day():

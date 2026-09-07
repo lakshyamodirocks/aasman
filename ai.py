@@ -2952,9 +2952,9 @@ def update_cmd(slug=None):
     slug=slug or self_version()[1]
     if not slug: return ""
     base=f"https://raw.githubusercontent.com/{slug}/main"
-    if os.name=="nt": return f'powershell -NoProfile -ExecutionPolicy Bypass -Command "irm {base}/install.ps1 | iex"'
-    if IS_TERMUX:   # curl can re-break after a Termux/openssl bump; if it cannot even print its version, upgrade first (apt — pkg itself needs curl)
+    if IS_TERMUX:   # (before the nt check: a pin fakes IS_TERMUX on every OS) curl can re-break after a Termux/openssl bump; if it cannot even print its version, upgrade first (apt — pkg itself needs curl)
         return f"(curl --version >/dev/null 2>&1 || (apt update && apt -y -o Dpkg::Options::=--force-confnew full-upgrade && apt -y install curl python)) && curl -fsSL {base}/install.sh | bash"
+    if os.name=="nt": return f'powershell -NoProfile -ExecutionPolicy Bypass -Command "irm {base}/install.ps1 | iex"'
     return f"curl -fsSL {base}/install.sh | bash"
 def setup_cmd():
     return os.environ.get("AI_SETUP_CMD","") or update_cmd()
@@ -5516,6 +5516,8 @@ def trust_card(st=None):
 # ✓ = fine · ✗ = wrong, fix printed · ○ = optional / not set (not a problem). Reads only; `--fix` is not offered here
 # because every fix is one command the user should see and run (a doctor that operates on you unasked is not one).
 def _perm_ok(path,want=0o600):
+    """True/False on POSIX; None on Windows, where st_mode carries no owner-only bit (the ACL is what install.ps1 sets with icacls)."""
+    if os.name=="nt": return None
     try: return (os.stat(path).st_mode & 0o777)<=want
     except OSError: return None
 def doctor_rows(st=None):
@@ -5540,7 +5542,8 @@ def doctor_rows(st=None):
     keyed=[p["n"] for p in PROVIDERS if p["k"] and os.environ.get(p["k"])]
     envf=_env_file(); pe=_perm_ok(envf)
     R.append(("○" if not keyed else "✓","cloud keys",f"{len(keyed)} keyed: {', '.join(keyed) or 'none'}"+(" (keyless + local only)" if not keyed else ""),""))
-    if os.path.exists(envf): R.append(("✓" if pe else "✗","~/.ai-env perms",oct(os.stat(envf).st_mode&0o777),"" if pe else f"chmod 600 {envf}   (keys sabko dikh rahe hain)"))
+    if os.path.exists(envf) and os.name=="nt": R.append(("○","~/.ai-env perms",f"Windows: no chmod — install.ps1 restricts it with icacls; check yourself: icacls {envf}",""))
+    elif os.path.exists(envf): R.append(("✓" if pe else "✗","~/.ai-env perms",oct(os.stat(envf).st_mode&0o777),"" if pe else f"chmod 600 {envf}   (keys sabko dikh rahe hain)"))
     else: R.append(("○","~/.ai-env","not created yet (no keys)",""))
     vp_=VAULT
     if not os.path.isdir(vp_): R.append(("○","vault",f"{vp_} · not created yet — made on first /remember (fresh install, not a fault)",""))

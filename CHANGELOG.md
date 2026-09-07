@@ -4,6 +4,17 @@ Every published version is a line in `VERSION` (`date sha repo`). Installed copi
 
 Changes ship as **impact radii**: one commit per concern, each entry names what it touched and what it deliberately did not, so a fix in one place cannot quietly break another. (How this works: CONTRIBUTING.md → "How changes ship".)
 
+## 2026-09-07 · radius 34b — CI told the truth: three pins were wrong, not the code
+
+The first CI run after radius 34 went live was red on all three OS (`golden · ubuntu/macos/windows`). Read before fixing:
+
+- **greet (every OS):** the pin compared the first word of the salutation against `Suprabhat / Namaste / Shubh`, but a nameless test HOME prints `Suprabhat!` — bang glued to the word — so the pin only ever passed after 17:00 (`Shubh sandhya!` splits cleanly). Every earlier green run happened in the evening. Pin fixed; the greeting itself was right.
+- **update_cmd on Termux (Windows only):** `update_cmd` checked `os.name == "nt"` before `IS_TERMUX`; the pin fakes Termux on every OS, so on Windows it got the PowerShell line. Order swapped (Termux is never `nt`, so behaviour is unchanged for real users).
+- **doctor `~/.ai-env perms` (Windows only):** Windows `st_mode` has no owner-only bit, so "chmod 644 → ✗, chmod 600 → ✓" is not measurable there. `ai doctor` on Windows now says so honestly (`○ … install.ps1 restricts it with icacls; check yourself: icacls <path>`) instead of a false ✗; the pin asserts that row on Windows.
+
+Touched: ai.py (`update_cmd` order, `_perm_ok`/doctor row on Windows), tests/golden.py (three pins).
+Not touched: anything a user sees on Android/Linux/macOS.
+
 ## 2026-09-06 · radius 34 — the onboarding's last step: a shortcut where your OS keeps the things you open
 
 Owner: "onboarding me last step — home screen pe shortcut, ya Windows/Linux/Mac ho to pin to taskbar bhi — OS ke hisaab se user ko poochho aur shortcut add kar do." Until now the install ended with "type `ai`"; a person who never opens a terminal on purpose needs the thing they tap.
